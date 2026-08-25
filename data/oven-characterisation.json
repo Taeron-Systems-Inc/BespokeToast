@@ -1,5 +1,5 @@
 {
-  "source": "E2 step test, 2026-08-25, empty oven, ambient 26.3 C",
+  "source": "two step tests, 2026-08-25, empty oven: 26->200 C and 53->240 C. Raw logs in data/.",
   "ambient_c": 26.3125,
   "note": "Measured directly. The oven is not first-order: the heating rate rises to a peak near 100 C instead of decaying from the start, and heating and cooling time constants differ by ~2.5x. A fitted FOPDT model predicted ~17 C of coast where 1.1 C was measured, so these curves are used instead of a parametric fit.",
   "coast_c": 1.06,
@@ -144,7 +144,39 @@
     ],
     [
       195.0,
-      0.8951
+      0.9596
+    ],
+    [
+      200.0,
+      0.9036
+    ],
+    [
+      205.0,
+      0.8596
+    ],
+    [
+      210.0,
+      0.8393
+    ],
+    [
+      215.0,
+      0.8031
+    ],
+    [
+      220.0,
+      0.7509
+    ],
+    [
+      225.0,
+      0.728
+    ],
+    [
+      230.0,
+      0.7098
+    ],
+    [
+      235.0,
+      0.6855
     ]
   ],
   "cooling_rate_c_per_s": [
@@ -250,11 +282,43 @@
     ],
     [
       195.0,
-      -0.6602
+      -0.5268
     ],
     [
       200.0,
-      -0.372
+      -0.5602
+    ],
+    [
+      205.0,
+      -0.602
+    ],
+    [
+      210.0,
+      -0.6507
+    ],
+    [
+      215.0,
+      -0.6988
+    ],
+    [
+      220.0,
+      -0.7448
+    ],
+    [
+      225.0,
+      -0.7807
+    ],
+    [
+      230.0,
+      -0.7867
+    ],
+    [
+      235.0,
+      -0.7184
+    ],
+    [
+      240.0,
+      -0.4736
     ]
   ],
   "enclosure_peak_cold_junction_c": 41.81,
@@ -273,7 +337,7 @@
     ],
     [
       90,
-      0.0621
+      0.0622
     ],
     [
       100,
@@ -293,7 +357,7 @@
     ],
     [
       140,
-      0.1768
+      0.1769
     ],
     [
       150,
@@ -314,11 +378,41 @@
     [
       190,
       0.4325
+    ],
+    [
+      200,
+      0.3827
+    ],
+    [
+      210,
+      0.4367
+    ],
+    [
+      220,
+      0.498
+    ],
+    [
+      230,
+      0.5257
+    ],
+    [
+      240,
+      0.4086
     ]
   ],
-  "derivation_note": "hold_duty is derived from the measured full-power and passive-cooling rates, not measured directly: dT/dt = c(T) + u*(h(T)-c(T)) = 0 gives u = -c/(h-c). Valid only over 60-190 C, the range the step test covered with enough samples. The 200 C point was dropped as an artefact -- the run stopped at 200.4 C, so both curves are sparse and the cooling data there is contaminated by the coast. Reflow peaks at 225-235 C sit ABOVE this range and are extrapolation until a higher step test extends it.",
+  "derivation_note": "hold_duty derived from the measured full-power and passive-cooling rates: u = -c/(h-c). Now spans the full reflow range after a second step test to 240 C. E4 confirms it directly.",
   "hold_duty_valid_range_c": [
     60,
-    190
-  ]
+    240
+  ],
+  "coast": {
+    "from_200c": {
+      "overshoot_c": 1.06,
+      "seconds": 3.0
+    },
+    "from_240c": {
+      "overshoot_c": 0.56,
+      "seconds": 2.0
+    }
+  }
 }

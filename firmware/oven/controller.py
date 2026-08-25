@@ -272,10 +272,15 @@ class Controller(object):
             if landing >= self.peak_c - self.peak_guard_c:
                 self.coasting = True
         if self.coasting:
-            if target < self.peak_c - 5.0 and temp_c < target:
-                self.coasting = False      # past the peak, back under control
-            else:
+            # Release as soon as the oven falls below what is being asked for.
+            # The earlier condition also required the target to be well below
+            # the peak, which silently broke any profile that HOLDS at peak to
+            # earn time above liquidus: the cutoff latched on arrival and
+            # coasted down through the whole dwell.
+            if temp_c < target - 1.0:
+                self.coasting = False
                 self.pid.reset()
+            else:
                 return 0.0
 
         slope = self.profile.slope_at(elapsed_s)

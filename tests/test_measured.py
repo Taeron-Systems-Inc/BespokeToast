@@ -113,9 +113,20 @@ def test_feed_forward_hold_duty_reproduces_a_standstill():
 
 
 def test_hold_duty_table_is_not_extrapolated_past_its_evidence():
+    """The table must stay inside its declared range, and that range must be
+    honest about what was measured.
+
+    This originally asserted the range stopped BELOW the liquidus, because the
+    first step test halted at 200 C and everything reflow needs was
+    extrapolation. The second step test to 240 C closed that gap, so the
+    assertion is inverted: the table must now cover the reflow region, and
+    must not have grown beyond the data again.
+    """
     lo, hi = DATA["hold_duty_valid_range_c"]
     assert all(lo <= T <= hi for T, _ in DATA["hold_duty"])
-    assert hi < 217, "reflow peaks sit above the measured range; say so"
+    assert hi >= 235, "the reflow peak must be inside the measured range"
+    hottest = max(T for T, _ in DATA["heating_rate_c_per_s"])
+    assert hi <= hottest + 5, "table extends past the step test that fed it"
 
 
 # -- regressions ------------------------------------------------------------

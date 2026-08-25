@@ -1,0 +1,24 @@
+# Build output
+build/
+dist/
+out/
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.su
+
+# PlatformIO / ESP-IDF / Arduino
+.pio/
+.pioenvs/
+sdkconfig.old
+managed_components/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

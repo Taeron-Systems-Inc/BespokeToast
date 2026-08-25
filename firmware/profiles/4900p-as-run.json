@@ -1,0 +1,14 @@
+{
+  "name": "4900P (as run)",
+  "alloy": "SAC305",
+  "category": "reflow",
+  "liquidus_c": 217,
+  "max_ramp_up_c_per_s": 2.5,
+  "reference": "recovered from this repository's history; peak later raised on the device",
+  "notes": "The curve this oven was actually running. It is the datasheet profile with the peak region raised roughly 10 C, which buys time above liquidus the datasheet curve does not have. Nobody recorded why. It is plausible that it compensates for probe placement or for an oven that under-delivers, and equally plausible that it was guesswork. UNVERIFIED: no run using it was ever logged. Treat as a starting point to be confirmed, not as a known-good profile.",
+  "points": [
+    [0, 25], [1, 25], [30, 60], [60, 100], [90, 118], [120, 125],
+    [180, 130], [210, 138], [240, 160], [270, 200], [288, 230],
+    [300, 235], [312, 225], [360, 128]
+  ]
+}

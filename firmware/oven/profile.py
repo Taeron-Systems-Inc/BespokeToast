@@ -33,10 +33,11 @@ class ProfileError(Exception):
 
 class Profile(object):
     __slots__ = ("name", "alloy", "category", "liquidus_c", "reference",
-                 "notes", "points")
+                 "notes", "points", "max_ramp_up_c_per_s")
 
     def __init__(self, name, points, category=CATEGORY_REFLOW, alloy=None,
-                 liquidus_c=None, reference=None, notes=None):
+                 liquidus_c=None, reference=None, notes=None,
+                 max_ramp_up_c_per_s=None):
         self.name = name
         self.points = points
         self.category = category
@@ -44,6 +45,8 @@ class Profile(object):
         self.liquidus_c = liquidus_c
         self.reference = reference
         self.notes = notes
+        # A paste datasheet's own ramp limit outranks any generic default.
+        self.max_ramp_up_c_per_s = max_ramp_up_c_per_s
 
     # -- construction ------------------------------------------------------
 
@@ -75,7 +78,8 @@ class Profile(object):
 
         p = cls(name=name, points=points, category=category,
                 alloy=d.get("alloy"), liquidus_c=d.get("liquidus_c"),
-                reference=d.get("reference"), notes=d.get("notes"))
+                reference=d.get("reference"), notes=d.get("notes"),
+                max_ramp_up_c_per_s=d.get("max_ramp_up_c_per_s"))
         p.validate()
         return p
 

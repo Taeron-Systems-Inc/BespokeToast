@@ -1,0 +1,14 @@
+{
+  "name": "4900P (datasheet)",
+  "alloy": "SAC305",
+  "category": "reflow",
+  "liquidus_c": 217,
+  "max_ramp_up_c_per_s": 2.5,
+  "reference": "MG Chemicals 4900P TDS v4.0, 2025-10-02, reflow profile chart",
+  "notes": "Digitised from the chart in the manufacturer's datasheet, read at the 30 s gridlines; temperatures are good to a few degrees, no better. The datasheet states the preheat rate must not exceed 2.5 C/s. CAUTION: as drawn, this curve spends only about 20 s above the 217 C liquidus, far short of the 60-150 s that J-STD-020 expects. The chart is drawn for a forced-air convection oven with at least 8 zones and appears schematic. Do not treat its peak region as precise. See docs for the open question.",
+  "points": [
+    [0, 18], [30, 65], [60, 100], [90, 120], [120, 123], [150, 125],
+    [180, 127], [210, 130], [240, 140], [270, 163], [300, 225],
+    [330, 185], [360, 145]
+  ]
+}

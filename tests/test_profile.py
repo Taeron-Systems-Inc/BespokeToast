@@ -24,13 +24,26 @@ def test_every_shipped_profile_loads():
         Profile.load(os.path.join(PROFILES, n))
 
 
-def test_sac305_matches_the_curve_the_oven_has_been_running():
-    p = Profile.load(os.path.join(PROFILES, "sac305.json"))
+def test_as_run_profile_is_the_curve_the_oven_has_been_running():
+    p = Profile.load(os.path.join(PROFILES, "4900p-as-run.json"))
     assert p.peak == (300.0, 235.0)
     assert p.duration == 360.0
     assert p.liquidus_c == 217
-    # the field fix: comfortably above liquidus, unlike the 225 C original
-    assert p.peak[1] - p.liquidus_c >= 15
+
+
+def test_datasheet_profile_carries_the_vendor_ramp_limit():
+    p = Profile.load(os.path.join(PROFILES, "4900p-datasheet.json"))
+    assert p.max_ramp_up_c_per_s == 2.5          # stated in the TDS
+    assert p.max_ramp_up <= p.max_ramp_up_c_per_s
+
+
+def test_datasheet_profile_is_flagged_for_its_short_time_above_liquidus():
+    """Reading the vendor chart honestly produces a curve that spends about
+    20 s above liquidus, well under the 60 s J-STD-020 expects. The loader
+    must say so rather than quietly accept it."""
+    p = Profile.load(os.path.join(PROFILES, "4900p-datasheet.json"))
+    w = " ".join(p.warnings())
+    assert "above liquidus" in w
 
 
 # -- validation is strict ---------------------------------------------------
@@ -177,14 +190,14 @@ def test_ramp_rates():
 # -- warnings, not errors ---------------------------------------------------
 
 def test_warns_when_peak_barely_clears_liquidus():
-    # the 225 C profile this oven used to run: 8 C over a 217 C liquidus
+    # 8 C over a 217 C liquidus
     p = make([[0, 25], [280, 219], [300, 225], [320, 219], [360, 100]])
     w = " ".join(p.warnings())
     assert "above liquidus" in w
 
 
 def test_no_peak_warning_for_a_healthy_profile():
-    p = Profile.load(os.path.join(PROFILES, "sac305.json"))
+    p = Profile.load(os.path.join(PROFILES, "4900p-as-run.json"))
     assert not any("above liquidus" in x for x in p.warnings())
 
 
@@ -195,14 +208,14 @@ def test_warns_when_the_oven_cannot_meet_the_ramp():
 
 
 def test_no_ramp_warning_when_the_oven_is_capable():
-    p = Profile.load(os.path.join(PROFILES, "sac305.json"))
+    p = Profile.load(os.path.join(PROFILES, "4900p-as-run.json"))
     assert not any("has managed" in x for x in p.warnings(max_ramp_up=99))
 
 
 # -- stages are derived, never read from the file ---------------------------
 
 def test_stages_are_derived_from_the_curve():
-    p = Profile.load(os.path.join(PROFILES, "sac305.json"))
+    p = Profile.load(os.path.join(PROFILES, "4900p-as-run.json"))
     names = [s[0] for s in p.stages]
     assert names == ["preheat", "soak", "reflow", "cool"]
     reflow = [s for s in p.stages if s[0] == "reflow"][0]
@@ -213,9 +226,9 @@ def test_stages_are_derived_from_the_curve():
 def test_a_lying_melting_point_in_the_file_cannot_move_the_stages():
     # the historical profile declared 183 C for a SAC305 curve. Stages come
     # from liquidus_c and the curve, and an unknown key is simply ignored.
-    d = json.load(open(os.path.join(PROFILES, "sac305.json")))
+    d = json.load(open(os.path.join(PROFILES, "4900p-as-run.json")))
     d["melting_point"] = 183
     d["stages"] = {"reflow": [330, 183]}
     p = Profile.from_dict(d)
-    good = Profile.load(os.path.join(PROFILES, "sac305.json"))
+    good = Profile.load(os.path.join(PROFILES, "4900p-as-run.json"))
     assert p.stages == good.stages

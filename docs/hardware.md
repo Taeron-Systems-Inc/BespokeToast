@@ -44,8 +44,14 @@ Roughly 20 actuations in a typical session **[confirmed]**. The firmware holds
 the relay on continuously while the temperature error is large and only
 modulates near setpoint, so it does not toggle once per control window.
 
-Whether the relay de-energises when `D4` stops being driven depends on a
-pulldown at the relay input. **[unverified]**
+**The relay fails safe [measured].** Reading `D4` back as an input under each
+internal pull returns `False` under both pull-up and pull-down, so an external
+pulldown dominates and the relay is de-energised whenever the pin is not
+driven. Reproduced identically on three separate runs.
+
+This matters beyond the obvious: CircuitPython releases pins whenever the VM
+exits, so high-Z on `D4` occurs on every reset, every `Ctrl-C` and every
+auto-reload. All of those are safe.
 
 ## Temperature sensing
 
@@ -62,13 +68,43 @@ lag between element and probe unquantified.
 
 ## Measured thermal behaviour
 
-A calibration run from 2023, recovered from this repository's history, measured
-the oven's response to the relay opening. At a **100 °C** setpoint **[recorded]**:
+Two step tests were run on 2026-08-25, empty oven, logged at 2 Hz. Raw data
+is in `data/`.
 
-| | |
+| | **[measured]** |
 |---|---|
-| Overshoot after the relay opens | **≈29.6 °C** |
-| Time to peak after the relay opens | **≈37 s** |
+| Heating, 26 → 200 °C | 143 s |
+| Heating, 53 → 240 °C | 177 s |
+| Peak heating rate | **1.85 °C/s at 80 °C** |
+| Heating rate at 200 °C | **0.90 °C/s** |
+| Passive cooling at 190 °C, door shut | **−0.70 °C/s** |
+| Coast after relay opens, from 200 °C | **1.06 °C over 3 s** |
+| Coast after relay opens, from 240 °C | **0.56 °C over 2 s** |
+| Enclosure cold junction, peak | 41.8 °C |
+| CPU die, peak | 36.2 °C |
+
+Three things follow.
+
+**The oven is not a first-order system.** Its heating rate *rises* to a peak
+near 80 °C rather than decaying from the start, and its heating and cooling
+time constants differ by roughly 2.5×. A fitted first-order-plus-dead-time
+model gave a 20 s dead time, which predicts about 17 °C of coast — sixteen
+times what was measured. The model is not used; the measured curves are.
+
+**The oven's capability falls as it gets hotter, and reflow needs it hottest.**
+1.85 °C/s at 80 °C but 0.90 °C/s at 200 °C. Both available profiles demand
+their fastest rise in the spike zone, where the oven is weakest.
+
+**Cooling cannot follow any reflow profile with the door shut**, at −0.70 °C/s
+against the 1.3–2.0 °C/s profiles ask for.
+
+### The 2023 figure was wrong
+
+A calibration recovered from this repository's history recorded 29.6 °C of
+overshoot over 37 s at a 100 °C setpoint. The measurement above is 1.06 °C
+over 3 s — smaller by a factor of 28. Whatever that run measured, it does not
+describe this oven. It is recorded here only so nobody re-derives anything
+from it.
 
 The procedure: heat until the setpoint is reached, open the relay, keep sampling
 until the temperature stops rising. The resulting figures were stored as

@@ -29,40 +29,70 @@ def clamp(x, lo, hi):
 
 
 class FeedForward(object):
-    """Duty required to hold a temperature, in steady state.
+    """Duty required to make the oven do what the profile asks.
 
-    Constructed either from a measured table of ``(temperature, duty)`` pairs
-    — which is what experiment E4 produces — or from a straight-line estimate
-    until that measurement exists.
+    Not just to *hold* a temperature -- to follow a commanded rate. The step
+    test measures the rate at full power, h(T), and the rate with the relay
+    open, c(T). Between them the response is very close to linear in duty:
+
+        dT/dt = c(T) + u * (h(T) - c(T))
+
+    Inverting that gives the duty for any commanded rate:
+
+        u = (rate - c(T)) / (h(T) - c(T))
+
+    with rate=0 recovering the hold duty. This is the inverse plant, so the
+    PID is left correcting model error rather than supplying the whole ramp,
+    which is what it was doing when tracking error reached 80 C.
+
+    Falls back to a flat estimate when no measured curves are supplied, but
+    that fallback is only good for getting a rig off the ground.
     """
 
-    def __init__(self, table=None, ambient_c=22.0, full_power_rise_c=300.0):
+    def __init__(self, table=None, heating_rates=None, cooling_rates=None,
+                 ambient_c=22.0, full_power_rise_c=300.0):
         self.table = sorted(table) if table else None
+        self.heating_rates = sorted(heating_rates) if heating_rates else None
+        self.cooling_rates = sorted(cooling_rates) if cooling_rates else None
         self.ambient_c = ambient_c
         self.full_power_rise_c = full_power_rise_c
 
-    def duty_for(self, temp_c):
+    def duty_for(self, temp_c, rate_c_per_s=0.0):
+        if self.heating_rates and self.cooling_rates:
+            h = _interp(self.heating_rates, temp_c)
+            c = _interp(self.cooling_rates, temp_c)
+            span = h - c
+            if span <= 0:
+                return 1.0 if rate_c_per_s > 0 else 0.0
+            return clamp((rate_c_per_s - c) / span, 0.0, 1.0)
         if self.table:
-            return self._interpolate(temp_c)
-        # Losses rise roughly with the gap to ambient; holding a temperature
-        # needs the duty that replaces exactly those losses.
+            return clamp(_interp(self.table, temp_c), 0.0, 1.0)
         rise = temp_c - self.ambient_c
         if rise <= 0:
             return 0.0
         return clamp(rise / self.full_power_rise_c, 0.0, 1.0)
 
-    def _interpolate(self, temp_c):
-        tbl = self.table
-        if temp_c <= tbl[0][0]:
-            return tbl[0][1]
-        if temp_c >= tbl[-1][0]:
-            return tbl[-1][1]
-        for i in range(1, len(tbl)):
-            if tbl[i][0] >= temp_c:
-                t0, d0 = tbl[i - 1]
-                t1, d1 = tbl[i]
-                return d0 + (d1 - d0) * (temp_c - t0) / (t1 - t0)
-        return tbl[-1][1]
+    def achievable_rate(self, temp_c, duty=1.0):
+        """Fastest rise this oven can produce at *temp_c*. Used to tell an
+        operator up front that a profile is asking for more than exists."""
+        if not (self.heating_rates and self.cooling_rates):
+            return None
+        h = _interp(self.heating_rates, temp_c)
+        c = _interp(self.cooling_rates, temp_c)
+        return c + duty * (h - c)
+
+
+def _interp(table, x):
+    if x <= table[0][0]:
+        return table[0][1]
+    if x >= table[-1][0]:
+        return table[-1][1]
+    for i in range(1, len(table)):
+        if table[i][0] >= x:
+            x0, y0 = table[i - 1]
+            x1, y1 = table[i]
+            return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+    return table[-1][1]
 
 
 class PID(object):
@@ -248,8 +278,9 @@ class Controller(object):
                 self.pid.reset()
                 return 0.0
 
-        return clamp(self.ff.duty_for(target) + self.pid.update(t, target, temp_c),
-                     0.0, 1.0)
+        slope = self.profile.slope_at(elapsed_s)
+        return clamp(self.ff.duty_for(target, slope)
+                     + self.pid.update(t, target, temp_c), 0.0, 1.0)
 
     def relay_state(self, t, duty):
         return self.tpo.update(t, duty)

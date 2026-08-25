@@ -22,3 +22,8 @@ managed_components/
 .idea/
 *.swp
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/

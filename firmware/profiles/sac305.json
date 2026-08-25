@@ -1,0 +1,13 @@
+{
+  "name": "SAC305",
+  "alloy": "Sn96.5 Ag3.0 Cu0.5",
+  "category": "reflow",
+  "liquidus_c": 217,
+  "reference": "https://mgchemicals.com/downloads/tds/tds-4900p.pdf",
+  "notes": "The profile this oven has been running. Carried over unchanged from the device except for an added t=0 point at the same temperature as the original t=1 point, so the curve is well-formed from zero. The peak was raised from 225 C to 235 C at some point during service; 225 C cleared the 217 C liquidus by too little.",
+  "points": [
+    [0, 25], [1, 25], [30, 60], [60, 100], [90, 118], [120, 125],
+    [180, 130], [210, 138], [240, 160], [270, 200], [288, 230],
+    [300, 235], [312, 225], [360, 128]
+  ]
+}

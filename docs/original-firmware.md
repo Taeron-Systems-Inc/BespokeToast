@@ -1,4 +1,8 @@
-# Firmware
+# The original firmware
+
+How the controller worked before the rewrite. It no longer exists in this
+tree; line references point at `firmware/code.py` as it stood at tag `v1`,
+and `git show v1:firmware/code.py` still produces it.
 
 How the controller in `firmware/` works. Line references point at
 `firmware/code.py`.

@@ -9,10 +9,29 @@ today, and reference notes on the hardware it drives.
 ## Layout
 
 ```
-firmware/    Controller firmware and reflow profiles. Mirrors the PyPortal's
-             CIRCUITPY volume.
-docs/        Hardware reference and a description of how the firmware works.
+firmware/    What ships to the device. Mirrors the CIRCUITPY volume.
+  oven/      Control, safety, profiles, metrics, interface. Only
+             hardware.py touches the board; everything else is plain
+             stdlib and runs under CPython.
+  profiles/  Reflow profiles as JSON.
+  assets/    Fonts and logo.
+tests/       pytest, off-hardware. Includes a simulated oven built from
+             this oven's own measured response.
+tools/       Host-side: deploy, model fitting.
+data/        Measured characterisation and the raw step-test logs.
+docs/        Hardware reference and notes on the original firmware.
 ```
+
+## Testing
+
+```
+python3 -m pytest tests/
+```
+
+Everything runs on a laptop. That is deliberate and enforced: a test parses
+every module in `oven/` and fails if anything other than `hardware.py`
+imports `board`. The previous firmware became untestable one import at a
+time.
 
 ## Deploying
 

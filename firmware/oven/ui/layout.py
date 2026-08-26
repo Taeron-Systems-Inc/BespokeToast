@@ -92,11 +92,14 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
         colour = T.CAUTION if tal_s > 130 else T.DANGER
         out.append(("text", 6, 150, "above liquidus %ds" % int(tal_s),
                     colour, T.FONT_BODY))
+    # No duty cycle here. It was shown first as a bar and then as a
+    # percentage, and neither told the operator anything they act on -- the
+    # colour-coded delta above already says whether the oven is keeping up.
+    # Whether the element is actually energised is worth knowing; how hard it
+    # is working is a number for the log.
     out += [
         ("text", 6, 176, "HEAT ON" if relay_on else "heat off",
          T.BRAND if relay_on else T.DIM, T.FONT_BODY),
-        ("text", 96, 176, "%d%%" % int(round((duty or 0.0) * 100)),
-         T.TEXT, T.FONT_BODY),
         ("rect", 314 - T.ABORT_TOUCH_PX * 2, 240 - T.ABORT_TOUCH_PX - 6,
          T.ABORT_TOUCH_PX * 2, T.ABORT_TOUCH_PX, T.DANGER, False),
         ("text", 314 - T.ABORT_TOUCH_PX * 2 + 26, 240 - T.ABORT_TOUCH_PX + 16,

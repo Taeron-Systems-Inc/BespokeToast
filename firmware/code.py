@@ -107,9 +107,34 @@ def main():
     app = App(hw.relay, hw.sensor, hw.clock, make_controller,
               on_event=announce, sample=emit)
 
+    # The chart needs a trace. One point every two seconds is plenty at 308
+    # pixels wide for a run of a few hundred seconds, and keeps the list
+    # short enough to redraw cheaply.
+    history = []
+    last_point = [None]
+    HISTORY_INTERVAL_S = 2.0
+
+    def cooling_rate():
+        if len(history) < 4:
+            return None
+        (t0, v0), (t1, v1) = history[-4], history[-1]
+        return None if t1 <= t0 else (v1 - v0) / (t1 - t0)
+
     screen = []
     while True:
         app.tick()
+
+        if app.state in (STATE_RUNNING, STATE_COOLDOWN) and \
+                app.temperature is not None:
+            now = hw.clock.monotonic()
+            if last_point[0] is None or now - last_point[0] >= HISTORY_INTERVAL_S:
+                last_point[0] = now
+                mark = app.elapsed if app.state == STATE_RUNNING else \
+                    (history[-1][0] if history else 0.0) + HISTORY_INTERVAL_S
+                history.append((mark, app.temperature))
+        elif app.state in (STATE_IDLE, STATE_PREHEAT) and history:
+            del history[:]
+            last_point[0] = None
 
         # Touch is polled outside the control step: a press must not be able
         # to delay a control step, and a missed press is merely annoying.
@@ -141,9 +166,14 @@ def main():
                                app.metrics.time_above_liquidus if app.metrics
                                else 0.0,
                                app.profile.liquidus_c if app.profile else None,
-                               app.duty, hw.relay.is_on())
+                               app.duty, hw.relay.is_on(),
+                               history=history,
+                               profile_points=app.profile.points
+                               if app.profile else None,
+                               duration_s=app.profile.duration
+                               if app.profile else None)
         elif app.state == STATE_COOLDOWN:
-            screen = L.open_the_door(app.temperature, None)
+            screen = L.open_the_door(app.temperature, cooling_rate())
         elif app.state == STATE_REPORT and app.metrics and app.profile:
             screen = L.report(app.metrics.check(
                 MetricLimits.for_profile(app.profile)),

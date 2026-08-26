@@ -18,10 +18,21 @@ Primitives are tuples so they are cheap on a SAMD51:
 from . import theme as T
 
 
-def _fmt(value, suffix="", places=0):
+DEG = "\u00b0"
+
+
+def _t(value, unit=True):
+    """A temperature. Whole degrees -- a tenth of a degree is below what the
+    probe means and below what anyone acts on -- and always with the sign."""
     if value is None:
-        return "--" + suffix
-    return ("%." + str(places) + "f") % value + suffix
+        return "--" + (DEG if unit else "")
+    return "%d%s" % (round(value), DEG if unit else "")
+
+
+def _rate(value):
+    if value is None:
+        return "--"
+    return "%+.1f%s/s" % (value, DEG)
 
 
 def splash(version):
@@ -49,82 +60,107 @@ def self_test(results):
 def home(temp_c, profile_name, ready, reason=None):
     out = [
         ("bitmap", 6, 6, T.LOGO_SMALL),
-        ("text", 6, 60, _fmt(temp_c, "", 1), T.BRAND, T.FONT_READOUT),
-        ("text", 240, 96, "C", T.BRAND, T.FONT_LARGE),
-        ("text", 6, 140, profile_name or "no profile", T.TEXT, T.FONT_BODY),
+        ("text", 6, 76, _t(temp_c), T.BRAND, T.FONT_READOUT),
+        ("text", 6, 132, profile_name or "no profile", T.TEXT, T.FONT_BODY),
     ]
     if ready:
         out += [("rect", 6, 176, 150, T.ABORT_TOUCH_PX, T.BRAND, False),
-                ("text", 40, 196, "START", T.BRAND, T.FONT_LARGE),
+                ("text", 42, 206, "START", T.BRAND, T.FONT_LARGE),
                 ("touch", 6, 176, 150, T.ABORT_TOUCH_PX, "start")]
     else:
         out += [("text", 6, 176, reason or "not ready", T.CAUTION, T.FONT_BODY)]
     out += [("rect", 176, 176, 138, T.MIN_TOUCH_PX, T.DIM, False),
-            ("text", 196, 192, "PROFILES", T.TEXT, T.FONT_BODY),
+            ("text", 198, 198, "PROFILES", T.TEXT, T.FONT_BODY),
             ("touch", 176, 176, 138, T.MIN_TOUCH_PX, "profiles")]
     return out
 
 
-STAGES = ("preheat", "soak", "reflow", "cool")
+# Label.y in displayio is the vertical CENTRE of the text, not its top. A
+# 64 px readout placed at y=4 is half off the screen; these are centres.
+CHART = (6, 84, 308, 104)          # x, y, w, h
+
+ROW_READOUT = 36
+ROW_INFO = 72
+ROW_FOOT = 206
 
 
 def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
-            liquidus_c, duty, relay_on):
+            liquidus_c, duty, relay_on, history=None, profile_points=None,
+            duration_s=None, y_max=250.0):
+    """The screen that matters.
+
+    A chart carries the run: the target curve, what the oven has actually
+    done, and the liquidus as a dashed line. Two numbers say where you are;
+    the shape says whether it is going right, which is what an operator is
+    really watching for.
+
+    Abort sits top right, clear of everything else, because it is the one
+    control that gets pressed in a hurry. The four-stage strip is gone -- the
+    chart shows progress better than a row of words, so only the current
+    stage is named.
+    """
     delta = None if (temp_c is None or target_c is None) else temp_c - target_c
-    out = []
-    x = 6
-    for name in STAGES:
-        out.append(("text", x, 6, name.upper(),
-                    T.stage_colour(name, stage), T.FONT_SMALL))
-        x += 78
+    out = [
+        ("text", 6, ROW_READOUT, _t(temp_c), T.BRAND, T.FONT_READOUT),
+        ("rect", 206, 6, 108, T.ABORT_TOUCH_PX, T.DANGER, False),
+        ("text", 232, 36, "ABORT", T.DANGER, T.FONT_LARGE),
+        ("touch", 206, 6, 108, T.ABORT_TOUCH_PX, "abort"),
+        ("text", 6, ROW_INFO, _t(delta) + " off",
+         T.delta_colour(delta), T.FONT_BODY),
+        ("text", 108, ROW_INFO, (stage or "").upper(), T.BRAND, T.FONT_BODY),
+        ("text", 196, ROW_INFO, "target " + _t(target_c), T.TEXT, T.FONT_BODY),
+    ]
+
+    cx, cy, cw, ch = CHART
+    series = []
+    if profile_points and duration_s:
+        series.append((T.DIM, list(profile_points)))
+    if history:
+        series.append((T.BRAND, list(history)))
+    out.append(("plot", cx, cy, cw, ch,
+                float(duration_s or 1.0), 0.0, float(y_max),
+                series, liquidus_c))
+
     out += [
-        ("text", 6, 30, _fmt(temp_c, "", 1), T.BRAND, T.FONT_READOUT),
-        ("text", 6, 104, "target " + _fmt(target_c, " C", 0), T.TEXT, T.FONT_BODY),
-        ("text", 170, 104, _fmt(delta, " C", 1), T.delta_colour(delta), T.FONT_BODY),
-        ("text", 6, 128, "%02d:%02d elapsed" % (int(elapsed_s) // 60,
-                                                int(elapsed_s) % 60),
-         T.TEXT, T.FONT_SMALL),
-        ("text", 170, 128, "%02d:%02d left" % (int(max(0, remaining_s)) // 60,
+        ("text", 6, ROW_FOOT, "%02d:%02d" % (int(elapsed_s) // 60,
+                                             int(elapsed_s) % 60),
+         T.TEXT, T.FONT_BODY),
+        ("text", 76, ROW_FOOT, "-%02d:%02d" % (int(max(0, remaining_s)) // 60,
                                                int(max(0, remaining_s)) % 60),
-         T.TEXT, T.FONT_SMALL),
+         T.DIM, T.FONT_BODY),
+        ("text", 158, ROW_FOOT, "HEAT ON" if relay_on else "heat off",
+         T.BRAND if relay_on else T.DIM, T.FONT_BODY),
     ]
     if tal_s is not None and tal_s > 0:
-        colour = T.CAUTION if tal_s > 130 else T.DANGER
-        out.append(("text", 6, 150, "above liquidus %ds" % int(tal_s),
-                    colour, T.FONT_BODY))
-    # No duty cycle here. It was shown first as a bar and then as a
-    # percentage, and neither told the operator anything they act on -- the
-    # colour-coded delta above already says whether the oven is keeping up.
-    # Whether the element is actually energised is worth knowing; how hard it
-    # is working is a number for the log.
-    out += [
-        ("text", 6, 176, "HEAT ON" if relay_on else "heat off",
-         T.BRAND if relay_on else T.DIM, T.FONT_BODY),
-        ("rect", 314 - T.ABORT_TOUCH_PX * 2, 240 - T.ABORT_TOUCH_PX - 6,
-         T.ABORT_TOUCH_PX * 2, T.ABORT_TOUCH_PX, T.DANGER, False),
-        ("text", 314 - T.ABORT_TOUCH_PX * 2 + 26, 240 - T.ABORT_TOUCH_PX + 16,
-         "ABORT", T.DANGER, T.FONT_LARGE),
-        ("touch", 314 - T.ABORT_TOUCH_PX * 2, 240 - T.ABORT_TOUCH_PX - 6,
-         T.ABORT_TOUCH_PX * 2, T.ABORT_TOUCH_PX, "abort"),
-    ]
+        out.append(("text", 248, ROW_FOOT, "%ds liq" % int(tal_s),
+                    T.CAUTION if tal_s > 130 else T.DANGER, T.FONT_BODY))
     return out
 
 
-def open_the_door(temp_c, cooling_rate):
-    return [
-        ("text", 6, 44, "OPEN", T.COOL, T.FONT_LARGE),
-        ("text", 6, 76, "THE DOOR", T.COOL, T.FONT_LARGE),
-        ("text", 6, 150, _fmt(temp_c, " C", 0), T.TEXT, T.FONT_BODY),
-        ("text", 140, 150, _fmt(cooling_rate, " C/s", 2), T.TEXT, T.FONT_BODY),
-        ("text", 6, 180, "cooling faster than this needs the door open",
-         T.DIM, T.FONT_SMALL),
+def open_the_door(temp_c, cooling_rate=None, target_rate=None):
+    """The door prompt.
+
+    The rate is shown because it is the one number that tells you the door is
+    actually doing something: this oven cools at about -0.7 C/s shut and
+    around -5 to -7 C/s open.
+    """
+    out = [
+        ("text", 6, 28, "OPEN", T.COOL, T.FONT_LARGE),
+        ("text", 6, 60, "THE DOOR", T.COOL, T.FONT_LARGE),
+        ("text", 6, 130, _t(temp_c), T.TEXT, T.FONT_READOUT),
+        ("text", 196, 120, _rate(cooling_rate), T.TEXT, T.FONT_LARGE),
+        ("text", 196, 148, "cooling", T.DIM, T.FONT_BODY),
     ]
+    if cooling_rate is not None and cooling_rate > -1.5:
+        out.append(("text", 6, 196, "still shut? open it to cool faster",
+                    T.CAUTION, T.FONT_BODY))
+    return out
 
 
 def fault(message):
     return [
         ("rect", 0, 0, T.SCREEN_W, T.SCREEN_H, T.DANGER, False),
-        ("text", 6, 30, "FAULT", T.DANGER, T.FONT_LARGE),
+        ("text", 6, 40, "FAULT", T.DANGER, T.FONT_LARGE),
         ("text", 6, 110, message[:38], T.TEXT, T.FONT_BODY),
         ("text", 6, 134, message[38:76], T.TEXT, T.FONT_BODY),
         ("text", 6, 168, "heat is off and stays off until acknowledged",
@@ -136,16 +172,18 @@ def fault(message):
 
 
 def report(checks, peak_c, tal_s):
-    out = [("text", 6, 8, "RUN REPORT", T.TEXT, T.FONT_LARGE)]
-    y = 40
+    out = [("text", 6, 16, "RUN REPORT", T.TEXT, T.FONT_LARGE)]
+    y = 48
     for name, _value, ok, text in checks:
         out.append(("text", 6, y, name[:22], T.TEXT, T.FONT_SMALL))
-        out.append(("text", 150, y, text[:20],
+        # 20 characters cut "(want 225-245)" down to "(want 225-24", which
+        # read as a typo rather than as a limit.
+        out.append(("text", 150, y, text[:30],
                     T.BRAND if ok else T.DANGER, T.FONT_SMALL))
         y += 22
-    out.append(("rect", 6, 190, 140, T.MIN_TOUCH_PX, T.BRAND, False))
-    out.append(("text", 40, 208, "DONE", T.BRAND, T.FONT_BODY))
-    out.append(("touch", 6, 190, 140, T.MIN_TOUCH_PX, "done"))
+    out.append(("rect", 6, 186, 140, T.MIN_TOUCH_PX, T.BRAND, False))
+    out.append(("text", 46, 208, "DONE", T.BRAND, T.FONT_BODY))
+    out.append(("touch", 6, 186, 140, T.MIN_TOUCH_PX, "done"))
     return out
 
 

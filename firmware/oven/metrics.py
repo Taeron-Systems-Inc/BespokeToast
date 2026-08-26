@@ -131,20 +131,20 @@ class RunMetrics(object):
         add("peak", self.peak_c,
             self.peak_c is not None
             and lim.peak_min_c <= self.peak_c <= lim.peak_max_c,
-            "%.1f C (want %.0f-%.0f)" % (self.peak_c or 0,
-                                         lim.peak_min_c, lim.peak_max_c))
+            "%d\u00b0 (want %.0f-%.0f)" % (round(self.peak_c or 0),
+                                          lim.peak_min_c, lim.peak_max_c))
         add("time above liquidus", self.time_above_liquidus,
             lim.tal_min_s <= self.time_above_liquidus <= lim.tal_max_s,
             "%.0f s (want %.0f-%.0f)" % (self.time_above_liquidus,
                                          lim.tal_min_s, lim.tal_max_s))
         add("max ramp up", self.max_ramp_up,
             self.max_ramp_up <= lim.max_ramp_up_c_per_s,
-            "%.2f C/s (limit %.1f)" % (self.max_ramp_up,
-                                       lim.max_ramp_up_c_per_s))
+            "%.2f\u00b0/s (limit %.1f)" % (self.max_ramp_up,
+                                          lim.max_ramp_up_c_per_s))
         add("max ramp down", self.max_ramp_down,
             -self.max_ramp_down <= lim.max_ramp_down_c_per_s,
-            "%.2f C/s (limit %.1f)" % (self.max_ramp_down,
-                                       lim.max_ramp_down_c_per_s))
+            "%.2f\u00b0/s (limit %.1f)" % (self.max_ramp_down,
+                                          lim.max_ramp_down_c_per_s))
         if self.peak_t is not None:
             add("time to peak", self.peak_t,
                 self.peak_t <= lim.max_time_to_peak_s,

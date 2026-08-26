@@ -80,6 +80,8 @@ class Display(object):
             if filled:
                 return Rect(x, y, max(1, w), max(1, h), fill=colour)
             return Rect(x, y, max(1, w), max(1, h), outline=colour)
+        if kind == "plot":
+            return self._plot(cmd)
         if kind == "bitmap":
             _, x, y, path = cmd
             try:
@@ -94,3 +96,67 @@ class Display(object):
             except Exception:
                 return None
         return None            # "touch" is a hit target, nothing to draw
+
+    def _plot(self, cmd):
+        """Draw the chart into a small indexed bitmap.
+
+        One bitmap rather than a Group of Line shapes: a run is hundreds of
+        segments, and hundreds of displayio objects would cost far more RAM
+        and redraw time than 308x116 at 4 bits per pixel.
+        """
+        _, x, y, w, h, x_max, y_min, y_max, series, liquidus = cmd
+        bitmap = displayio.Bitmap(w, h, 4)
+        palette = displayio.Palette(4)
+        palette[0] = T.BG
+        palette[1] = T.DIM
+        palette[2] = T.BRAND
+        palette[3] = T.DANGER
+        palette.make_transparent(0)
+
+        def sx(v):
+            if x_max <= 0:
+                return 0
+            return int(max(0, min(w - 1, v / x_max * (w - 1))))
+
+        def sy(v):
+            span = y_max - y_min
+            if span <= 0:
+                return h - 1
+            return int(max(0, min(h - 1, (h - 1) - (v - y_min) / span * (h - 1))))
+
+        def line(x0, y0, x1, y1, idx):
+            dx = abs(x1 - x0)
+            dy = -abs(y1 - y0)
+            sxs = 1 if x0 < x1 else -1
+            sys_ = 1 if y0 < y1 else -1
+            err = dx + dy
+            while True:
+                if 0 <= x0 < w and 0 <= y0 < h:
+                    bitmap[x0, y0] = idx
+                if x0 == x1 and y0 == y1:
+                    break
+                e2 = 2 * err
+                if e2 >= dy:
+                    err += dy
+                    x0 += sxs
+                if e2 <= dx:
+                    err += dx
+                    y0 += sys_
+
+        if liquidus is not None:
+            ly = sy(liquidus)
+            for px in range(0, w, 6):          # dashed
+                for d in range(3):
+                    if px + d < w:
+                        bitmap[px + d, ly] = 3
+
+        for colour, points in series:
+            idx = 2 if colour == T.BRAND else 1
+            prev = None
+            for t, v in points:
+                cur = (sx(t), sy(v))
+                if prev is not None:
+                    line(prev[0], prev[1], cur[0], cur[1], idx)
+                prev = cur
+
+        return displayio.TileGrid(bitmap, pixel_shader=palette, x=x, y=y)

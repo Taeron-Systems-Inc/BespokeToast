@@ -125,13 +125,16 @@ def test_stall_window_resets_when_the_oven_does_rise(sup):
 # -- enclosure --------------------------------------------------------------
 
 def test_hot_enclosure_trips(sup):
-    f = sup.update(1.0, Reading(120.0, cold=61.0), True)
+    f = sup.update(1.0, Reading(120.0, cold=75.0), True)
     assert f.code == FAULT_ENCLOSURE
     assert "enclosure" in f.message
 
 
 def test_warm_enclosure_is_tolerated(sup):
+    """Back-to-back runs leave the box in the fifties and sixties; that is
+    normal use, not a fault."""
     assert sup.update(1.0, Reading(120.0, cold=45.0), True) is None
+    assert sup.update(1.5, Reading(120.0, cold=62.0), True) is None
 
 
 def test_absent_enclosure_reading_does_not_trip(sup):

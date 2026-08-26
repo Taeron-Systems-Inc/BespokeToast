@@ -39,6 +39,10 @@ PREHEAT_TIMEOUT_S = 900.0
 # Below this the cooldown is finished and the oven is safe to open or reload.
 COOLDOWN_TARGET_C = 60.0
 
+# A warm start is normal for a tool in use: back-to-back boards, or a run
+# begun shortly after the last. The profile simply holds heat off until its
+# own curve catches up with wherever the oven already is.
+
 
 class Event(object):
     """Something the UI, the log or the speaker should react to."""

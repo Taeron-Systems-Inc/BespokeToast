@@ -55,7 +55,7 @@ class Limits(object):
                  "start_max_c", "rate_window_s")
 
     def __init__(self, max_temp_c=260.0, max_rate_c_per_s=4.0,
-                 max_enclosure_c=60.0, stall_window_s=90.0,
+                 max_enclosure_c=70.0, stall_window_s=90.0,
                  stall_min_rise_c=2.0, max_run_s=3600.0,
                  sensor_stale_s=3.0, sensor_frozen_s=30.0,
                  start_min_c=5.0, start_max_c=60.0,
@@ -70,6 +70,14 @@ class Limits(object):
         self.sensor_frozen_s = sensor_frozen_s
         self.start_min_c = start_min_c
         self.start_max_c = start_max_c
+        # max_enclosure_c is set from what the electronics tolerate, not from
+        # the enclosure material: the printed parts sit away from the oven and
+        # are reached by thermally protected wiring, so softening is not the
+        # constraint. The binding part is the TFT, typically rated to 70 °C
+        # operating; the SAMD51 is good to 85 °C and the MCP9600 to 125 °C.
+        # 60 °C was too tight to run back to back -- the enclosure rises about
+        # 21 °C per run and peaks after it, so a second run had to wait.
+        #
         # Rate is measured across this window, not between adjacent samples.
         # At 4 Hz on a probe quantised to 0.0625 C, ordinary noise shows up as
         # 8-11 C/s between neighbours on an oven whose real maximum is

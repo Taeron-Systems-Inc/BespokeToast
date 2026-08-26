@@ -236,3 +236,25 @@ def test_a_single_noisy_sample_does_not_trip_the_rate_guard(sup):
     temps[20] += 2.0                    # one spike, gone by the next sample
     assert run(sup, temps, step=0.25) is None
     assert sup.allow_heat()
+
+
+def test_a_warm_start_is_allowed():
+    """A tool in use gets started warm -- back-to-back boards, or a run begun
+    soon after the last one. Refusing at 35 °C would make that impossible."""
+    s = Supervisor()
+    assert s.check_start(Reading(35.0)) is None
+    assert s.check_start(Reading(50.0)) is None
+
+
+def test_the_enclosure_limit_reflects_the_electronics_not_the_plastic():
+    """The printed parts sit away from the oven on thermally protected
+    wiring, so softening is not the constraint. The TFT is, at about 70 °C.
+    At 60 °C the oven could not run twice in a row: the enclosure rises about
+    21 °C per run and peaks after it finishes."""
+    assert Limits().max_enclosure_c == 70.0
+    s = Supervisor()
+    s.begin_run(0.0)
+    assert s.update(1.0, Reading(150.0, cold=65.0), True) is None
+    s2 = Supervisor()
+    s2.begin_run(0.0)
+    assert s2.update(1.0, Reading(150.0, cold=71.0), True).code == FAULT_ENCLOSURE

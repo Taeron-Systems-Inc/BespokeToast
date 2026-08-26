@@ -174,3 +174,51 @@ def test_the_derived_profile_passes_every_check_on_this_oven():
     failures = [n for n, _, ok, _ in m.check(Limits.for_profile(p)) if not ok]
     assert not failures, "failed: %s" % failures
     assert ctl.tpo.actuations < 120
+
+
+def test_the_shipped_gains_track_the_early_ramp():
+    """Run 3 lagged the early ramp by up to 15 °C with duty at 0.65 and
+    almost never saturated: headroom going unused. These gains were swept
+    against the measured plant rather than guessed."""
+    from oven.controller import Controller, PID
+    from oven.metrics import RunMetrics
+    p = Profile.load(os.path.join(PROFILES, "sac305-this-oven.json"))
+    ctl = Controller(p, coast_tau_s=DATA["coast_tau_s"], feed_forward=ff(),
+                     pid=PID(kp=0.22, ki=0.004, kd=0.5, i_max=0.6, i_min=-0.6))
+    ctl.reset(0.0)
+    o = MeasuredOven(dt=0.25)
+    m = RunMetrics(p.liquidus_c)
+    t = 0.0
+    early = []
+    while t <= p.duration:
+        temp = o.read()
+        m.add(t, temp)
+        if t < 120:
+            early.append(abs(temp - p.target_at(t)))
+        o.step(ctl.relay_state(t, ctl.duty_for(t, temp, t)))
+        t += 0.25
+    assert sum(early) / len(early) < 3.0, "early ramp tracking regressed"
+    assert 225 <= m.peak_c <= 245
+    assert 60 <= m.time_above_liquidus <= 150
+
+
+@pytest.mark.parametrize("scale", [0.8, 1.0, 1.2])
+def test_the_shipped_gains_survive_plant_error(scale):
+    """The measured model is one oven on one day. The gains must not depend
+    on it being exactly right."""
+    from oven.controller import Controller, PID
+    from oven.metrics import RunMetrics
+    p = Profile.load(os.path.join(PROFILES, "sac305-this-oven.json"))
+    ctl = Controller(p, coast_tau_s=DATA["coast_tau_s"], feed_forward=ff(),
+                     pid=PID(kp=0.22, ki=0.004, kd=0.5, i_max=0.6, i_min=-0.6))
+    ctl.reset(0.0)
+    o = MeasuredOven(dt=0.25, scale_heat=scale)
+    m = RunMetrics(p.liquidus_c)
+    t = 0.0
+    while t <= p.duration:
+        temp = o.read()
+        m.add(t, temp)
+        o.step(ctl.relay_state(t, ctl.duty_for(t, temp, t)))
+        t += 0.25
+    assert 225 <= m.peak_c <= 245
+    assert 60 <= m.time_above_liquidus <= 150

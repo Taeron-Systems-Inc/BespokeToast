@@ -97,8 +97,16 @@ def main():
     time.sleep(1.5)
 
     def make_controller(profile):
+        # Tuned against the measured plant, not guessed. Run 3 showed the
+        # oven lagging the early ramp by up to 15 °C while only 1 % of the
+        # samples that were behind had duty saturated -- headroom sitting
+        # unused because the gains were too soft. Swept in simulation and
+        # checked for robustness against +/-20 % plant error and a warm
+        # start; every case stayed inside the peak and time-above-liquidus
+        # windows.
         return Controller(profile, coast_tau_s=coast, feed_forward=ff,
-                          pid=PID(kp=0.03, ki=0.0015, kd=0.5))
+                          pid=PID(kp=0.22, ki=0.004, kd=0.5,
+                                  i_max=0.6, i_min=-0.6))
 
     # Every control step is printed as CSV on the serial console. The
     # previous firmware kept no record of any run it ever performed; a host

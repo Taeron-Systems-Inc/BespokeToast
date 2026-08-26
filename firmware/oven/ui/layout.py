@@ -46,6 +46,11 @@ def _metrics():
             except Exception:
                 continue
         if _METRICS is None:
+            # Without real metrics every button label is centred by estimate,
+            # which is visibly wrong rather than invisibly wrong -- but say so
+            # anyway, because guessing is not the intended path.
+            print("# WARNING no font metrics found; button labels will be "
+                  "centred by estimate")
             _METRICS = {}
     return _METRICS
 
@@ -152,11 +157,16 @@ def home(temp_c, profile_name, ready, reason=None):
 
 # Label.y in displayio is the vertical CENTRE of the text, not its top. A
 # 64 px readout placed at y=4 is half off the screen; these are centres.
-CHART = (6, 100, 308, 92)          # x, y, w, h
+# Left inset leaves room for the temperature scale; the plot itself is what
+# remains. Axis labels are drawn as normal text so they get real font
+# rendering rather than being poked into the bitmap.
+CHART = (36, 100, 278, 82)         # x, y, w, h
+CHART_Y_MAX = 250.0
 
 ROW_READOUT = 36        # 64 px type, so it occupies y = 4..68
 ROW_INFO = 84           # clear of it: 16 px type occupies y = 76..92
-ROW_FOOT = 208
+ROW_XAXIS = 194
+ROW_FOOT = 220
 
 
 def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
@@ -186,6 +196,7 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
     ]
 
     cx, cy, cw, ch = CHART
+    y_max = CHART_Y_MAX
     series = []
     if profile_points and duration_s:
         series.append((T.DIM, list(profile_points)))
@@ -194,6 +205,29 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
     out.append(("plot", cx, cy, cw, ch,
                 float(duration_s or 1.0), 0.0, float(y_max),
                 series, liquidus_c))
+
+    # Temperature scale. Three ticks is enough to read a curve against and
+    # few enough not to clutter 82 pixels of height.
+    for value in (250, 150, 50):
+        ty = cy + int((1.0 - value / y_max) * (ch - 1))
+        out.append(("text", 6, ty, str(value), T.DIM, T.FONT_SMALL))
+    if liquidus_c:
+        ly = cy + int((1.0 - liquidus_c / y_max) * (ch - 1))
+        out.append(("text", cx + cw - 26, ly - 8, "liq", T.DANGER,
+                    T.FONT_SMALL))
+
+    # Time scale, in minutes, which is how a profile is actually discussed.
+    total = float(duration_s or 0.0)
+    if total > 0:
+        for frac in (0.0, 0.5, 1.0):
+            secs = total * frac
+            label = "%d:%02d" % (int(secs) // 60, int(secs) % 60)
+            lx = cx + int(frac * (cw - 1))
+            if frac == 1.0:
+                lx -= text_width(label, T.FONT_SMALL)
+            elif frac > 0:
+                lx -= text_width(label, T.FONT_SMALL) // 2
+            out.append(("text", lx, ROW_XAXIS, label, T.DIM, T.FONT_SMALL))
 
     out += [
         ("text", 6, ROW_FOOT, "%02d:%02d" % (int(elapsed_s) // 60,

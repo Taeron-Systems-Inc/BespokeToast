@@ -27,10 +27,18 @@ CHARACTERISATION = "/characterisation.json"
 
 
 def load_characterisation():
+    """The measured plant model.
+
+    Without it the controller falls back to a crude straight-line estimate of
+    the oven, which will track badly and could miss a peak entirely. That is
+    far too significant to happen quietly.
+    """
     try:
         with open(CHARACTERISATION) as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        print("# WARNING no %s (%r): falling back to an ESTIMATED oven "
+              "model. Tracking will be poor." % (CHARACTERISATION, e))
         return None
 
 
@@ -38,13 +46,17 @@ def load_profiles():
     out = []
     try:
         names = [n for n in os.listdir(PROFILE_DIR) if n.endswith(".json")]
-    except OSError:
+    except OSError as e:
+        print("# WARNING cannot list %s (%r): no profiles available"
+              % (PROFILE_DIR, e))
         return out
     for name in sorted(names):
         try:
             out.append(Profile.load(PROFILE_DIR + "/" + name))
-        except Exception:
-            pass                       # a bad profile must not stop boot
+        except Exception as e:
+            # A bad profile must not stop boot, but a profile that quietly
+            # fails to appear is worse than one that refuses loudly.
+            print("# WARNING profile %s rejected: %s" % (name, e))
     return out
 
 
@@ -121,6 +133,7 @@ def main():
         return None if t1 <= t0 else (v1 - v0) / (t1 - t0)
 
     screen = []
+    last_render = [0.0]
     while True:
         app.tick()
 
@@ -185,7 +198,13 @@ def main():
                             ready and selected is not None,
                             None if ready else "oven too hot to start")
 
-        display.render(screen)
+        # Rendering at the control cadence rebuilds every label four times a
+        # second for no benefit; 2 Hz is beyond what anyone reads and halves
+        # the allocation churn.
+        now_r = hw.clock.monotonic()
+        if now_r - last_render[0] >= 0.5:
+            last_render[0] = now_r
+            display.render(screen)
 
 
 try:
@@ -199,5 +218,7 @@ finally:
         _r = digitalio.DigitalInOut(board.D4)
         _r.direction = digitalio.Direction.OUTPUT
         _r.value = False
-    except Exception:
-        pass
+        print("# relay driven low on exit")
+    except Exception as e:
+        print("# WARNING could not drive the relay low on exit (%r); the "
+              "pulldown on D4 is now the only thing holding it off" % e)

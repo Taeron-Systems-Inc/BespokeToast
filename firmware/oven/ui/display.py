@@ -25,8 +25,10 @@ def _font(path):
     if path not in _fonts:
         try:
             _fonts[path] = bitmap_font.load_font(path)
-        except Exception:
-            _fonts[path] = terminalio.FONT      # keep going without the nice type
+        except Exception as e:
+            # Keep going without the nice type, but do not do it quietly.
+            print("# font %s failed to load (%r); using terminalio" % (path, e))
+            _fonts[path] = terminalio.FONT
     return _fonts[path]
 
 
@@ -36,6 +38,14 @@ class Display(object):
         self.group = displayio.Group()
         self._set_root(self.group)
         self._current = None
+        # The chart buffer is allocated once and redrawn in place. Building a
+        # fresh Bitmap every frame at 4 Hz fragments the heap until a
+        # contiguous block is no longer available: measured on hardware as
+        # MemoryError on a 7360-byte allocation, a hundred-odd times in a
+        # single run, each one a frame where the chart simply vanished.
+        self._chart = None
+        self._chart_key = None
+        self._chart_palette = None
 
     def _set_root(self, group):
         # display.show() was removed in CircuitPython 9.
@@ -89,32 +99,41 @@ class Display(object):
                 pal = bmp.pixel_shader
                 try:
                     pal.make_transparent(0)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print("# note %s has no transparent index (%r)"
+                          % (path, e))
                 grid = displayio.TileGrid(bmp, pixel_shader=pal, x=x, y=y)
                 return grid
-            except Exception:
+            except Exception as e:
+                print("# WARNING bitmap %s failed to load (%r)" % (path, e))
                 return None
         return None            # "touch" is a hit target, nothing to draw
 
     def _plot(self, cmd):
-        """Draw the chart into a small indexed bitmap.
+        """Draw the chart into a reused indexed bitmap.
 
         One bitmap rather than a Group of Line shapes: a run is hundreds of
         segments, and hundreds of displayio objects would cost far more RAM
-        and redraw time than 308x116 at 4 bits per pixel.
+        and redraw time than 308x92 at 4 bits per pixel. And one bitmap for
+        the life of the program rather than one per frame, because the latter
+        runs the heap out of contiguous space within a couple of minutes.
         """
         _, x, y, w, h, x_max, y_min, y_max, series, liquidus = cmd
-        bitmap = displayio.Bitmap(w, h, 4)
-        palette = displayio.Palette(4)
-        palette[0] = T.BG
-        palette[1] = T.DIM
-        palette[2] = T.BRAND
-        # A saturated red rule straight across the chart reads as an alarm
-        # rather than as a reference, so the liquidus gets a muted tone and a
-        # sparser dash.
-        palette[3] = 0x7A2A28
-        palette.make_transparent(0)
+        if self._chart_key != (w, h):
+            self._chart = displayio.Bitmap(w, h, 4)
+            palette = displayio.Palette(4)
+            palette[0] = T.BG
+            palette[1] = T.DIM
+            palette[2] = T.BRAND
+            # A saturated red rule straight across the chart reads as an
+            # alarm rather than a reference: muted tone, sparser dash.
+            palette[3] = T.DANGER
+            palette.make_transparent(0)
+            self._chart_palette = palette
+            self._chart_key = (w, h)
+        bitmap = self._chart
+        palette = self._chart_palette
+        bitmap.fill(0)
 
         def sx(v):
             if x_max <= 0:
@@ -127,15 +146,18 @@ class Display(object):
                 return h - 1
             return int(max(0, min(h - 1, (h - 1) - (v - y_min) / span * (h - 1))))
 
-        def line(x0, y0, x1, y1, idx):
+        def line(x0, y0, x1, y1, idx, dash=0):
             dx = abs(x1 - x0)
             dy = -abs(y1 - y0)
             sxs = 1 if x0 < x1 else -1
             sys_ = 1 if y0 < y1 else -1
             err = dx + dy
+            n = 0
             while True:
-                if 0 <= x0 < w and 0 <= y0 < h:
+                on = True if not dash else (n % (dash * 2)) < dash
+                if on and 0 <= x0 < w and 0 <= y0 < h:
                     bitmap[x0, y0] = idx
+                n += 1
                 if x0 == x1 and y0 == y1:
                     break
                 e2 = 2 * err
@@ -146,20 +168,27 @@ class Display(object):
                     err += dx
                     y0 += sys_
 
-        if liquidus is not None:
-            ly = sy(liquidus)
-            for px in range(0, w, 12):         # sparse dash, 2 on 10 off
-                for d in range(2):
-                    if px + d < w:
-                        bitmap[px + d, ly] = 3
-
+        # No rule across the whole chart. A line spanning the display draws
+        # the eye everywhere and says nothing about where it matters. Instead
+        # the stretch of the TARGET curve that sits above liquidus is drawn
+        # bright and dashed -- that is the part of the run being pointed at.
         for colour, points in series:
             idx = 2 if colour == T.BRAND else 1
             prev = None
+            prev_v = None
             for t, v in points:
                 cur = (sx(t), sy(v))
                 if prev is not None:
-                    line(prev[0], prev[1], cur[0], cur[1], idx)
+                    hot = (liquidus is not None and idx == 1
+                           and (v >= liquidus or prev_v >= liquidus))
+                    line(prev[0], prev[1], cur[0], cur[1],
+                         3 if hot else idx, dash=3 if hot else 0)
                 prev = cur
+                prev_v = v
 
         return displayio.TileGrid(bitmap, pixel_shader=palette, x=x, y=y)
+
+    def _note_font_fallback(self, path, exc):
+        """Say so out loud. A silent fallback to terminalio means a font that
+        failed to load looks merely wrong rather than announcing itself."""
+        print("# font %s failed to load (%r); falling back" % (path, exc))

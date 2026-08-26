@@ -275,5 +275,7 @@ class App(object):
     def _emit(self, name, payload):
         try:
             self.on_event(name, payload)
-        except Exception:
-            pass          # a broken UI must never stop the control loop
+        except Exception as e:
+            # A broken UI must never stop the control loop -- but it should
+            # not be able to hide either.
+            print("# WARNING event handler failed for %s: %r" % (name, e))

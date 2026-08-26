@@ -106,9 +106,9 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
     delta = None if (temp_c is None or target_c is None) else temp_c - target_c
     out = [
         ("text", 6, ROW_READOUT, _t(temp_c), T.BRAND, T.FONT_READOUT),
-        ("rect", 206, 6, 108, T.ABORT_TOUCH_PX, T.DANGER, False),
-        ("text", 232, 36, "ABORT", T.DANGER, T.FONT_LARGE),
-        ("touch", 206, 6, 108, T.ABORT_TOUCH_PX, "abort"),
+        ("rect", 220, 12, 94, T.ABORT_TOUCH_PX, T.DANGER, False),
+        ("text", 229, 36, "ABORT", T.DANGER, T.FONT_LARGE),
+        ("touch", 220, 12, 94, T.ABORT_TOUCH_PX, "abort"),
         ("text", 6, ROW_INFO, _t(delta) + " off",
          T.delta_colour(delta), T.FONT_BODY),
         ("text", 108, ROW_INFO, (stage or "").upper(), T.BRAND, T.FONT_BODY),
@@ -149,14 +149,14 @@ def open_the_door(temp_c, cooling_rate=None, target_rate=None):
     around -5 to -7 C/s open.
     """
     out = [
-        ("text", 6, 28, "OPEN", T.COOL, T.FONT_LARGE),
-        ("text", 6, 60, "THE DOOR", T.COOL, T.FONT_LARGE),
-        ("text", 6, 130, _t(temp_c), T.TEXT, T.FONT_READOUT),
-        ("text", 196, 120, _rate(cooling_rate), T.TEXT, T.FONT_LARGE),
-        ("text", 196, 148, "cooling", T.DIM, T.FONT_BODY),
+        ("text", 6, 30, "OPEN", T.COOL, T.FONT_LARGE),
+        ("text", 6, 62, "THE DOOR", T.COOL, T.FONT_LARGE),
+        ("text", 6, 132, _t(temp_c), T.TEXT, T.FONT_READOUT),
+        ("text", 6, 186, _rate(cooling_rate) + " cooling", T.TEXT,
+         T.FONT_LARGE),
     ]
     if cooling_rate is not None and cooling_rate > -1.5:
-        out.append(("text", 6, 196, "still shut? open it to cool faster",
+        out.append(("text", 6, 218, "still shut? open it to cool faster",
                     T.CAUTION, T.FONT_BODY))
     return out
 

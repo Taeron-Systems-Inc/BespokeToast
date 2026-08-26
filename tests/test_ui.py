@@ -51,6 +51,17 @@ def test_everything_stays_on_screen(name):
 
 
 @pytest.mark.parametrize("name", sorted(SCREENS))
+def test_text_does_not_run_off_the_right_edge(name):
+    for cmd in SCREENS[name]():
+        if cmd[0] != "text":
+            continue
+        _, x, _, text, _, font = cmd
+        end = x + _width(text, font)
+        assert end <= T.SCREEN_W, \
+            "%s: %r ends at %d, past the %d px edge" % (name, text, end, T.SCREEN_W)
+
+
+@pytest.mark.parametrize("name", sorted(SCREENS))
 def test_touch_targets_are_big_enough_for_a_fingertip(name):
     for cmd in SCREENS[name]():
         if cmd[0] == "touch":
@@ -60,18 +71,19 @@ def test_touch_targets_are_big_enough_for_a_fingertip(name):
                     name, target, w, h)
 
 
-def test_abort_is_oversized_and_in_a_corner():
-    """Bigger than any other target and hard against a corner, because it is
-    the one control pressed in a hurry. It moved from bottom-right to
-    top-right when the chart took the lower two thirds of the screen."""
+def test_abort_is_generous_and_in_a_corner():
+    """Comfortably hittable and hard against a corner, because it is the one
+    control pressed in a hurry. It moved from bottom-right to top-right when
+    the chart took the middle of the screen, and was trimmed once it turned
+    out to be larger than it needed to be."""
     cmds = SCREENS["running"]()
     abort = [c for c in cmds if c[0] == "touch" and c[5] == "abort"]
     assert abort, "the run screen must always offer abort"
     _, x, y, w, h, _ = abort[0]
     assert h >= T.ABORT_TOUCH_PX
     assert w >= T.ABORT_TOUCH_PX
-    assert x + w >= T.SCREEN_W - 10
-    assert y <= 10 or y + h >= T.SCREEN_H - 10
+    assert x + w >= T.SCREEN_W - 12, "abort must hug the right edge"
+    assert y <= 20 or y + h >= T.SCREEN_H - 20, "and the top or bottom"
     others = [c for c in cmds if c[0] == "touch" and c[5] != "abort"]
     for _, _, _, ow, oh, _ in others:
         assert w * h >= ow * oh, "abort must be the largest target"
@@ -125,7 +137,7 @@ def test_missing_values_render_as_dashes_not_crashes():
 
 def test_assets_referenced_by_the_theme_exist():
     root = os.path.join(os.path.dirname(__file__), "..", "firmware")
-    for path in (T.FONT_READOUT, T.FONT_READOUT_XL, T.FONT_LARGE,
+    for path in (T.FONT_READOUT, T.FONT_READOUT_MED, T.FONT_LARGE,
                  T.FONT_BODY, T.FONT_SMALL,
                  T.LOGO_LARGE, T.LOGO_SMALL):
         assert os.path.exists(root + path), "%s is referenced but not shipped" % path
@@ -135,7 +147,7 @@ def test_font_budget_stays_small():
     """A full charset at 64 px is 329 KB; subsetting is what makes this fit."""
     root = os.path.join(os.path.dirname(__file__), "..", "firmware")
     total = sum(os.path.getsize(root + p) for p in
-                (T.FONT_READOUT, T.FONT_READOUT_XL, T.FONT_LARGE,
+                (T.FONT_READOUT, T.FONT_READOUT_MED, T.FONT_LARGE,
                  T.FONT_BODY, T.FONT_SMALL))
     assert total < 60000, "fonts total %d bytes" % total
 
@@ -180,11 +192,21 @@ def test_the_readout_font_is_digits_only_and_stays_that_way():
 
 # -- geometry ---------------------------------------------------------------
 
-CHAR_W = {"/assets/fonts/B612-Bold-64.pcf": 38,
-          "/assets/fonts/B612-Bold-48.pcf": 28,
-          "/assets/fonts/B612-24s.pcf": 14,
-          "/assets/fonts/B612-Bold-16s.pcf": 9,
-          "/assets/fonts/B612-12s.pcf": 7}
+def _metrics():
+    """Real per-glyph advance widths, taken from the BDF the fonts were built
+    from. Estimating a single width per font is how the stage strip ended up
+    drawn through the target reading."""
+    import json
+    root = os.path.join(os.path.dirname(__file__), "..", "firmware")
+    return json.load(open(root + "/assets/fonts/metrics.json"))
+
+
+def _width(text, font):
+    m = _metrics().get(font)
+    if m is None:
+        return len(str(text)) * 9
+    widths = m["widths"]
+    return sum(widths.get(str(ord(c)), m["max_width"]) for c in str(text))
 
 
 def _rows(cmds):
@@ -192,7 +214,7 @@ def _rows(cmds):
     for c in cmds:
         if c[0] == "text":
             _, x, y, text, _, font = c
-            rows.setdefault(y, []).append((x, x + len(str(text)) * CHAR_W.get(font, 9), text))
+            rows.setdefault(y, []).append((x, x + _width(text, font), text))
     return rows
 
 
@@ -241,3 +263,22 @@ def test_report_text_is_not_truncated_mid_parenthesis():
         if cmd[0] == "text" and "want" in str(cmd[3]):
             assert cmd[3].count("(") == cmd[3].count(")"), \
                 "%r lost its closing bracket" % cmd[3]
+
+
+@pytest.mark.parametrize("name", sorted(SCREENS))
+def test_button_labels_stay_inside_their_boxes(name):
+    """A label that overflows its outline reads as a rendering fault even
+    when it is technically on screen."""
+    cmds = SCREENS[name]()
+    boxes = [(c[1], c[2], c[3], c[4]) for c in cmds if c[0] == "rect"
+             and not c[6]]
+    for c in cmds:
+        if c[0] != "text":
+            continue
+        _, x, y, text, _, font = c
+        end = x + _width(text, font)
+        for bx, by, bw, bh in boxes:
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                assert end <= bx + bw + 1, \
+                    "%s: %r overflows its box by %d px" % (
+                        name, text, end - (bx + bw))

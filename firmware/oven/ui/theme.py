@@ -22,10 +22,10 @@ COOL = 0x3AA0FF
 SCREEN_W = 320
 SCREEN_H = 240
 
-# The main readout carries its unit -- "234 °C", not "234°" -- so it needs
-# room for six glyphs beside the abort target. 48 px fits; 64 px does not.
-FONT_READOUT = "/assets/fonts/B612-Bold-48.pcf"
-FONT_READOUT_XL = "/assets/fonts/B612-Bold-64.pcf"
+# "234 °C" measures 205 px at 64 px (assets/fonts/metrics.json), which fits
+# beside a sensibly sized abort target.
+FONT_READOUT = "/assets/fonts/B612-Bold-64.pcf"
+FONT_READOUT_MED = "/assets/fonts/B612-Bold-48.pcf"
 FONT_LARGE = "/assets/fonts/B612-24s.pcf"
 FONT_BODY = "/assets/fonts/B612-Bold-16s.pcf"
 FONT_SMALL = "/assets/fonts/B612-12s.pcf"
@@ -36,7 +36,7 @@ LOGO_SMALL = "/assets/taeron-logo-120.bmp"
 # Resistive touch with a fingertip is imprecise. Anything the operator has to
 # hit under time pressure gets at least this, and ABORT gets more.
 MIN_TOUCH_PX = 44
-ABORT_TOUCH_PX = 60
+ABORT_TOUCH_PX = 48
 
 # Colour for how far the oven is from where it should be.
 DELTA_GOOD_C = 3.0

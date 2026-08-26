@@ -93,9 +93,10 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
         out.append(("text", 6, 150, "above liquidus %ds" % int(tal_s),
                     colour, T.FONT_BODY))
     out += [
-        ("rect", 6, 176, 120, 12, T.DIM, False),
-        ("rect", 7, 177, int(118 * max(0.0, min(1.0, duty or 0.0))), 10,
-         T.BRAND if relay_on else T.DIM, True),
+        ("text", 6, 176, "HEAT ON" if relay_on else "heat off",
+         T.BRAND if relay_on else T.DIM, T.FONT_BODY),
+        ("text", 96, 176, "%d%%" % int(round((duty or 0.0) * 100)),
+         T.TEXT, T.FONT_BODY),
         ("rect", 314 - T.ABORT_TOUCH_PX * 2, 240 - T.ABORT_TOUCH_PX - 6,
          T.ABORT_TOUCH_PX * 2, T.ABORT_TOUCH_PX, T.DANGER, False),
         ("text", 314 - T.ABORT_TOUCH_PX * 2 + 26, 240 - T.ABORT_TOUCH_PX + 16,
@@ -108,8 +109,8 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
 
 def open_the_door(temp_c, cooling_rate):
     return [
-        ("text", 6, 40, "OPEN", T.COOL, T.FONT_READOUT),
-        ("text", 6, 110, "THE DOOR", T.COOL, T.FONT_LARGE),
+        ("text", 6, 44, "OPEN", T.COOL, T.FONT_LARGE),
+        ("text", 6, 76, "THE DOOR", T.COOL, T.FONT_LARGE),
         ("text", 6, 150, _fmt(temp_c, " C", 0), T.TEXT, T.FONT_BODY),
         ("text", 140, 150, _fmt(cooling_rate, " C/s", 2), T.TEXT, T.FONT_BODY),
         ("text", 6, 180, "cooling faster than this needs the door open",
@@ -120,7 +121,7 @@ def open_the_door(temp_c, cooling_rate):
 def fault(message):
     return [
         ("rect", 0, 0, T.SCREEN_W, T.SCREEN_H, T.DANGER, False),
-        ("text", 6, 30, "FAULT", T.DANGER, T.FONT_READOUT),
+        ("text", 6, 30, "FAULT", T.DANGER, T.FONT_LARGE),
         ("text", 6, 110, message[:38], T.TEXT, T.FONT_BODY),
         ("text", 6, 134, message[38:76], T.TEXT, T.FONT_BODY),
         ("text", 6, 168, "heat is off and stays off until acknowledged",

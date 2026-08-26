@@ -232,3 +232,14 @@ def test_a_lying_melting_point_in_the_file_cannot_move_the_stages():
     p = Profile.from_dict(d)
     good = Profile.load(os.path.join(PROFILES, "4900p-as-run.json"))
     assert p.stages == good.stages
+
+
+def test_a_profile_can_nominate_itself_as_the_default():
+    """Alphabetical order picks the profile this oven cannot follow, so the
+    derived one declares itself instead."""
+    names = [f for f in os.listdir(PROFILES) if f.endswith(".json")]
+    loaded = [Profile.load(os.path.join(PROFILES, n)) for n in sorted(names)]
+    defaults = [p for p in loaded if p.is_default]
+    assert len(defaults) == 1, "exactly one profile must be the default"
+    assert "this oven" in defaults[0].name
+    assert not loaded[0].is_default, "the default is not first alphabetically"

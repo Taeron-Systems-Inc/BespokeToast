@@ -114,3 +114,41 @@ def test_font_budget_stays_small():
     total = sum(os.path.getsize(root + p) for p in
                 (T.FONT_READOUT, T.FONT_LARGE, T.FONT_BODY, T.FONT_SMALL))
     assert total < 60000, "fonts total %d bytes" % total
+
+
+# -- font coverage ----------------------------------------------------------
+
+def _coverage():
+    import json
+    root = os.path.join(os.path.dirname(__file__), "..", "firmware")
+    return json.load(open(root + "/assets/fonts/coverage.json"))
+
+
+@pytest.mark.parametrize("name", sorted(SCREENS))
+def test_every_string_uses_glyphs_its_font_actually_has(name):
+    """The readout font is subsetted to digits: a full charset at 64 px costs
+    329 KB to draw ten numerals. Rendering a letter in it does not fall back,
+    it raises TypeError deep inside adafruit_display_text.
+
+    This shipped. The word OPEN was drawn in the digits-only font, so the
+    firmware died the moment it entered cooldown -- and the fault screen had
+    the same bug, which would have crashed the one screen that must survive.
+    """
+    cov = _coverage()
+    for cmd in SCREENS[name]():
+        if cmd[0] != "text":
+            continue
+        _, _, _, text, _, font = cmd
+        if font not in cov:
+            continue
+        missing = sorted(set(str(text)) - set(cov[font]))
+        assert not missing, (
+            "%s: %r needs %r which is not in %s"
+            % (name, text, "".join(missing), font.rsplit("/", 1)[-1]))
+
+
+def test_the_readout_font_is_digits_only_and_stays_that_way():
+    cov = _coverage()
+    readout = set(cov["/assets/fonts/B612-Bold-64.pcf"])
+    assert "O" not in readout and "A" not in readout
+    assert set("0123456789.") <= readout

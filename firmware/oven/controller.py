@@ -103,7 +103,8 @@ class PID(object):
     """
 
     def __init__(self, kp=0.02, ki=0.0008, kd=0.4,
-                 out_min=-1.0, out_max=1.0, i_min=-0.5, i_max=0.5):
+                 out_min=-1.0, out_max=1.0, i_min=-0.5, i_max=0.5,
+                 derivative_window_s=3.0):
         self.kp = kp
         self.ki = ki
         self.kd = kd
@@ -111,16 +112,31 @@ class PID(object):
         self.out_max = out_max
         self.i_min = i_min
         self.i_max = i_max
+        # The derivative is taken across this much history rather than
+        # between adjacent samples. At a 4 Hz cadence with a thermocouple
+        # quantised to 0.0625 C, one quantisation step between neighbours
+        # reads as 0.25 C/s of slope that is not there; with kd=0.5 that is a
+        # 0.125 swing in commanded duty out of pure noise, and a 0.5 C jump
+        # saturates the term. Measured on hardware, it turned a smooth demand
+        # into duty hopping between 0.0 and 1.0 several times a second and
+        # cost roughly three times the expected relay actuations.
+        self.derivative_window_s = derivative_window_s
         self.reset()
 
     def reset(self):
         self._i = 0.0
         self._last_meas = None
         self._last_t = None
+        self._history = []
 
     def update(self, t, setpoint, measured):
         err = setpoint - measured
         p = self.kp * err
+
+        self._history.append((t, measured))
+        cutoff = t - self.derivative_window_s * 2
+        while len(self._history) > 2 and self._history[0][0] < cutoff:
+            self._history.pop(0)
 
         d = 0.0
         i_candidate = self._i
@@ -128,9 +144,12 @@ class PID(object):
             dt = t - self._last_t
             if dt > 0:
                 i_candidate = self._i + self.ki * err * dt
-                # derivative on measurement, negated: opposes movement,
-                # and a setpoint step cannot spike it
-                d = -self.kd * (measured - self._last_meas) / dt
+                # Derivative on measurement, negated: it opposes movement, and
+                # a setpoint step cannot spike it. Taken across the window so
+                # sensor quantisation does not masquerade as slope.
+                span = self._slope(t)
+                if span is not None:
+                    d = -self.kd * span
 
         out = p + i_candidate + d
         # Anti-windup: only let the integral accumulate if doing so does not
@@ -147,6 +166,21 @@ class PID(object):
         self._last_t = t
         return clamp(p + self._i + d, self.out_min, self.out_max)
 
+    def _slope(self, now):
+        """Rate of change of the measurement over the derivative window."""
+        oldest = None
+        for ts, value in self._history:
+            if now - ts <= self.derivative_window_s:
+                oldest = (ts, value)
+                break
+        if oldest is None or len(self._history) < 2:
+            return None
+        t1, v1 = self._history[-1]
+        t0, v0 = oldest
+        if t1 - t0 < self.derivative_window_s * 0.5:
+            return None            # not enough history yet to trust a slope
+        return (v1 - v0) / (t1 - t0)
+
 
 class TimeProportional(object):
     """Turns a 0-1 duty request into relay states over a fixed window.
@@ -158,7 +192,7 @@ class TimeProportional(object):
     window.
     """
 
-    def __init__(self, window_s=2.0, min_on_s=0.4, min_off_s=0.4):
+    def __init__(self, window_s=4.0, min_on_s=0.8, min_off_s=0.8):
         self.window_s = window_s
         self.min_on_s = min_on_s
         self.min_off_s = min_off_s

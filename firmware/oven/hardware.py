@@ -21,6 +21,8 @@ import digitalio
 import microcontroller
 import time
 
+import adafruit_touchscreen
+
 from adafruit_mcp9600 import MCP9600
 
 from . import hal
@@ -117,6 +119,39 @@ class Thermocouple(object):
         return buf[0]
 
 
+class Touchscreen(object):
+    """Resistive touch panel.
+
+    Calibration carried over from the previous firmware, which is the only
+    place it was ever recorded. It should be re-derived at some point, but
+    it demonstrably worked on this panel.
+    """
+
+    CALIBRATION = ((5200, 59000), (5800, 57000))
+
+    def __init__(self):
+        self._ts = adafruit_touchscreen.Touchscreen(
+            board.TOUCH_XL, board.TOUCH_XR, board.TOUCH_YD, board.TOUCH_YU,
+            calibration=self.CALIBRATION,
+            size=(board.DISPLAY.width, board.DISPLAY.height))
+        self._was_down = False
+
+    def press(self):
+        """Return (x, y) once per touch, on the press edge.
+
+        Edge-triggered deliberately: a held finger must not repeat an action,
+        and START is not something to trigger twice.
+        """
+        point = self._ts.touch_point
+        if point is None:
+            self._was_down = False
+            return None
+        if self._was_down:
+            return None
+        self._was_down = True
+        return (point[0], point[1])
+
+
 class Clock(object):
     def monotonic(self):
         return time.monotonic()
@@ -138,6 +173,7 @@ class Hardware(object):
         self.relay = Relay()          # first: the pin is claimed and driven low
         self.clock = Clock()
         self.sensor = Thermocouple()
+        self.touch = Touchscreen()
 
     def safe(self):
         self.relay.off()

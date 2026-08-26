@@ -62,7 +62,15 @@ def main():
         coast = 1.2
 
     profiles = load_profiles()
-    selected = profiles[0] if profiles else None
+    # Alphabetical order would select "4900P (as run)", which measurement
+    # shows this oven cannot follow. A profile may declare itself the default.
+    selected = None
+    for p in profiles:
+        if getattr(p, "is_default", False):
+            selected = p
+            break
+    if selected is None and profiles:
+        selected = profiles[0]
 
     display.render(L.splash(VERSION))
     time.sleep(1.2)
@@ -80,11 +88,47 @@ def main():
         return Controller(profile, coast_tau_s=coast, feed_forward=ff,
                           pid=PID(kp=0.03, ki=0.0015, kd=0.5))
 
-    app = App(hw.relay, hw.sensor, hw.clock, make_controller)
+    # Every control step is printed as CSV on the serial console. The
+    # previous firmware kept no record of any run it ever performed; a host
+    # capturing this gets the whole run without the device needing storage.
+    print("# t,state,temp_c,target_c,duty,relay,cold_c")
+
+    def emit(row):
+        print("%.2f,%s,%s,%s,%.3f,%d,%s" % (
+            row["t"], row["state"],
+            "" if row["temp"] is None else "%.4f" % row["temp"],
+            "" if row["target"] is None else "%.2f" % row["target"],
+            row["duty"] or 0.0, 1 if row["relay"] else 0,
+            "" if row["cold"] is None else "%.2f" % row["cold"]))
+
+    def announce(name, payload):
+        print("# event %s %s" % (name, payload))
+
+    app = App(hw.relay, hw.sensor, hw.clock, make_controller,
+              on_event=announce, sample=emit)
 
     screen = []
     while True:
         app.tick()
+
+        # Touch is polled outside the control step: a press must not be able
+        # to delay a control step, and a missed press is merely annoying.
+        point = hw.touch.press()
+        if point is not None:
+            action = L.hit(screen, point[0], point[1])
+            if action == "start" and selected is not None:
+                problem = app.request_start(selected)
+                if problem is not None:
+                    print("# start refused: %s" % problem.message)
+            elif action == "abort":
+                app.abort()
+            elif action == "acknowledge":
+                app.acknowledge_fault()
+            elif action == "done":
+                app.state = STATE_IDLE
+            elif action == "profiles" and profiles:
+                selected = profiles[(profiles.index(selected) + 1) % len(profiles)] \
+                    if selected in profiles else profiles[0]
 
         if app.state == STATE_FAULT:
             screen = L.fault(app.fault.message if app.fault else "unknown")

@@ -52,7 +52,15 @@ class Display(object):
         self._current = commands
         group = displayio.Group()
         for cmd in commands:
-            item = self._build(cmd)
+            try:
+                item = self._build(cmd)
+            except Exception as e:
+                # A single unrenderable element -- a glyph missing from a
+                # subsetted font, say -- must not take the display down. It
+                # took down the cooldown screen, and would have taken down
+                # the fault screen, which is the one that has to work.
+                print("# render failed for %r: %r" % (cmd[:1], e))
+                item = None
             if item is not None:
                 group.append(item)
         self.group = group

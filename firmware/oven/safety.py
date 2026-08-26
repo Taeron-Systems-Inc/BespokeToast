@@ -52,13 +52,14 @@ class Limits(object):
     __slots__ = ("max_temp_c", "max_rate_c_per_s", "max_enclosure_c",
                  "stall_window_s", "stall_min_rise_c", "max_run_s",
                  "sensor_stale_s", "sensor_frozen_s", "start_min_c",
-                 "start_max_c")
+                 "start_max_c", "rate_window_s")
 
-    def __init__(self, max_temp_c=260.0, max_rate_c_per_s=5.0,
+    def __init__(self, max_temp_c=260.0, max_rate_c_per_s=4.0,
                  max_enclosure_c=60.0, stall_window_s=90.0,
                  stall_min_rise_c=2.0, max_run_s=3600.0,
                  sensor_stale_s=3.0, sensor_frozen_s=30.0,
-                 start_min_c=5.0, start_max_c=60.0):
+                 start_min_c=5.0, start_max_c=60.0,
+                 rate_window_s=3.0):
         self.max_temp_c = max_temp_c
         self.max_rate_c_per_s = max_rate_c_per_s
         self.max_enclosure_c = max_enclosure_c
@@ -69,6 +70,12 @@ class Limits(object):
         self.sensor_frozen_s = sensor_frozen_s
         self.start_min_c = start_min_c
         self.start_max_c = start_max_c
+        # Rate is measured across this window, not between adjacent samples.
+        # At 4 Hz on a probe quantised to 0.0625 C, ordinary noise shows up as
+        # 8-11 C/s between neighbours on an oven whose real maximum is
+        # 1.85 C/s -- so a neighbour-to-neighbour limit is certain to trip on
+        # nothing at all. It did, mid-run, on the bench.
+        self.rate_window_s = rate_window_s
 
 
 class Fault(object):
@@ -101,6 +108,7 @@ class Supervisor(object):
         self._temp_at_relay_on = None
         self._frozen_since = None
         self._frozen_value = None
+        self._rate_history = []
 
     # -- state -------------------------------------------------------------
 
@@ -124,6 +132,7 @@ class Supervisor(object):
         self._temp_at_relay_on = None
         self._frozen_since = None
         self._frozen_value = None
+        self._rate_history = []
 
     def _trip(self, code, detail, t):
         if self.fault is None:            # keep the first cause, not the last
@@ -147,7 +156,8 @@ class Supervisor(object):
         if not (lim.start_min_c <= reading.hot <= lim.start_max_c):
             return Fault(
                 FAULT_IMPLAUSIBLE_START,
-                "%.1f C is outside the %.0f-%.0f C band expected before a run"
+                "%.1f \u00b0C is outside the %.0f-%.0f \u00b0C band expected "
+                "before a run"
                 % (reading.hot, lim.start_min_c, lim.start_max_c))
         return None
 
@@ -160,6 +170,22 @@ class Supervisor(object):
         self._reset_tracking()
 
     # -- the per-step check ------------------------------------------------
+
+    def _windowed_rate(self, now, window_s):
+        """Rate of rise across the window, or None until there is enough
+        history to mean anything."""
+        oldest = None
+        for ts, value in self._rate_history:
+            if now - ts <= window_s:
+                oldest = (ts, value)
+                break
+        if oldest is None or len(self._rate_history) < 2:
+            return None
+        t1, v1 = self._rate_history[-1]
+        t0, v0 = oldest
+        if t1 - t0 < window_s * 0.5:
+            return None
+        return (v1 - v0) / (t1 - t0)
 
     def update(self, t, reading, relay_on):
         """Evaluate one control step. Returns the active Fault, or None.
@@ -185,13 +211,13 @@ class Supervisor(object):
         # Absolute ceiling. Checked first: it is the one that matters most.
         if temp >= lim.max_temp_c:
             return self._trip(FAULT_OVER_TEMP,
-                              "%.1f C reached the %.1f C limit"
+                              "%.1f \u00b0C reached the %.1f \u00b0C limit"
                               % (temp, lim.max_temp_c), t)
 
         # The enclosure holds the electronics and sits beside the oven.
         if reading.cold is not None and reading.cold >= lim.max_enclosure_c:
             return self._trip(FAULT_ENCLOSURE,
-                              "%.1f C inside the enclosure, limit %.1f C"
+                              "%.1f \u00b0C inside the enclosure, limit %.1f \u00b0C"
                               % (reading.cold, lim.max_enclosure_c), t)
 
         if self._run_start is not None and t - self._run_start > lim.max_run_s:
@@ -209,12 +235,17 @@ class Supervisor(object):
                     FAULT_SENSOR_STALE,
                     "%.1f s without a check while heating" % dt, t)
 
-            if dt > 0:
-                rate = (temp - self._last_temp) / dt
-                if rate > lim.max_rate_c_per_s:
-                    return self._trip(
-                        FAULT_RATE, "%.1f C/s exceeds %.1f C/s"
-                        % (rate, lim.max_rate_c_per_s), t)
+        self._rate_history.append((t, temp))
+        cutoff = t - lim.rate_window_s * 2
+        while len(self._rate_history) > 2 and self._rate_history[0][0] < cutoff:
+            self._rate_history.pop(0)
+        rate = self._windowed_rate(t, lim.rate_window_s)
+        if rate is not None and rate > lim.max_rate_c_per_s:
+            return self._trip(
+                FAULT_RATE, "%.1f \u00b0C/s over %.0f s exceeds %.1f \u00b0C/s"
+                % (rate, lim.rate_window_s, lim.max_rate_c_per_s), t)
+
+
 
         # A thermocouple reading the identical value for a long stretch while
         # heat is being applied is not measuring anything.
@@ -225,7 +256,7 @@ class Supervisor(object):
             elif t - self._frozen_since > lim.sensor_frozen_s:
                 return self._trip(
                     FAULT_SENSOR_FROZEN,
-                    "%.2f C unchanged for %.0f s while heating"
+                    "%.2f \u00b0C unchanged for %.0f s while heating"
                     % (temp, t - self._frozen_since), t)
         else:
             self._frozen_value = None
@@ -241,7 +272,7 @@ class Supervisor(object):
                 if rise < lim.stall_min_rise_c:
                     return self._trip(
                         FAULT_STALL,
-                        "%.1f C rise over %.0f s of heating"
+                        "%.1f \u00b0C rise over %.0f s of heating"
                         % (rise, t - self._relay_on_since), t)
                 self._relay_on_since = t
                 self._temp_at_relay_on = temp

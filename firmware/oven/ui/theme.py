@@ -14,10 +14,11 @@ render ten numerals.
 BG = 0x000000
 BRAND = 0xC1D72E      # Taeron wordmark
 TEXT = 0xFFFFFF
-DIM = 0x555555
+DIM = 0x8C8C96
 CAUTION = 0xFFB000
 DANGER = 0xFF3B30
 COOL = 0x3AA0FF
+FAINT = 0x4A4A52     # chart grid only, never type
 
 SCREEN_W = 320
 SCREEN_H = 240

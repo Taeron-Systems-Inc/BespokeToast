@@ -218,10 +218,21 @@ def test_refusing_to_start_does_not_latch():
     assert s.allow_heat(), "a refused start should not need acknowledgement"
 
 
-def test_a_step_change_too_large_to_be_real_trips_the_rate_guard(sup):
-    """Writing the ceiling test naively surfaced this: a jump of 100 C
-    between samples is not an over-temperature event, it is a broken
-    measurement, and the rate guard is the one that should say so."""
-    f = run(sup, [100.0, 200.0], step=0.25)
+def test_a_sustained_impossible_rise_trips_the_rate_guard(sup):
+    """A rise the oven cannot physically produce, held long enough to be
+    real, must trip."""
+    f = run(sup, [100.0 + i * 2.5 for i in range(40)], step=0.25)
     assert f.code == FAULT_RATE
     assert not sup.allow_heat()
+
+
+def test_a_single_noisy_sample_does_not_trip_the_rate_guard(sup):
+    """Measured on hardware: at 4 Hz on a probe quantised to 0.0625 C,
+    neighbour-to-neighbour rates of 7-11 C/s show up in ordinary data on an
+    oven whose real maximum is 1.85 C/s. Judging rate between adjacent
+    samples faulted a healthy run mid-profile. The guard now measures across
+    a window, where the same data peaks at 1.79 C/s."""
+    temps = [100.0 + i * 0.2 for i in range(40)]
+    temps[20] += 2.0                    # one spike, gone by the next sample
+    assert run(sup, temps, step=0.25) is None
+    assert sup.allow_heat()

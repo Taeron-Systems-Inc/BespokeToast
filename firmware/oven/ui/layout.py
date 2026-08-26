@@ -20,6 +20,78 @@ from . import theme as T
 
 DEG = "\u00b0"
 
+_METRICS = None
+
+
+def _metrics():
+    """Per-glyph advance widths for the shipped fonts.
+
+    Loaded once. Centring a label by eye is what left START, PROFILES and
+    ACKNOWLEDGE each sitting at a different offset inside their boxes.
+    """
+    global _METRICS
+    if _METRICS is None:
+        import json
+        # "/assets/..." is where it lives on the device; the second path is
+        # the same file in the source tree, so the layout tests measure with
+        # the same numbers the firmware does. Falling back silently to an
+        # estimate meant the tests passed while the device mis-centred every
+        # button.
+        for path in ("/assets/fonts/metrics.json",
+                     __file__.rsplit("/", 3)[0] + "/assets/fonts/metrics.json"):
+            try:
+                with open(path) as f:
+                    _METRICS = json.load(f)
+                    break
+            except Exception:
+                continue
+        if _METRICS is None:
+            _METRICS = {}
+    return _METRICS
+
+
+def text_width(text, font):
+    m = _metrics().get(font)
+    if not m:
+        return len(str(text)) * 9
+    widths = m["widths"]
+    return sum(widths.get(str(ord(c)), m["max_width"]) for c in str(text))
+
+
+def button(x, y, w, h, label, colour, name, font=None):
+    """A box with its label centred in it, and a matching touch target.
+
+    Every button on every screen goes through here so they cannot drift apart
+    in font, alignment or size.
+    """
+    font = font or T.FONT_BODY
+    tx = x + max(0, (w - text_width(label, font)) // 2)
+    return [("rect", x, y, w, h, colour, False),
+            ("text", tx, y + h // 2, label, colour, font),
+            ("touch", x, y, w, h, name)]
+
+
+def wrap(text, font, width_px, max_lines=3):
+    """Break on spaces, not mid-word.
+
+    Slicing at a fixed character count split "exceeds" into "e" and "xceeds"
+    on the fault screen, which is where legibility matters most.
+    """
+    words = str(text).split()
+    lines, current = [], ""
+    for word in words:
+        candidate = (current + " " + word).strip()
+        if current and text_width(candidate, font) > width_px:
+            lines.append(current)
+            current = word
+            if len(lines) == max_lines:
+                break
+        else:
+            current = candidate
+    if current and len(lines) < max_lines:
+        lines.append(current)
+    return lines
+
 
 def _t(value, unit=True):
     """A temperature, written the way anyone would write it: "234 °C".
@@ -65,27 +137,26 @@ def home(temp_c, profile_name, ready, reason=None):
     out = [
         ("bitmap", 6, 6, T.LOGO_SMALL),
         ("text", 6, 76, _t(temp_c), T.BRAND, T.FONT_READOUT),
-        ("text", 6, 132, profile_name or "no profile", T.TEXT, T.FONT_BODY),
+        ("text", 6, 134, profile_name or "no profile", T.TEXT, T.FONT_BODY),
     ]
     if ready:
-        out += [("rect", 6, 176, 150, T.ABORT_TOUCH_PX, T.BRAND, False),
-                ("text", 42, 206, "START", T.BRAND, T.FONT_LARGE),
-                ("touch", 6, 176, 150, T.ABORT_TOUCH_PX, "start")]
+        out += button(6, 176, 150, T.ABORT_TOUCH_PX, "START", T.BRAND,
+                      "start", T.FONT_LARGE)
     else:
-        out += [("text", 6, 176, reason or "not ready", T.CAUTION, T.FONT_BODY)]
-    out += [("rect", 176, 176, 138, T.MIN_TOUCH_PX, T.DIM, False),
-            ("text", 198, 198, "PROFILES", T.TEXT, T.FONT_BODY),
-            ("touch", 176, 176, 138, T.MIN_TOUCH_PX, "profiles")]
+        out += [("text", 6, 176, reason or "not ready", T.CAUTION,
+                 T.FONT_BODY)]
+    out += button(176, 176, 138, T.ABORT_TOUCH_PX, "PROFILES", T.TEXT,
+                  "profiles", T.FONT_LARGE)
     return out
 
 
 # Label.y in displayio is the vertical CENTRE of the text, not its top. A
 # 64 px readout placed at y=4 is half off the screen; these are centres.
-CHART = (6, 84, 308, 104)          # x, y, w, h
+CHART = (6, 100, 308, 92)          # x, y, w, h
 
-ROW_READOUT = 36
-ROW_INFO = 72
-ROW_FOOT = 206
+ROW_READOUT = 36        # 64 px type, so it occupies y = 4..68
+ROW_INFO = 84           # clear of it: 16 px type occupies y = 76..92
+ROW_FOOT = 208
 
 
 def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
@@ -104,11 +175,10 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
     stage is named.
     """
     delta = None if (temp_c is None or target_c is None) else temp_c - target_c
-    out = [
+    out = button(220, 12, 94, T.ABORT_TOUCH_PX, "ABORT", T.DANGER, "abort",
+                 T.FONT_LARGE)
+    out += [
         ("text", 6, ROW_READOUT, _t(temp_c), T.BRAND, T.FONT_READOUT),
-        ("rect", 220, 12, 94, T.ABORT_TOUCH_PX, T.DANGER, False),
-        ("text", 229, 36, "ABORT", T.DANGER, T.FONT_LARGE),
-        ("touch", 220, 12, 94, T.ABORT_TOUCH_PX, "abort"),
         ("text", 6, ROW_INFO, _t(delta) + " off",
          T.delta_colour(delta), T.FONT_BODY),
         ("text", 108, ROW_INFO, (stage or "").upper(), T.BRAND, T.FONT_BODY),
@@ -162,17 +232,26 @@ def open_the_door(temp_c, cooling_rate=None, target_rate=None):
 
 
 def fault(message):
-    return [
+    """The one screen that has to work.
+
+    The message is wrapped on word boundaries: slicing at a fixed character
+    count split "exceeds" across two lines as "e" and "xceeds", which is not
+    what you want to be reading while an oven cools down.
+    """
+    lines = wrap(message, T.FONT_BODY, 296, max_lines=3)
+    out = [
         ("rect", 0, 0, T.SCREEN_W, T.SCREEN_H, T.DANGER, False),
-        ("text", 6, 40, "FAULT", T.DANGER, T.FONT_LARGE),
-        ("text", 6, 110, message[:38], T.TEXT, T.FONT_BODY),
-        ("text", 6, 134, message[38:76], T.TEXT, T.FONT_BODY),
-        ("text", 6, 168, "heat is off and stays off until acknowledged",
-         T.DIM, T.FONT_SMALL),
-        ("rect", 6, 190, 200, T.MIN_TOUCH_PX, T.DANGER, False),
-        ("text", 30, 208, "ACKNOWLEDGE", T.DANGER, T.FONT_BODY),
-        ("touch", 6, 190, 200, T.MIN_TOUCH_PX, "acknowledge"),
+        ("text", 12, 34, "FAULT", T.DANGER, T.FONT_LARGE),
     ]
+    y = 84
+    for line in lines:
+        out.append(("text", 12, y, line, T.TEXT, T.FONT_BODY))
+        y += 24
+    out.append(("text", 12, 160, "heat is off until acknowledged",
+                T.DIM, T.FONT_BODY))
+    out += button(12, 180, 200, T.ABORT_TOUCH_PX, "ACKNOWLEDGE", T.DANGER,
+                  "acknowledge", T.FONT_LARGE)
+    return out
 
 
 def report(checks, peak_c, tal_s):
@@ -185,9 +264,8 @@ def report(checks, peak_c, tal_s):
         out.append(("text", 150, y, text[:30],
                     T.BRAND if ok else T.DANGER, T.FONT_SMALL))
         y += 22
-    out.append(("rect", 6, 186, 140, T.MIN_TOUCH_PX, T.BRAND, False))
-    out.append(("text", 46, 208, "DONE", T.BRAND, T.FONT_BODY))
-    out.append(("touch", 6, 186, 140, T.MIN_TOUCH_PX, "done"))
+    out += button(6, 186, 140, T.ABORT_TOUCH_PX, "DONE", T.BRAND, "done",
+                  T.FONT_LARGE)
     return out
 
 

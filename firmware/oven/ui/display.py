@@ -110,7 +110,10 @@ class Display(object):
         palette[0] = T.BG
         palette[1] = T.DIM
         palette[2] = T.BRAND
-        palette[3] = T.DANGER
+        # A saturated red rule straight across the chart reads as an alarm
+        # rather than as a reference, so the liquidus gets a muted tone and a
+        # sparser dash.
+        palette[3] = 0x7A2A28
         palette.make_transparent(0)
 
         def sx(v):
@@ -145,8 +148,8 @@ class Display(object):
 
         if liquidus is not None:
             ly = sy(liquidus)
-            for px in range(0, w, 6):          # dashed
-                for d in range(3):
+            for px in range(0, w, 12):         # sparse dash, 2 on 10 off
+                for d in range(2):
                     if px + d < w:
                         bitmap[px + d, ly] = 3
 

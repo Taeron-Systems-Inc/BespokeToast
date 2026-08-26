@@ -46,6 +46,8 @@ class Display(object):
         self._chart = None
         self._chart_key = None
         self._chart_palette = None
+        self._chart_drawn = None      # how many points of each series are on it
+        self._chart_grid = None
 
     def _set_root(self, group):
         # display.show() was removed in CircuitPython 9.
@@ -119,6 +121,19 @@ class Display(object):
         runs the heap out of contiguous space within a couple of minutes.
         """
         _, x, y, w, h, x_max, y_min, y_max, series, liquidus = cmd
+        # Scales and the target curve do not change within a run, and the
+        # measured trace only ever grows. So the chart is drawn INCREMENTALLY:
+        # a full clear-and-redraw every frame meant displayio could refresh
+        # while the buffer was blank, which is the flicker. Clearing only
+        # happens when the geometry changes or a series gets shorter, which
+        # means a new run.
+        shape = (w, h, x_max, y_max, liquidus, len(series))
+        counts = [len(pts) for _, pts in series]
+        full = (self._chart_drawn is None
+                or self._chart_drawn[0] != shape
+                or len(self._chart_drawn[1]) != len(counts)
+                or any(new < old for new, old in
+                       zip(counts, self._chart_drawn[1])))
         if self._chart_key != (w, h):
             self._chart = displayio.Bitmap(w, h, 4)
             palette = displayio.Palette(4)
@@ -131,9 +146,15 @@ class Display(object):
             palette.make_transparent(0)
             self._chart_palette = palette
             self._chart_key = (w, h)
+            full = True
         bitmap = self._chart
         palette = self._chart_palette
-        bitmap.fill(0)
+        if full:
+            bitmap.fill(0)
+            start_at = [0] * len(series)
+        else:
+            # resume one point back so the joining segment is not left out
+            start_at = [max(0, n - 1) for n in self._chart_drawn[1]]
 
         def sx(v):
             if x_max <= 0:
@@ -172,21 +193,35 @@ class Display(object):
         # the eye everywhere and says nothing about where it matters. Instead
         # the stretch of the TARGET curve that sits above liquidus is drawn
         # bright and dashed -- that is the part of the run being pointed at.
-        for colour, points in series:
+        for i, (colour, points) in enumerate(series):
             idx = 2 if colour == T.BRAND else 1
+            begin = start_at[i]
+            if begin >= len(points):
+                continue
             prev = None
             prev_v = None
-            for t, v in points:
+            for t, v in points[begin:]:
                 cur = (sx(t), sy(v))
                 if prev is not None:
                     hot = (liquidus is not None and idx == 1
                            and (v >= liquidus or prev_v >= liquidus))
-                    line(prev[0], prev[1], cur[0], cur[1],
-                         3 if hot else idx, dash=3 if hot else 0)
+                    colour_idx = 3 if hot else idx
+                    # The target curve is drawn two pixels thick so it reads
+                    # clearly against the measured trace; solid rather than
+                    # dashed above liquidus, since a broken line is harder to
+                    # follow exactly where it matters most.
+                    line(prev[0], prev[1], cur[0], cur[1], colour_idx)
+                    if idx == 1:
+                        line(prev[0], prev[1] + 1, cur[0], cur[1] + 1,
+                             colour_idx)
                 prev = cur
                 prev_v = v
+        self._chart_drawn = (shape, counts)
 
-        return displayio.TileGrid(bitmap, pixel_shader=palette, x=x, y=y)
+        if self._chart_grid is None or full:
+            self._chart_grid = displayio.TileGrid(bitmap, pixel_shader=palette,
+                                                  x=x, y=y)
+        return self._chart_grid
 
     def _note_font_fallback(self, path, exc):
         """Say so out loud. A silent fallback to terminalio means a font that

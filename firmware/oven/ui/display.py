@@ -47,7 +47,6 @@ class Display(object):
         self._chart_key = None
         self._chart_palette = None
         self._chart_drawn = None      # how many points of each series are on it
-        self._chart_grid = None
 
     def _set_root(self, group):
         # display.show() was removed in CircuitPython 9.
@@ -218,10 +217,12 @@ class Display(object):
                 prev_v = v
         self._chart_drawn = (shape, counts)
 
-        if self._chart_grid is None or full:
-            self._chart_grid = displayio.TileGrid(bitmap, pixel_shader=palette,
-                                                  x=x, y=y)
-        return self._chart_grid
+        # A fresh TileGrid each frame, over the SAME bitmap. Reusing the
+        # TileGrid raises "Layer already in a group": render builds a new
+        # Group each frame, and displayio will not have one layer in two.
+        # The bitmap is the expensive object and it is what gets reused; a
+        # TileGrid is a cheap wrapper.
+        return displayio.TileGrid(bitmap, pixel_shader=palette, x=x, y=y)
 
     def _note_font_fallback(self, path, exc):
         """Say so out loud. A silent fallback to terminalio means a font that

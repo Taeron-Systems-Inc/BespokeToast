@@ -60,8 +60,13 @@ def load_profiles():
     return out
 
 
+HARDWARE = None
+
+
 def main():
+    global HARDWARE
     hw = Hardware()                    # claims D4 and drives it low
+    HARDWARE = hw
     display = Display(board.DISPLAY)
 
     data = load_characterisation()
@@ -221,12 +226,21 @@ finally:
     # Whatever happens, stop heating. CircuitPython releases the pin on the
     # way out anyway and this oven's relay has a pulldown, but saying it
     # explicitly costs nothing.
+    # Use the relay object that already owns the pin. Constructing a second
+    # DigitalInOut on D4 raises "D4 in use" and the drive-low never happens --
+    # which is exactly what occurred when the run crashed, leaving the
+    # hardware pulldown as the only thing holding the relay off. It held, but
+    # the belt-and-braces did not.
     try:
-        import digitalio
-        _r = digitalio.DigitalInOut(board.D4)
-        _r.direction = digitalio.Direction.OUTPUT
-        _r.value = False
-        print("# relay driven low on exit")
+        if HARDWARE is not None:
+            HARDWARE.relay.off()
+            print("# relay driven low on exit")
+        else:
+            import digitalio
+            _r = digitalio.DigitalInOut(board.D4)
+            _r.direction = digitalio.Direction.OUTPUT
+            _r.value = False
+            print("# relay driven low on exit (fresh pin)")
     except Exception as e:
         print("# WARNING could not drive the relay low on exit (%r); the "
               "pulldown on D4 is now the only thing holding it off" % e)

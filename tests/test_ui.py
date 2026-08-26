@@ -125,7 +125,8 @@ def test_missing_values_render_as_dashes_not_crashes():
 
 def test_assets_referenced_by_the_theme_exist():
     root = os.path.join(os.path.dirname(__file__), "..", "firmware")
-    for path in (T.FONT_READOUT, T.FONT_LARGE, T.FONT_BODY, T.FONT_SMALL,
+    for path in (T.FONT_READOUT, T.FONT_READOUT_XL, T.FONT_LARGE,
+                 T.FONT_BODY, T.FONT_SMALL,
                  T.LOGO_LARGE, T.LOGO_SMALL):
         assert os.path.exists(root + path), "%s is referenced but not shipped" % path
 
@@ -134,7 +135,8 @@ def test_font_budget_stays_small():
     """A full charset at 64 px is 329 KB; subsetting is what makes this fit."""
     root = os.path.join(os.path.dirname(__file__), "..", "firmware")
     total = sum(os.path.getsize(root + p) for p in
-                (T.FONT_READOUT, T.FONT_LARGE, T.FONT_BODY, T.FONT_SMALL))
+                (T.FONT_READOUT, T.FONT_READOUT_XL, T.FONT_LARGE,
+                 T.FONT_BODY, T.FONT_SMALL))
     assert total < 60000, "fonts total %d bytes" % total
 
 
@@ -179,6 +181,7 @@ def test_the_readout_font_is_digits_only_and_stays_that_way():
 # -- geometry ---------------------------------------------------------------
 
 CHAR_W = {"/assets/fonts/B612-Bold-64.pcf": 38,
+          "/assets/fonts/B612-Bold-48.pcf": 28,
           "/assets/fonts/B612-24s.pcf": 14,
           "/assets/fonts/B612-Bold-16s.pcf": 9,
           "/assets/fonts/B612-12s.pcf": 7}
@@ -210,6 +213,7 @@ def test_large_text_fits_vertically(name):
     """Label.y is the vertical centre, not the top: a 64 px readout centred
     at y=4 is half off the display."""
     heights = {"/assets/fonts/B612-Bold-64.pcf": 64,
+               "/assets/fonts/B612-Bold-48.pcf": 48,
                "/assets/fonts/B612-24s.pcf": 24}
     for c in SCREENS[name]():
         if c[0] != "text":
@@ -220,11 +224,15 @@ def test_large_text_fits_vertically(name):
         assert y + h // 2 <= T.SCREEN_H, "%s: %r runs off the bottom" % (name, text)
 
 
-def test_temperatures_are_whole_degrees_with_a_sign():
-    assert L._t(234.28) == "234°"
-    assert L._t(-3.4) == "-3°"
-    assert L._t(None) == "--°"
+def test_temperatures_carry_their_unit():
+    """Written the way anyone writes it, so a number on screen is never
+    ambiguous."""
+    assert L._t(234.28) == "234 °C"
+    assert L._t(-3.4) == "-3 °C"
+    assert L._t(None) == "-- °C"
     assert "." not in L._t(212.55)
+    assert L._rate(-5.2) == "-5.2 °C/s"
+    assert L._rate(None) == "-- °C/s"
 
 
 def test_report_text_is_not_truncated_mid_parenthesis():

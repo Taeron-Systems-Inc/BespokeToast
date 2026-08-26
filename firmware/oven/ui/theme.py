@@ -22,7 +22,10 @@ COOL = 0x3AA0FF
 SCREEN_W = 320
 SCREEN_H = 240
 
-FONT_READOUT = "/assets/fonts/B612-Bold-64.pcf"
+# The main readout carries its unit -- "234 °C", not "234°" -- so it needs
+# room for six glyphs beside the abort target. 48 px fits; 64 px does not.
+FONT_READOUT = "/assets/fonts/B612-Bold-48.pcf"
+FONT_READOUT_XL = "/assets/fonts/B612-Bold-64.pcf"
 FONT_LARGE = "/assets/fonts/B612-24s.pcf"
 FONT_BODY = "/assets/fonts/B612-Bold-16s.pcf"
 FONT_SMALL = "/assets/fonts/B612-12s.pcf"

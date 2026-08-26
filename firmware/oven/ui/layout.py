@@ -22,17 +22,21 @@ DEG = "\u00b0"
 
 
 def _t(value, unit=True):
-    """A temperature. Whole degrees -- a tenth of a degree is below what the
-    probe means and below what anyone acts on -- and always with the sign."""
+    """A temperature, written the way anyone would write it: "234 °C".
+
+    Whole degrees -- a tenth is below what the probe means and below what
+    anyone acts on -- and the unit spelled out rather than a bare degree
+    sign, so a number on screen never has to be guessed at.
+    """
     if value is None:
-        return "--" + (DEG if unit else "")
-    return "%d%s" % (round(value), DEG if unit else "")
+        return "-- °C" if unit else "--"
+    return "%d %sC" % (round(value), DEG) if unit else "%d" % round(value)
 
 
 def _rate(value):
     if value is None:
-        return "--"
-    return "%+.1f%s/s" % (value, DEG)
+        return "-- °C/s"
+    return "%+.1f %sC/s" % (value, DEG)
 
 
 def splash(version):

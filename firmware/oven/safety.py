@@ -32,6 +32,7 @@ FAULT_STALL = 6
 FAULT_ENCLOSURE = 7
 FAULT_RUN_TIMEOUT = 8
 FAULT_IMPLAUSIBLE_START = 9
+FAULT_CPU_HOT = 10
 
 _FAULT_TEXT = {
     FAULT_OVER_TEMP: "over temperature",
@@ -43,6 +44,7 @@ _FAULT_TEXT = {
     FAULT_ENCLOSURE: "electronics enclosure too hot",
     FAULT_RUN_TIMEOUT: "run exceeded its time limit",
     FAULT_IMPLAUSIBLE_START: "starting temperature implausible",
+    FAULT_CPU_HOT: "controller too hot",
 }
 
 
@@ -52,14 +54,14 @@ class Limits(object):
     __slots__ = ("max_temp_c", "max_rate_c_per_s", "max_enclosure_c",
                  "stall_window_s", "stall_min_rise_c", "max_run_s",
                  "sensor_stale_s", "sensor_frozen_s", "start_min_c",
-                 "start_max_c", "rate_window_s")
+                 "start_max_c", "rate_window_s", "max_cpu_c")
 
     def __init__(self, max_temp_c=260.0, max_rate_c_per_s=4.0,
                  max_enclosure_c=70.0, stall_window_s=90.0,
                  stall_min_rise_c=2.0, max_run_s=3600.0,
                  sensor_stale_s=3.0, sensor_frozen_s=30.0,
                  start_min_c=5.0, start_max_c=60.0,
-                 rate_window_s=3.0):
+                 rate_window_s=3.0, max_cpu_c=80.0):
         self.max_temp_c = max_temp_c
         self.max_rate_c_per_s = max_rate_c_per_s
         self.max_enclosure_c = max_enclosure_c
@@ -84,6 +86,11 @@ class Limits(object):
         # 1.85 C/s -- so a neighbour-to-neighbour limit is certain to trip on
         # nothing at all. It did, mid-run, on the bench.
         self.rate_window_s = rate_window_s
+        # The SAMD51 is rated to 85 °C. Measured, its die does not move during
+        # a run -- the cold junction rises 12-15 °C while this stays flat --
+        # so tripping here would mean something genuinely unlike any run so
+        # far, which is exactly what a guard is for.
+        self.max_cpu_c = max_cpu_c
 
 
 class Fault(object):
@@ -227,6 +234,11 @@ class Supervisor(object):
             return self._trip(FAULT_ENCLOSURE,
                               "%.1f \u00b0C inside the enclosure, limit %.1f \u00b0C"
                               % (reading.cold, lim.max_enclosure_c), t)
+
+        if reading.cpu is not None and reading.cpu >= lim.max_cpu_c:
+            return self._trip(FAULT_CPU_HOT,
+                              "%.1f \u00b0C on the controller die, limit "
+                              "%.1f \u00b0C" % (reading.cpu, lim.max_cpu_c), t)
 
         if self._run_start is not None and t - self._run_start > lim.max_run_s:
             return self._trip(FAULT_RUN_TIMEOUT,

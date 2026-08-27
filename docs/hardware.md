@@ -117,6 +117,32 @@ this oven keeps heating substantially after power is removed. Any control scheme
 that decides when to stop by looking only at the present temperature will
 overshoot its peak.
 
+## The enclosure warms unevenly
+
+Two thermometers sit in the enclosure: the MCP9600's cold junction (its own
+die, which it needs anyway to compensate the thermocouple) and the SAMD51's
+die. Across a full run they behave completely differently **[measured]**:
+
+| | cold junction | controller die |
+|---|---|---|
+| rise, step to 200 °C | **+15.3 °C** | +0.2 °C |
+| rise, step to 240 °C | **+12.2 °C** | 0.0 °C |
+
+The enclosure as a whole is not warming. One chip is. The SAMD51, centimetres
+away in the same box, does not move at all, which rules out warm air and
+points at conduction — almost certainly heat travelling up the thermocouple
+wires into the MCP9600's terminals.
+
+That matters beyond the enclosure. Cold-junction compensation assumes the
+chip's die and the thermocouple terminals are at the same temperature. Heat
+arriving *through the terminals* is exactly the case where they are not, and
+the error grows through the run, peaking when the oven is hottest and the
+reading matters most. Its size is **[unverified]**: bounding it needs a
+reference probe in the cavity to compare against.
+
+Both temperatures are logged every control step, so the divergence is
+recorded on every run rather than inferred afterwards.
+
 ## Display and input
 
 - 320×240 2.4" TFT with resistive touch **[spec]**. The firmware reads

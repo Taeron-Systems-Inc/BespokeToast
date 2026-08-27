@@ -105,7 +105,8 @@ class Thermocouple(object):
         if hot is None or not (PLAUSIBLE_MIN_C <= hot <= PLAUSIBLE_MAX_C):
             faults |= hal.FAULT_RANGE
 
-        return hal.Reading(hot, cold, faults, time.monotonic())
+        return hal.Reading(hot, cold, faults, time.monotonic(),
+                           cpu=cpu_temperature())
 
     def _status(self):
         buf = bytearray(1)

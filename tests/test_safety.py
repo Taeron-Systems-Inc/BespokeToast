@@ -9,7 +9,8 @@ from oven.hal import Reading
 from oven.safety import (Supervisor, Limits, FAULT_OVER_TEMP, FAULT_RATE,
                          FAULT_SENSOR, FAULT_SENSOR_STALE,
                          FAULT_SENSOR_FROZEN, FAULT_STALL, FAULT_ENCLOSURE,
-                         FAULT_RUN_TIMEOUT, FAULT_IMPLAUSIBLE_START)
+                         FAULT_RUN_TIMEOUT, FAULT_IMPLAUSIBLE_START,
+                         FAULT_CPU_HOT)
 
 
 @pytest.fixture
@@ -261,3 +262,21 @@ def test_the_enclosure_limit_reflects_the_electronics_not_the_plastic():
     s2 = Supervisor()
     s2.begin_run(0.0)
     assert s2.update(1.0, Reading(150.0, cold=71.0), True).code == FAULT_ENCLOSURE
+
+
+def test_a_hot_controller_die_trips(sup):
+    """The SAMD51 is rated to 85 °C. Measured across a full run its die does
+    not move at all -- the MCP9600's cold junction rises 12-15 °C while this
+    stays flat -- so reaching 80 °C would mean something unlike any run so
+    far."""
+    f = sup.update(1.0, Reading(150.0, cold=45.0, cpu=82.0), True)
+    assert f.code == FAULT_CPU_HOT
+    assert "controller" in f.message
+
+
+def test_a_normal_controller_die_does_not_trip(sup):
+    assert sup.update(1.0, Reading(150.0, cold=45.0, cpu=36.0), True) is None
+
+
+def test_an_absent_die_reading_does_not_trip(sup):
+    assert sup.update(1.0, Reading(150.0, cold=45.0, cpu=None), True) is None

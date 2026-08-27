@@ -55,13 +55,17 @@ class Reading(object):
     layer's job to refuse it, not the driver's job to hide it.
     """
 
-    __slots__ = ("hot", "cold", "faults", "t")
+    __slots__ = ("hot", "cold", "faults", "t", "cpu")
 
-    def __init__(self, hot, cold=None, faults=FAULT_NONE, t=None):
+    def __init__(self, hot, cold=None, faults=FAULT_NONE, t=None, cpu=None):
         self.hot = hot
         self.cold = cold
         self.faults = faults
         self.t = t
+        # Controller die temperature: a second thermometer in the same box on
+        # a different chip. The difference between it and ``cold`` is what
+        # shows whether the enclosure is warming or just the sensor.
+        self.cpu = cpu
 
     @property
     def ok(self):

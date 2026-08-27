@@ -17,7 +17,7 @@ import supervisor
 from oven.app import App, STATE_IDLE, STATE_RUNNING, STATE_PREHEAT, \
     STATE_COOLDOWN, STATE_REPORT, STATE_FAULT
 from oven.controller import Controller, FeedForward, PID
-from oven.hardware import Hardware
+from oven.hardware import Hardware, cpu_temperature
 from oven.metrics import Limits as MetricLimits
 from oven.profile import Profile
 from oven.ui import layout as L
@@ -125,15 +125,24 @@ def main():
     # Every control step is printed as CSV on the serial console. The
     # previous firmware kept no record of any run it ever performed; a host
     # capturing this gets the whole run without the device needing storage.
-    print("# t,state,temp_c,target_c,duty,relay,cold_c")
+    # cpu_c is a second thermometer in the same box, on a different chip.
+    # The pair is the useful thing: across a full run the MCP9600's cold
+    # junction rises 12-15 °C while the SAMD51 die does not move at all, so
+    # the box is not warming -- heat is reaching that one chip, almost
+    # certainly along the thermocouple wires into its terminals. That is the
+    # mechanism behind cold-junction compensation error, and logging both is
+    # what turns it from a worry into a measurement.
+    print("# t,state,temp_c,target_c,duty,relay,cold_c,cpu_c")
 
     def emit(row):
-        print("%.2f,%s,%s,%s,%.3f,%d,%s" % (
+        cpu = cpu_temperature()
+        print("%.2f,%s,%s,%s,%.3f,%d,%s,%s" % (
             row["t"], row["state"],
             "" if row["temp"] is None else "%.4f" % row["temp"],
             "" if row["target"] is None else "%.2f" % row["target"],
             row["duty"] or 0.0, 1 if row["relay"] else 0,
-            "" if row["cold"] is None else "%.2f" % row["cold"]))
+            "" if row["cold"] is None else "%.2f" % row["cold"],
+            "" if cpu is None else "%.2f" % cpu))
 
     def announce(name, payload):
         print("# event %s %s" % (name, payload))

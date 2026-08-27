@@ -33,11 +33,14 @@ class ProfileError(Exception):
 
 class Profile(object):
     __slots__ = ("name", "alloy", "category", "liquidus_c", "reference",
-                 "notes", "points", "max_ramp_up_c_per_s", "is_default")
+                 "notes", "points", "max_ramp_up_c_per_s", "is_default",
+                 "tal_min_s", "tal_max_s", "cooling_assumes_open_door")
 
     def __init__(self, name, points, category=CATEGORY_REFLOW, alloy=None,
                  liquidus_c=None, reference=None, notes=None,
-                 max_ramp_up_c_per_s=None, is_default=False):
+                 max_ramp_up_c_per_s=None, is_default=False,
+                 tal_min_s=None, tal_max_s=None,
+                 cooling_assumes_open_door=False):
         self.name = name
         self.points = points
         self.category = category
@@ -49,6 +52,17 @@ class Profile(object):
         self.max_ramp_up_c_per_s = max_ramp_up_c_per_s
         # A profile may nominate itself as the one to offer first.
         self.is_default = bool(is_default)
+        # J-STD-020's 60-150 s window is written for SAC305. SnBi wants
+        # 60-90 s: its liquidus is 138 C, so on an oven that cools slowly the
+        # tail above liquidus is set by the cooldown rather than the profile,
+        # and too long promotes brittle intermetallic growth.
+        self.tal_min_s = tal_min_s
+        self.tal_max_s = tal_max_s
+        # A profile may declare that its cooling tail assumes the door is
+        # opened. Judging such a tail against passive shut-door cooling
+        # reports a failure the operator is meant to prevent by acting, which
+        # trains people to ignore the warning.
+        self.cooling_assumes_open_door = bool(cooling_assumes_open_door)
 
     # -- construction ------------------------------------------------------
 
@@ -82,7 +96,10 @@ class Profile(object):
                 alloy=d.get("alloy"), liquidus_c=d.get("liquidus_c"),
                 reference=d.get("reference"), notes=d.get("notes"),
                 max_ramp_up_c_per_s=d.get("max_ramp_up_c_per_s"),
-                is_default=d.get("default", False))
+                is_default=d.get("default", False),
+                tal_min_s=d.get("tal_min_s"), tal_max_s=d.get("tal_max_s"),
+                cooling_assumes_open_door=d.get("cooling_assumes_open_door",
+                                                False))
         p.validate()
         return p
 
@@ -148,8 +165,15 @@ class Profile(object):
                 out.append(
                     "peak %g C is only %g C above liquidus %g C; joints may "
                     "not fully form" % (peak, margin, self.liquidus_c))
-            if self.time_above(self.liquidus_c) < 30:
-                out.append("less than 30 s above liquidus")
+            tal = self.time_above(self.liquidus_c)
+            lo = self.tal_min_s if self.tal_min_s is not None else 30
+            hi = self.tal_max_s
+            if tal < lo:
+                out.append("only %.0f s above liquidus, wants at least %.0f"
+                           % (tal, lo))
+            if hi is not None and tal > hi:
+                out.append("%.0f s above liquidus, more than the %.0f this "
+                           "alloy wants" % (tal, hi))
         if max_ramp_up is not None:
             need = self.max_ramp_up
             if need > max_ramp_up:
@@ -157,7 +181,7 @@ class Profile(object):
                     "profile asks for %.2f C/s rise; this oven has managed "
                     "%.2f C/s, so the peak may be undershot"
                     % (need, max_ramp_up))
-        if max_ramp_down is not None:
+        if max_ramp_down is not None and not self.cooling_assumes_open_door:
             need = -self.max_ramp_down
             if need > max_ramp_down:
                 out.append(

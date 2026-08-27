@@ -114,7 +114,13 @@ class Display(object):
             try:
                 self._update(slot, cmd)
             except Exception as e:
-                print("# WARNING update failed for %r: %r" % (cmd[:1], e))
+                # Name the string and the font. A bare "update failed for
+                # text" is not enough to act on: the same TypeError is what a
+                # glyph missing from a subsetted font raises, and without the
+                # text you cannot tell which character or which face.
+                print("# WARNING update failed: %r in %s (%r)"
+                      % (cmd[3] if len(cmd) > 3 else "?",
+                         cmd[5].rsplit("/", 1)[-1] if len(cmd) > 5 else "?", e))
 
     def _rebuild(self, commands, sig):
         # Any retained layer belongs to the OUTGOING group, and displayio
@@ -128,7 +134,9 @@ class Display(object):
             try:
                 item = self._build(cmd)
             except Exception as e:
-                print("# WARNING build failed for %r: %r" % (cmd[:1], e))
+                print("# WARNING build failed: %r in %s (%r)"
+                      % (cmd[3] if len(cmd) > 3 else "?",
+                         cmd[5].rsplit("/", 1)[-1] if len(cmd) > 5 else "?", e))
                 item = None
             slots.append(item)
             if item is not None:

@@ -44,6 +44,10 @@ class Limits(object):
             max_ramp_up_c_per_s=(profile.max_ramp_up_c_per_s or 3.0),
             peak_min_c=peak - peak_tolerance_c,
             peak_max_c=peak + peak_tolerance_c,
+            tal_min_s=(profile.tal_min_s
+                       if profile.tal_min_s is not None else 60.0),
+            tal_max_s=(profile.tal_max_s
+                       if profile.tal_max_s is not None else 150.0),
         )
 
 

@@ -20,6 +20,13 @@ from . import theme as T
 
 DEG = "\u00b0"
 
+# A blank field is a single space, never "". Keeping the screen's shape
+# constant means fields are emitted and blanked rather than added and
+# removed -- but adafruit_display_text computes degenerate dimensions for an
+# empty string and raises TypeError out of _place_text. A space occupies the
+# slot, renders nothing, and is in every subsetted font.
+BLANK = " "
+
 _METRICS = None
 
 
@@ -191,7 +198,8 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
         ("text", 6, ROW_READOUT, _t(temp_c), T.BRAND, T.FONT_READOUT),
         ("text", 6, ROW_INFO, _t(delta) + " off",
          T.delta_colour(delta), T.FONT_BODY),
-        ("text", 108, ROW_INFO, (stage or "").upper(), T.BRAND, T.FONT_BODY),
+        ("text", 108, ROW_INFO, (stage or "").upper() or BLANK,
+         T.BRAND, T.FONT_BODY),
         ("text", 196, ROW_INFO, "target " + _t(target_c), T.TEXT, T.FONT_BODY),
     ]
 
@@ -245,7 +253,7 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
     # a fragmented heap. Measured: the first failure of a run landed exactly
     # as the oven crossed liquidus and this line appeared.
     out.append(("text", 248, ROW_FOOT,
-                "%ds liq" % int(tal_s) if tal_s else "",
+                "%ds liq" % int(tal_s) if tal_s else BLANK,
                 T.CAUTION if (tal_s or 0) > 130 else T.DANGER, T.FONT_BODY))
     return out
 
@@ -266,7 +274,7 @@ def open_the_door(temp_c, cooling_rate=None, target_rate=None):
     ]
     out.append(("text", 6, 218,
                 "still shut? open it to cool faster"
-                if (cooling_rate is not None and cooling_rate > -1.5) else "",
+                if (cooling_rate is not None and cooling_rate > -1.5) else BLANK,
                 T.CAUTION, T.FONT_BODY))
     return out
 

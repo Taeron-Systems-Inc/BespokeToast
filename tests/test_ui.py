@@ -308,3 +308,61 @@ def test_the_cooldown_screen_keeps_a_constant_shape():
         return tuple((c[0], c[5] if c[0] == "text" else None) for c in cmds)
     assert shape(L.open_the_door(200.0, -5.0)) == shape(L.open_the_door(80.0, -0.4))
     assert shape(L.open_the_door(200.0, None)) == shape(L.open_the_door(80.0, -0.4))
+
+
+def test_every_string_a_run_can_produce_is_covered_by_its_font():
+    """The screen-level test checks one sample of each screen. This walks the
+    values a real run actually passes through -- negative deltas, blanked
+    fields, every stage name, three-digit and two-digit temperatures -- because
+    a glyph missing from a subsetted font does not fall back, it raises, and
+    it will do so only on the frame that first needs the character."""
+    cov = _coverage()
+    seen = set()
+    stages = [None, "preheat", "soak", "reflow", "cool"]
+    for stage in stages:
+        for temp, target in ((25.0, 25.0), (154.0, 155.8), (99.5, 101.0),
+                             (236.5, 235.0), (-5.0, 0.0), (None, None)):
+            for tal in (None, 0, 1, 42, 140):
+                for relay in (True, False):
+                    for cmd in L.running(temp, target, 300, 188, stage, tal,
+                                         217, 0.5, relay):
+                        if cmd[0] == "text":
+                            seen.add((str(cmd[3]), cmd[5]))
+    for text, font in sorted(seen):
+        if font not in cov:
+            continue
+        missing = sorted(set(text) - set(cov[font]))
+        assert not missing, "%r needs %r, absent from %s" % (
+            text, "".join(missing), font.rsplit("/", 1)[-1])
+
+
+def test_no_screen_ever_emits_an_empty_string():
+    """adafruit_display_text raises TypeError out of _place_text on an empty
+    string -- the same signature a missing glyph produces, which made it look
+    like a font problem. Blank fields use a space.
+
+    The first version of this test checked a couple of hand-picked variants
+    and missed stage=None, which is what a run passes through before its
+    first stage is known. It now sweeps the same space the glyph test does.
+    """
+    offenders = []
+    for stage in (None, "", "preheat", "soak", "reflow", "cool"):
+        for tal in (None, 0, 42):
+            for temp, target in ((None, None), (25.0, 25.0), (230.0, 232.0)):
+                for cmd in L.running(temp, target, 100, 300, stage, tal,
+                                     217, 0.4, True):
+                    if cmd[0] == "text" and str(cmd[3]) == "":
+                        offenders.append("running(stage=%r,tal=%r)" % (stage, tal))
+    for name, build in SCREENS.items():
+        for cmd in build():
+            if cmd[0] == "text" and str(cmd[3]) == "":
+                offenders.append(name)
+    for tal in (None, 0):
+        for cmd in L.running(150.0, 152.0, 200, 288, "soak", tal, 217, 0.5, True):
+            if cmd[0] == "text" and str(cmd[3]) == "":
+                offenders.append("running(tal=%r)" % tal)
+    for rate in (None, -0.4):
+        for cmd in L.open_the_door(120.0, rate):
+            if cmd[0] == "text" and str(cmd[3]) == "":
+                offenders.append("open_the_door(rate=%r)" % rate)
+    assert not offenders, "empty strings on: %s" % sorted(set(offenders))

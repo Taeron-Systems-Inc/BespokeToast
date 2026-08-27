@@ -248,12 +248,22 @@ class Supervisor(object):
         if self._last_t is not None:
             dt = t - self._last_t
 
-            # A gap in the control cadence means we were not watching. If the
-            # relay was on through it, that is not a step we can vouch for.
-            if dt > lim.sensor_stale_s and relay_on:
+            # A gap in the control cadence means we were not watching.
+            #
+            # Two cases, and the second was missed at first. If the relay was
+            # on through the gap, that is plainly not a step anyone can vouch
+            # for. But a gap DURING A RUN is not harmless just because the
+            # relay happened to be off at that instant: the profile clock
+            # advanced without supervision, so the controller resumes against
+            # a timeline that no longer describes the oven and commands heat
+            # to catch up. Found by writing a test for a blocking network
+            # call -- the exact thing the WiFi stack will introduce.
+            in_run = self._run_start is not None
+            if dt > lim.sensor_stale_s and (relay_on or in_run):
                 return self._trip(
                     FAULT_SENSOR_STALE,
-                    "%.1f s without a check while heating" % dt, t)
+                    "%.1f s without a check %s" % (
+                        dt, "while heating" if relay_on else "during a run"), t)
 
         self._rate_history.append((t, temp))
         cutoff = t - lim.rate_window_s * 2

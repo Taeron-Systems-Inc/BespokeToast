@@ -282,3 +282,29 @@ def test_button_labels_stay_inside_their_boxes(name):
                 assert end <= bx + bw + 1, \
                     "%s: %r overflows its box by %d px" % (
                         name, text, end - (bx + bw))
+
+
+def test_the_run_screen_keeps_a_constant_shape():
+    """Adding or removing an element forces the renderer to rebuild every
+    object at once, and that burst is what fails on a fragmented heap. The
+    first render failure of a run landed exactly as the oven crossed liquidus
+    and the time-above-liquidus readout appeared, so elements are now always
+    emitted and blanked instead."""
+    def shape(cmds):
+        return tuple((c[0], c[5] if c[0] == "text" else None) for c in cmds)
+    variants = [
+        L.running(25.0, 25.0, 0, 488, "preheat", 0, 217, 0.0, False),
+        L.running(150.0, 152.0, 200, 288, "soak", 0, 217, 0.6, True),
+        L.running(230.0, 232.0, 300, 188, "reflow", 45, 217, 0.4, True),
+        L.running(220.0, 210.0, 400, 88, "cool", 140, 217, 0.0, False),
+        L.running(None, None, 0, 0, None, None, 217, None, False),
+    ]
+    shapes = {shape(v) for v in variants}
+    assert len(shapes) == 1, "the run screen changes shape between states"
+
+
+def test_the_cooldown_screen_keeps_a_constant_shape():
+    def shape(cmds):
+        return tuple((c[0], c[5] if c[0] == "text" else None) for c in cmds)
+    assert shape(L.open_the_door(200.0, -5.0)) == shape(L.open_the_door(80.0, -0.4))
+    assert shape(L.open_the_door(200.0, None)) == shape(L.open_the_door(80.0, -0.4))

@@ -150,9 +150,12 @@ def test_a_long_gap_while_heating_trips(sup):
     assert f.code == FAULT_SENSOR_STALE
 
 
-def test_a_long_gap_with_the_relay_off_is_not_a_fault(sup):
+def test_a_long_gap_with_the_relay_off_still_trips_inside_a_run(sup):
+    """This originally asserted the opposite. The rule was 'a gap only
+    matters while heating', which misses that a gap during a run advances the
+    profile clock unsupervised whatever the relay was doing."""
     sup.update(1.0, Reading(100.0), False)
-    assert sup.update(20.0, Reading(99.0), False) is None
+    assert sup.update(20.0, Reading(99.0), False).code == FAULT_SENSOR_STALE
 
 
 # -- run duration -----------------------------------------------------------
@@ -280,3 +283,20 @@ def test_a_normal_controller_die_does_not_trip(sup):
 
 def test_an_absent_die_reading_does_not_trip(sup):
     assert sup.update(1.0, Reading(150.0, cold=45.0, cpu=None), True) is None
+
+
+def test_a_gap_during_a_run_trips_even_with_the_relay_off(sup):
+    """A gap is not harmless just because the relay happened to be off at
+    that instant. The profile clock advanced without supervision, so the
+    controller would resume against a timeline that no longer describes the
+    oven -- and command heat to catch up."""
+    sup.update(1.0, Reading(100.0), False)
+    f = sup.update(40.0, Reading(100.0), False)
+    assert f.code == FAULT_SENSOR_STALE
+    assert "during a run" in f.message
+
+
+def test_a_gap_outside_a_run_is_still_harmless():
+    s = Supervisor()                      # begin_run never called
+    s.update(1.0, Reading(25.0), False)
+    assert s.update(600.0, Reading(25.0), False) is None

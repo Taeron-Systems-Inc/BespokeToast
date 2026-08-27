@@ -239,9 +239,14 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
         ("text", 158, ROW_FOOT, "HEAT ON" if relay_on else "heat off",
          T.BRAND if relay_on else T.DIM, T.FONT_BODY),
     ]
-    if tal_s is not None and tal_s > 0:
-        out.append(("text", 248, ROW_FOOT, "%ds liq" % int(tal_s),
-                    T.CAUTION if tal_s > 130 else T.DANGER, T.FONT_BODY))
+    # Always emitted, blank when there is nothing to say. Adding or removing
+    # an element changes the screen's shape, which forces the renderer to
+    # rebuild every object at once -- and that burst is what still failed on
+    # a fragmented heap. Measured: the first failure of a run landed exactly
+    # as the oven crossed liquidus and this line appeared.
+    out.append(("text", 248, ROW_FOOT,
+                "%ds liq" % int(tal_s) if tal_s else "",
+                T.CAUTION if (tal_s or 0) > 130 else T.DANGER, T.FONT_BODY))
     return out
 
 
@@ -259,9 +264,10 @@ def open_the_door(temp_c, cooling_rate=None, target_rate=None):
         ("text", 6, 186, _rate(cooling_rate) + " cooling", T.TEXT,
          T.FONT_LARGE),
     ]
-    if cooling_rate is not None and cooling_rate > -1.5:
-        out.append(("text", 6, 218, "still shut? open it to cool faster",
-                    T.CAUTION, T.FONT_BODY))
+    out.append(("text", 6, 218,
+                "still shut? open it to cool faster"
+                if (cooling_rate is not None and cooling_rate > -1.5) else "",
+                T.CAUTION, T.FONT_BODY))
     return out
 
 

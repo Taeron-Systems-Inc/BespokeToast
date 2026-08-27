@@ -38,3 +38,22 @@ def test_force_is_available_but_shouts():
                             "deploy.py")).read()
     assert "--force" in src
     assert "WARNING deploying anyway" in src
+
+
+def test_telemetry_parsing_tolerates_extra_columns():
+    """The column set grew once -- adding the controller die temperature took
+    the row from seven fields to eight -- and a strict length check silently
+    refused every pre-flight until it was noticed. New columns must not break
+    the tools that read them."""
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    import start_run
+    seven = "123.4,idle,25.5,,0.000,0,26.1"
+    eight = "123.4,idle,25.5,,0.000,0,26.1,33.2"
+    nine = eight + ",99.9"
+    for line in (seven, eight, nine):
+        row = start_run.parse(line)
+        assert row is not None, "refused %r" % line
+        assert row["state"] == "idle" and row["temp"] == 25.5
+    assert start_run.parse(seven)["cpu"] is None
+    assert start_run.parse(eight)["cpu"] == 33.2
+    assert start_run.parse("garbage,not,a,row") is None

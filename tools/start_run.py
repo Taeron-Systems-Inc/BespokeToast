@@ -42,17 +42,27 @@ def open_port():
 
 
 def parse(line):
+    """Telemetry row -> dict, tolerant of the column set growing.
+
+    It grew once already: adding the controller die temperature took the row
+    from seven fields to eight, and a strict length check silently refused
+    every pre-flight until it was noticed. Require the fields this needs and
+    ignore any extra.
+    """
     parts = line.strip().split(",")
-    if len(parts) != 7 or parts[1] not in STATES:
+    if len(parts) < 7 or parts[1] not in STATES:
         return None
+
     def num(v):
         try:
             return float(v)
         except ValueError:
             return None
+
     return {"t": num(parts[0]), "state": parts[1], "temp": num(parts[2]),
             "target": num(parts[3]), "duty": num(parts[4]),
-            "relay": parts[5] == "1", "cold": num(parts[6])}
+            "relay": parts[5] == "1", "cold": num(parts[6]),
+            "cpu": num(parts[7]) if len(parts) > 7 else None}
 
 
 def listen(s, seconds, on_row=None):
@@ -98,9 +108,10 @@ def preflight(s):
     if len(temps) == 1 and len(rows) > 12:
         problems.append("temperature has not changed in %d samples; the probe "
                         "may not be reading" % len(rows))
-    print("   oven %.1f C, enclosure %.1f C, state %s, relay %s, %d samples"
-          % (last["temp"] or -1, last["cold"] or -1, last["state"],
-             "on" if last["relay"] else "off", len(rows)))
+    print("   oven %.1f C, cold-junction %.1f C, controller die %.1f C, "
+          "state %s, relay %s, %d samples"
+          % (last["temp"] or -1, last["cold"] or -1, last["cpu"] or -1,
+             last["state"], "on" if last["relay"] else "off", len(rows)))
     return problems
 
 
@@ -132,15 +143,15 @@ def supervise(s, log_path):
     last_seen = [time.monotonic()]
     peak = [0.0]
     log = open(log_path, "w")
-    log.write("t,state,temp_c,target_c,duty,relay,cold_c\n")
+    log.write("t,state,temp_c,target_c,duty,relay,cold_c,cpu_c\n")
 
     def on_row(r):
         last_seen[0] = time.monotonic()
         if r["temp"] is not None:
             peak[0] = max(peak[0], r["temp"])
-        log.write("%s,%s,%s,%s,%s,%d,%s\n" % (
+        log.write("%s,%s,%s,%s,%s,%d,%s,%s\n" % (
             r["t"], r["state"], r["temp"], r["target"], r["duty"],
-            1 if r["relay"] else 0, r["cold"]))
+            1 if r["relay"] else 0, r["cold"], r["cpu"]))
         log.flush()
 
     state = "unknown"

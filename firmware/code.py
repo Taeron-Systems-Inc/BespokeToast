@@ -8,9 +8,11 @@ where it can be tested without a board.
 
 import json
 import os
+import sys
 import time
 
 import board
+import supervisor
 
 from oven.app import App, STATE_IDLE, STATE_RUNNING, STATE_PREHEAT, \
     STATE_COOLDOWN, STATE_REPORT, STATE_FAULT
@@ -22,6 +24,13 @@ from oven.ui import layout as L
 from oven.ui.display import Display
 
 VERSION = "v2.0-dev"
+
+# Commands accepted on the serial console, one per line. This exists so a run
+# can be started and supervised from a host when nobody is standing at the
+# oven. ABORT is unconditional and always available -- that is the point of
+# having it at all.
+#
+# Reading the console does not disable the REPL: Ctrl-C still interrupts.
 PROFILE_DIR = "/profiles"
 CHARACTERISATION = "/characterisation.json"
 
@@ -147,8 +156,51 @@ def main():
 
     screen = []
     last_render = [0.0]
+    command = [""]
+
+    def poll_command():
+        """Read a line from the console without blocking."""
+        try:
+            n = supervisor.runtime.serial_bytes_available
+        except AttributeError:
+            return None
+        while n:
+            ch = sys.stdin.read(1)
+            n -= 1
+            if ch in ("\r", "\n"):
+                line = command[0].strip().upper()
+                command[0] = ""
+                if line:
+                    return line
+            elif len(command[0]) < 32:
+                command[0] += ch
+        return None
+
     while True:
         app.tick()
+
+        cmd = poll_command()
+        if cmd == "ABORT":
+            app.abort()
+            print("# command ABORT accepted, state=%s" % app.state)
+        elif cmd == "START":
+            problem = app.request_start(selected) if selected else None
+            if selected is None:
+                print("# command START refused: no profile")
+            elif problem is not None:
+                print("# command START refused: %s" % problem.message)
+            else:
+                print("# command START accepted: %s" % selected.name)
+        elif cmd == "ACK":
+            app.acknowledge_fault()
+            print("# command ACK, state=%s" % app.state)
+        elif cmd == "STATUS":
+            print("# status state=%s temp=%s target=%s relay=%d profile=%s"
+                  % (app.state, app.temperature, app.target,
+                     1 if hw.relay.is_on() else 0,
+                     selected.name if selected else None))
+        elif cmd:
+            print("# unknown command %r" % cmd)
 
         if app.state in (STATE_RUNNING, STATE_COOLDOWN) and \
                 app.temperature is not None:

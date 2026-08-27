@@ -33,20 +33,35 @@ def _font(path):
 
 
 class Display(object):
+    """Renders a command list, reusing the objects it already has.
+
+    The naive version rebuilt every Label, Rect and Group on each frame. At
+    2 Hz that is a few hundred allocations a minute, and the SAMD51 heap
+    fragments: measured on hardware, 155 render failures in one run, all
+    MemoryError on 1848- and 2156-byte requests while roughly 100 KB was
+    nominally free. Free memory was never the problem; contiguous space was.
+
+    So the display group persists, and so do the objects in it. A frame whose
+    *shape* matches the last one -- same sequence of kinds, same fonts, same
+    bitmap paths -- updates text, colour and position in place and allocates
+    nothing. A frame with a different shape (a change of screen) rebuilds
+    once. That also matters for what comes next: the WiFi stack allocates
+    socket and TLS buffers at unpredictable moments, and it cannot share a
+    heap with something churning it every frame.
+    """
+
     def __init__(self, board_display):
         self.display = board_display
         self.group = displayio.Group()
         self._set_root(self.group)
-        self._current = None
-        # The chart buffer is allocated once and redrawn in place. Building a
-        # fresh Bitmap every frame at 4 Hz fragments the heap until a
-        # contiguous block is no longer available: measured on hardware as
-        # MemoryError on a 7360-byte allocation, a hundred-odd times in a
-        # single run, each one a frame where the chart simply vanished.
+        self._sig = None
+        self._slots = []
+        # The chart buffer is allocated once and drawn incrementally.
         self._chart = None
         self._chart_key = None
         self._chart_palette = None
-        self._chart_drawn = None      # how many points of each series are on it
+        self._chart_drawn = None
+        self._chart_tile = None
 
     def _set_root(self, group):
         # display.show() was removed in CircuitPython 9.
@@ -55,27 +70,101 @@ class Display(object):
         except AttributeError:
             self.display.show(group)
 
+    @staticmethod
+    def _signature(commands):
+        """What distinguishes one screen layout from another.
+
+        Values that change every frame -- the temperature, a colour, a
+        coordinate -- are deliberately excluded, so a screen holding still
+        keeps its objects.
+        """
+        out = []
+        for c in commands:
+            if c[0] == "text":
+                out.append(("text", c[5]))
+            elif c[0] == "rect":
+                out.append(("rect", c[6]))
+            elif c[0] == "bitmap":
+                out.append(("bitmap", c[3]))
+            elif c[0] == "plot":
+                out.append(("plot",))
+            else:
+                out.append((c[0],))
+        return tuple(out)
+
     def render(self, commands):
-        """Replace the screen with *commands*. Cheap enough at 4 Hz; the
-        control loop is not waiting on it either way."""
-        if commands == self._current:
+        """Put *commands* on screen.
+
+        Wrapped whole. A failure inside one element used to be caught per
+        element, which is right, but a failure in the Group itself or in the
+        renderer escaped and killed the firmware -- which is how a run died
+        silently in cooldown with only the host watchdog noticing.
+        """
+        try:
+            self._render(commands)
+        except Exception as e:
+            print("# WARNING render failed entirely (%r); screen left as-is" % e)
+
+    def _render(self, commands):
+        sig = self._signature(commands)
+        if sig != self._sig:
+            self._rebuild(commands, sig)
             return
-        self._current = commands
+        for slot, cmd in zip(self._slots, commands):
+            try:
+                self._update(slot, cmd)
+            except Exception as e:
+                print("# WARNING update failed for %r: %r" % (cmd[:1], e))
+
+    def _rebuild(self, commands, sig):
+        # Any retained layer belongs to the OUTGOING group, and displayio
+        # will not have one layer in two. Release it so this rebuild makes a
+        # fresh wrapper; the bitmap behind it is untouched and keeps its
+        # contents, which is the expensive part.
+        self._chart_tile = None
         group = displayio.Group()
+        slots = []
         for cmd in commands:
             try:
                 item = self._build(cmd)
             except Exception as e:
-                # A single unrenderable element -- a glyph missing from a
-                # subsetted font, say -- must not take the display down. It
-                # took down the cooldown screen, and would have taken down
-                # the fault screen, which is the one that has to work.
-                print("# render failed for %r: %r" % (cmd[:1], e))
+                print("# WARNING build failed for %r: %r" % (cmd[:1], e))
                 item = None
+            slots.append(item)
             if item is not None:
                 group.append(item)
         self.group = group
+        self._slots = slots
+        self._sig = sig
         self._set_root(group)
+
+    def _update(self, item, cmd):
+        """Change an existing object rather than making a new one."""
+        if item is None:
+            return
+        kind = cmd[0]
+        if kind == "text":
+            _, x, y, text, colour, _font = cmd
+            text = str(text)
+            if item.text != text:
+                item.text = text
+            if item.color != colour:
+                item.color = colour
+            if item.x != x:
+                item.x = x
+            if item.y != y:
+                item.y = y
+        elif kind == "rect":
+            _, x, y, w, h, colour, filled = cmd
+            item.x = x
+            item.y = y
+            if filled:
+                if item.fill != colour:
+                    item.fill = colour
+            elif item.outline != colour:
+                item.outline = colour
+        elif kind == "plot":
+            self._plot(cmd)          # draws into the retained bitmap in place
 
     def _build(self, cmd):
         kind = cmd[0]
@@ -217,12 +306,14 @@ class Display(object):
                 prev_v = v
         self._chart_drawn = (shape, counts)
 
-        # A fresh TileGrid each frame, over the SAME bitmap. Reusing the
-        # TileGrid raises "Layer already in a group": render builds a new
-        # Group each frame, and displayio will not have one layer in two.
-        # The bitmap is the expensive object and it is what gets reused; a
-        # TileGrid is a cheap wrapper.
-        return displayio.TileGrid(bitmap, pixel_shader=palette, x=x, y=y)
+        # The group persists now, so the TileGrid can persist with it. It is
+        # rebuilt only when the bitmap itself is replaced -- a layer cannot
+        # belong to two groups, which is what broke when the group was
+        # rebuilt every frame.
+        if self._chart_tile is None or self._chart_tile.bitmap is not bitmap:
+            self._chart_tile = displayio.TileGrid(bitmap, pixel_shader=palette,
+                                                  x=x, y=y)
+        return self._chart_tile
 
     def _note_font_fallback(self, path, exc):
         """Say so out loud. A silent fallback to terminalio means a font that

@@ -65,10 +65,24 @@ def parse(line):
             "cpu": num(parts[7]) if len(parts) > 7 else None}
 
 
+RAW = [None]
+
+
 def listen(s, seconds, on_row=None):
+    """Collect telemetry, and keep a verbatim copy of everything else.
+
+    Filtering to recognised rows discards tracebacks, which are precisely
+    what is wanted when a run stops. That happened twice: a crash on run
+    start, and a run dying in cooldown, both diagnosable only by reproducing
+    them afterwards.
+    """
     buf, rows, end = "", [], time.monotonic() + seconds
     while time.monotonic() < end:
-        buf += s.read(512).decode("utf-8", "replace")
+        chunk = s.read(512).decode("utf-8", "replace")
+        if chunk and RAW[0]:
+            RAW[0].write(chunk)
+            RAW[0].flush()
+        buf += chunk
         while "\n" in buf:
             line, buf = buf.split("\n", 1)
             line = re.sub(r"\x1b?\]0;[^\\]*\\", "", line)
@@ -142,6 +156,8 @@ def supervise(s, log_path):
     started = time.monotonic()
     last_seen = [time.monotonic()]
     peak = [0.0]
+    if RAW[0] is None:
+        RAW[0] = open(log_path.replace(".csv", "_raw.log"), "w")
     log = open(log_path, "w")
     log.write("t,state,temp_c,target_c,duty,relay,cold_c,cpu_c\n")
 
@@ -213,6 +229,10 @@ def main(argv):
     args = ap.parse_args(argv[1:])
 
     s = open_port()
+    if RAW[0] is None:
+        RAW[0] = open("/tmp/claude-1001/-home-kaan/"
+                      "e3791a80-a239-41f2-9f58-11ee423d796e/scratchpad/"
+                      "session_raw.log", "a")
     try:
         problems = preflight(s)
         if problems:

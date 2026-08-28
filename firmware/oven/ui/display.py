@@ -22,6 +22,52 @@ from .layout import describe_command as _describe
 _fonts = {}
 
 
+def _font(path):
+    if path not in _fonts:
+        try:
+            _fonts[path] = bitmap_font.load_font(path)
+        except Exception as e:
+            # Keep going without the nice type, but do not do it quietly.
+            print("# font %s failed to load (%r); using terminalio" % (path, e))
+            _fonts[path] = terminalio.FONT
+    return _fonts[path]
+
+
+def preload(paths, coverage_path="/assets/fonts/coverage.json"):
+    """Load fonts AND their glyphs before anything nests inside a render.
+
+    PCF glyph loading recurses, and doing it deep inside
+    main -> render -> _rebuild -> _build -> Label exhausts the Python stack:
+    "RuntimeError: pystack exhausted", after which the partly-built font
+    reports every glyph as missing -- which reads as a font problem and is
+    not.
+
+    Loading the font object alone was not enough. adafruit_bitmap_font loads
+    glyphs lazily, so the recursion simply moved: boot came up clean and then
+    the cooldown screen failed on its first frame, the first time the word
+    OPEN was ever drawn. Pulling the whole covered glyph set in here, where
+    the stack is shallow, is what actually removes it.
+    """
+    import json
+    try:
+        with open(coverage_path) as f:
+            coverage = json.load(f)
+    except Exception as e:
+        print("# WARNING no font coverage manifest (%r); glyphs will load "
+              "lazily and may exhaust the stack mid-render" % e)
+        coverage = {}
+    for path in paths:
+        font = _font(path)
+        chars = coverage.get(path)
+        if not chars:
+            continue
+        try:
+            font.load_glyphs(set(ord(c) for c in chars))
+        except Exception as e:
+            print("# WARNING could not preload glyphs for %s (%r)" % (path, e))
+
+
+
 class Display(object):
     """Renders a command list, reusing the objects it already has.
 

@@ -384,3 +384,23 @@ def test_the_live_readout_is_not_the_largest_face():
                  L.fault("x"),
                  L.report([("peak", 1, True, "ok")], 1, 1)):
         assert T.FONT_READOUT_XL not in {c[5] for c in cmds if c[0] == "text"}
+
+
+def test_the_error_describer_never_raises():
+    """A diagnostic that can fail destroys the information it exists to
+    provide. This one read cmd[5] as a font path, which is true for text
+    commands and false for every other kind -- on a plot it is a float, so
+    reporting an error raised AttributeError, escaped the per-element catch
+    and took down the entire screen."""
+    _describe = L.describe_command
+    samples = [
+        ("text", 1, 2, "hello", 0xFFFFFF, "/assets/fonts/B612-12s.pcf"),
+        ("plot", 6, 100, 278, 82, 480.0, 0.0, 250.0, [], 217),
+        ("rect", 1, 2, 3, 4, 0xFFFFFF, True),
+        ("bitmap", 0, 0, "/assets/taeron-logo-320.bmp"),
+        ("touch", 1, 2, 3, 4, "start"),
+        ("text",), (), ("weird", None), ("text", 1, 2, 3, 4, 5.0),
+    ]
+    for cmd in samples:
+        out = _describe(cmd)
+        assert isinstance(out, str) and out

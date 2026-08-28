@@ -1,0 +1,76 @@
+{
+  "name": "DIAGNOSTIC fast",
+  "category": "reflow",
+  "liquidus_c": 45,
+  "tal_min_s": 10,
+  "tal_max_s": 200,
+  "max_ramp_up_c_per_s": 2.5,
+  "notes": "NOT A SOLDERING PROFILE. Peaks at about 52 C so a whole cycle -- preheat, soak, a liquidus crossing, peak, cooldown and report -- runs in a couple of minutes and the oven is back under the 45 C pre-flight limit in a couple more, against roughly thirty for a reflow profile. It exists to iterate on things that have nothing to do with temperature: render failures, memory, screen transitions, the state machine, the console commands. liquidus_c is set to 45 C purely so the run crosses it and exercises the time-above-liquidus path; it means nothing metallurgical. Melts no solder and reflows nothing.",
+  "points": [
+    [
+      0,
+      25
+    ],
+    [
+      22,
+      27.0
+    ],
+    [
+      33,
+      29.2
+    ],
+    [
+      40,
+      31.3
+    ],
+    [
+      45,
+      33.4
+    ],
+    [
+      49,
+      35.7
+    ],
+    [
+      53,
+      38
+    ],
+    [
+      68,
+      38
+    ],
+    [
+      75,
+      40.1
+    ],
+    [
+      82,
+      42.4
+    ],
+    [
+      87,
+      44
+    ],
+    [
+      90,
+      46.6
+    ],
+    [
+      93,
+      49.3
+    ],
+    [
+      96,
+      52
+    ],
+    [
+      116,
+      52
+    ],
+    [
+      143,
+      50.0
+    ]
+  ],
+  "diagnostic": true
+}

@@ -34,13 +34,14 @@ class ProfileError(Exception):
 class Profile(object):
     __slots__ = ("name", "alloy", "category", "liquidus_c", "reference",
                  "notes", "points", "max_ramp_up_c_per_s", "is_default",
-                 "tal_min_s", "tal_max_s", "cooling_assumes_open_door")
+                 "tal_min_s", "tal_max_s", "cooling_assumes_open_door",
+                 "diagnostic")
 
     def __init__(self, name, points, category=CATEGORY_REFLOW, alloy=None,
                  liquidus_c=None, reference=None, notes=None,
                  max_ramp_up_c_per_s=None, is_default=False,
                  tal_min_s=None, tal_max_s=None,
-                 cooling_assumes_open_door=False):
+                 cooling_assumes_open_door=False, diagnostic=False):
         self.name = name
         self.points = points
         self.category = category
@@ -63,6 +64,10 @@ class Profile(object):
         # reports a failure the operator is meant to prevent by acting, which
         # trains people to ignore the warning.
         self.cooling_assumes_open_door = bool(cooling_assumes_open_door)
+        # A diagnostic profile exercises the machine, not solder. Alloy
+        # warnings about margin above liquidus are meaningless for it, and
+        # leaving them on teaches people to dismiss warnings that matter.
+        self.diagnostic = bool(diagnostic)
 
     # -- construction ------------------------------------------------------
 
@@ -99,7 +104,8 @@ class Profile(object):
                 is_default=d.get("default", False),
                 tal_min_s=d.get("tal_min_s"), tal_max_s=d.get("tal_max_s"),
                 cooling_assumes_open_door=d.get("cooling_assumes_open_door",
-                                                False))
+                                                False),
+                diagnostic=d.get("diagnostic", False))
         p.validate()
         return p
 
@@ -158,7 +164,8 @@ class Profile(object):
         ruining a board.
         """
         out = []
-        if self.category == CATEGORY_REFLOW and self.liquidus_c is not None:
+        if (self.category == CATEGORY_REFLOW and self.liquidus_c is not None
+                and not self.diagnostic):
             peak = self.peak[1]
             margin = peak - self.liquidus_c
             if margin < 10:

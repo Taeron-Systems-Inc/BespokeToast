@@ -17,53 +17,9 @@ from adafruit_display_text import bitmap_label
 from adafruit_display_shapes.rect import Rect
 
 from . import theme as T
+from .layout import describe_command as _describe
 
 _fonts = {}
-
-
-def preload(paths, coverage_path="/assets/fonts/coverage.json"):
-    """Load fonts AND their glyphs before anything nests inside a render.
-
-    PCF glyph loading recurses, and doing it deep inside
-    main -> render -> _rebuild -> _build -> Label exhausts the Python stack:
-    "RuntimeError: pystack exhausted", after which the partly-built font
-    reports every glyph as missing -- which reads as a font problem and is
-    not.
-
-    Loading the font object alone was not enough. adafruit_bitmap_font loads
-    glyphs lazily, so the recursion simply moved: boot came up clean and then
-    the cooldown screen failed on its first frame, the first time the word
-    OPEN was ever drawn. Pulling the whole covered glyph set in here, where
-    the stack is shallow, is what actually removes it.
-    """
-    import json
-    try:
-        with open(coverage_path) as f:
-            coverage = json.load(f)
-    except Exception as e:
-        print("# WARNING no font coverage manifest (%r); glyphs will load "
-              "lazily and may exhaust the stack mid-render" % e)
-        coverage = {}
-    for path in paths:
-        font = _font(path)
-        chars = coverage.get(path)
-        if not chars:
-            continue
-        try:
-            font.load_glyphs(set(ord(c) for c in chars))
-        except Exception as e:
-            print("# WARNING could not preload glyphs for %s (%r)" % (path, e))
-
-
-def _font(path):
-    if path not in _fonts:
-        try:
-            _fonts[path] = bitmap_font.load_font(path)
-        except Exception as e:
-            # Keep going without the nice type, but do not do it quietly.
-            print("# font %s failed to load (%r); using terminalio" % (path, e))
-            _fonts[path] = terminalio.FONT
-    return _fonts[path]
 
 
 class Display(object):
@@ -148,13 +104,7 @@ class Display(object):
             try:
                 self._update(slot, cmd)
             except Exception as e:
-                # Name the string and the font. A bare "update failed for
-                # text" is not enough to act on: the same TypeError is what a
-                # glyph missing from a subsetted font raises, and without the
-                # text you cannot tell which character or which face.
-                print("# WARNING update failed: %r in %s (%r)"
-                      % (cmd[3] if len(cmd) > 3 else "?",
-                         cmd[5].rsplit("/", 1)[-1] if len(cmd) > 5 else "?", e))
+                print("# WARNING update failed: %s (%r)" % (_describe(cmd), e))
 
     def _rebuild(self, commands, sig):
         # Any retained layer belongs to the OUTGOING group, and displayio
@@ -186,9 +136,7 @@ class Display(object):
             try:
                 item = self._build(cmd)
             except Exception as e:
-                print("# WARNING build failed: %r in %s (%r)"
-                      % (cmd[3] if len(cmd) > 3 else "?",
-                         cmd[5].rsplit("/", 1)[-1] if len(cmd) > 5 else "?", e))
+                print("# WARNING build failed: %s (%r)" % (_describe(cmd), e))
                 item = None
             slots.append(item)
             if item is not None:

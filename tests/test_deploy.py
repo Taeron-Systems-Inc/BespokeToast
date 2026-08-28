@@ -57,3 +57,14 @@ def test_telemetry_parsing_tolerates_extra_columns():
     assert start_run.parse(seven)["cpu"] is None
     assert start_run.parse(eight)["cpu"] == 33.2
     assert start_run.parse("garbage,not,a,row") is None
+
+
+def test_deploy_refuses_an_empty_or_wrong_destination(tmp_path):
+    """A mount pointing at a stale device node reads as an empty directory,
+    so a deploy reports success while writing nowhere near the board. That
+    happened: the PyPortal re-enumerated sda -> sdb -> sda across hard resets
+    and a deploy silently went into a dead mount."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "tools",
+                            "deploy.py")).read()
+    assert "os.listdir(dest)" in src, "deploy must reject an empty destination"
+    assert "boot_out.txt" in src, "deploy must confirm it is a CIRCUITPY volume"

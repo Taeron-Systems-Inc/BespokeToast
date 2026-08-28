@@ -243,3 +243,26 @@ def test_a_profile_can_nominate_itself_as_the_default():
     assert len(defaults) == 1, "exactly one profile must be the default"
     assert "this oven" in defaults[0].name
     assert not loaded[0].is_default, "the default is not first alphabetically"
+
+
+def test_the_diagnostic_profile_is_marked_and_never_the_default():
+    """It melts nothing and must never be mistaken for a soldering profile."""
+    p = Profile.load(os.path.join(PROFILES, "diagnostic-fast.json"))
+    assert p.diagnostic is True
+    assert not p.is_default
+    assert "DIAGNOSTIC" in p.name.upper()
+    assert "NOT A SOLDERING PROFILE" in p.notes.upper()
+    assert p.peak[1] < 100, "a diagnostic profile must not reach soldering heat"
+
+
+def test_a_diagnostic_profile_does_not_raise_alloy_warnings():
+    """Its liquidus is a fiction chosen to exercise a code path. Warning
+    about margin above it would be noise, and noise teaches people to dismiss
+    the warnings that matter."""
+    p = Profile.load(os.path.join(PROFILES, "diagnostic-fast.json"))
+    assert not any("liquidus" in w for w in p.warnings())
+
+
+def test_only_real_profiles_carry_alloy_warnings():
+    p = make([[0, 25], [280, 219], [300, 225], [320, 219], [360, 100]])
+    assert any("liquidus" in w for w in p.warnings())

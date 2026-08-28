@@ -97,6 +97,20 @@ def main(argv):
     if not os.path.isdir(dest):
         print("!! %s is not mounted" % dest)
         return 1
+    # A mount left pointing at a stale device node reads as an EMPTY
+    # DIRECTORY. The board re-enumerates across hard resets -- sda to sdb and
+    # back -- so a deploy can report success while writing nowhere near the
+    # device. Refuse rather than write into the void.
+    if not os.listdir(dest):
+        print("!! %s is empty. The volume is probably mounted from a stale")
+        print("   device node. Remount by label:")
+        print("     sudo umount %s && sudo mount -o ro $(blkid -L CIRCUITPY) %s"
+              % (dest, dest))
+        return 1
+    if not os.path.exists(os.path.join(dest, "boot_out.txt")):
+        print("!! %s has no boot_out.txt -- this does not look like a "
+              "CIRCUITPY volume" % dest)
+        return 1
     if not dry and not os.access(dest, os.W_OK):
         print("!! %s is read-only. Remount it writable to deploy." % dest)
         return 1

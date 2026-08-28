@@ -21,7 +21,8 @@ from oven.hardware import Hardware, cpu_temperature
 from oven.metrics import Limits as MetricLimits
 from oven.profile import Profile
 from oven.ui import layout as L
-from oven.ui.display import Display
+from oven.ui import theme as T
+from oven.ui.display import Display, preload
 
 VERSION = "v2.0-dev"
 
@@ -77,6 +78,8 @@ def main():
     hw = Hardware()                    # claims D4 and drives it low
     HARDWARE = hw
     display = Display(board.DISPLAY)
+    # Warm the font cache here, not inside the first render: see preload().
+    preload((T.FONT_READOUT, T.FONT_LARGE, T.FONT_BODY, T.FONT_SMALL))
 
     data = load_characterisation()
     if data:
@@ -189,7 +192,13 @@ def main():
         app.tick()
 
         cmd = poll_command()
-        if cmd == "ABORT":
+        # poll_command returns None on every pass with no complete line, and
+        # None has no .startswith. The equality branches tolerated it; the
+        # prefix match did not, and it crashed the firmware on the first
+        # loop.
+        if not cmd:
+            pass
+        elif cmd == "ABORT":
             app.abort()
             print("# command ABORT accepted, state=%s" % app.state)
         elif cmd == "START":
@@ -203,6 +212,25 @@ def main():
         elif cmd == "ACK":
             app.acknowledge_fault()
             print("# command ACK, state=%s" % app.state)
+        elif cmd.startswith("PROFILE "):
+            wanted = cmd[8:].strip().lower()
+            match = None
+            for pr in profiles:
+                if wanted in pr.name.lower():
+                    match = pr
+                    break
+            if match is None:
+                print("# command PROFILE unknown %r; have: %s"
+                      % (wanted, " | ".join(p.name for p in profiles)))
+            elif app.state not in (STATE_IDLE, STATE_REPORT):
+                print("# command PROFILE refused: oven is %s" % app.state)
+            else:
+                selected = match
+                print("# command PROFILE selected: %s" % selected.name)
+        elif cmd == "PROFILES":
+            for pr in profiles:
+                print("# profile %s%s" % (pr.name,
+                                          " (selected)" if pr is selected else ""))
         elif cmd == "STATUS":
             print("# status state=%s temp=%s target=%s relay=%d profile=%s"
                   % (app.state, app.temperature, app.target,

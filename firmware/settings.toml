@@ -1,0 +1,10 @@
+# CircuitPython reads this at boot.
+#
+# The default Python stack is not deep enough for this UI. Building a
+# bitmap_label recurses through PCF glyph loading, and at boot -- inside
+# main -> render -> _rebuild -> _build -> Label -> glyph -- it exhausts it:
+# "RuntimeError: pystack exhausted", after which the partly-built font
+# reports every glyph as missing, which looks like a font problem and is not.
+# Loading fonts earlier did not help, because the depth is in Label, not in
+# the font load.
+CIRCUITPY_PYSTACK_SIZE = 4096

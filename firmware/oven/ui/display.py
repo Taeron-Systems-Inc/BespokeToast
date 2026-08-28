@@ -21,6 +21,20 @@ from . import theme as T
 _fonts = {}
 
 
+def preload(paths):
+    """Load fonts before anything nests inside a render.
+
+    PCF glyph loading recurses, and at boot the first load happens deep in
+    main -> render -> _rebuild -> _build -> Label -> load_font. That was
+    enough to exhaust the Python stack: "RuntimeError: pystack exhausted",
+    after which the half-built font reports every glyph as missing. Loading
+    them here, at the top of main where the stack is shallow, costs nothing
+    and removes the depth.
+    """
+    for path in paths:
+        _font(path)
+
+
 def _font(path):
     if path not in _fonts:
         try:
@@ -125,9 +139,27 @@ class Display(object):
     def _rebuild(self, commands, sig):
         # Any retained layer belongs to the OUTGOING group, and displayio
         # will not have one layer in two. Release it so this rebuild makes a
-        # fresh wrapper; the bitmap behind it is untouched and keeps its
-        # contents, which is the expensive part.
+        # fresh wrapper.
         self._chart_tile = None
+
+        # Release the chart bitmap too when the new screen has no chart.
+        # Every remaining render failure in run 7 came in one burst, on the
+        # first frame of the cooldown screen: a full rebuild while a 26 KB
+        # chart bitmap was still resident, with nothing left to allocate the
+        # new labels from. The cooldown screen does not plot anything, so
+        # holding its buffer costs a screen.
+        if not any(c[0] == "plot" for c in commands):
+            self._chart = None
+            self._chart_key = None
+            self._chart_palette = None
+            self._chart_drawn = None
+
+        # Drop the outgoing group before building the new one, so the two are
+        # never resident together.
+        self._slots = []
+        self.group = displayio.Group()
+        self._set_root(self.group)
+
         group = displayio.Group()
         slots = []
         for cmd in commands:

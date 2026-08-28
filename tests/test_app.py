@@ -281,3 +281,21 @@ def test_every_control_step_produces_a_sample_for_the_log(rig):
     run_for(app, clock, 5.0)
     assert len(rows) >= 19
     assert all("temp" in r and "state" in r and "relay" in r for r in rows)
+
+
+def test_command_dispatch_tolerates_no_command():
+    """poll_command returns None on every pass with no complete line. The
+    equality branches tolerated that; a prefix match did not, and .startswith
+    on None crashed the firmware on its first loop."""
+    import ast
+    import os
+    src = open(os.path.join(os.path.dirname(__file__), "..", "firmware",
+                            "code.py")).read()
+    ast.parse(src)
+    body = src[src.index("cmd = poll_command()"):]
+    body = body[:body.index("display.render") if "display.render" in body
+                else 1500]
+    guard = body.index("if not cmd:")
+    first_prefix = body.find(".startswith(")
+    assert first_prefix == -1 or guard < first_prefix, (
+        "a prefix match on the command appears before the None guard")

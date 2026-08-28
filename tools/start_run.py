@@ -20,7 +20,23 @@ import re
 import sys
 import time
 
-PORT = "/dev/ttyACM0"
+def _port():
+    """The board's stable path, not a ttyACM number.
+
+    Device numbering is not stable: a hard reset re-enumerated this board
+    from ttyACM0 to ttyACM1, and every tool hardcoding ACM0 then failed to
+    find a device that was sitting there working. The by-id path is keyed to
+    the board UID and survives resets and replugs.
+    """
+    import glob
+    found = sorted(glob.glob("/dev/serial/by-id/*PyPortal*"))
+    if found:
+        return found[0]
+    found = sorted(glob.glob("/dev/ttyACM*"))
+    return found[0] if found else "/dev/ttyACM0"
+
+
+PORT = _port()
 STATES = ("idle", "preheat", "running", "cooldown", "report", "fault")
 
 # Pre-flight bounds. Deliberately tighter than the device's own limits: this

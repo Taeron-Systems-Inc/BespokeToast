@@ -23,10 +23,18 @@ FAINT = 0x4A4A52     # chart grid only, never type
 SCREEN_W = 320
 SCREEN_H = 240
 
-# "234 °C" measures 205 px at 64 px (assets/fonts/metrics.json), which fits
-# beside a sensibly sized abort target.
-FONT_READOUT = "/assets/fonts/B612-Bold-64.pcf"
-FONT_READOUT_MED = "/assets/fonts/B612-Bold-48.pcf"
+# The live readout is 48 px, not 64.
+#
+# Measured on the device: setting .text on a bitmap_label reallocates its
+# internal bitmap, and at 64 px that is a ~2156-byte block -- the exact
+# allocation that failed 93 times during the low-temp run. In a direct test,
+# a 48 px label survived 40 text changes with no net drift while the 64 px
+# label could not even be constructed. "234 °C" measures 153 px at 48 px
+# against 205 at 64, so it still reads across a bench and leaves more room.
+#
+# 64 px stays for the splash, which is drawn once and never updated.
+FONT_READOUT = "/assets/fonts/B612-Bold-48.pcf"
+FONT_READOUT_XL = "/assets/fonts/B612-Bold-64.pcf"
 FONT_LARGE = "/assets/fonts/B612-24s.pcf"
 FONT_BODY = "/assets/fonts/B612-Bold-16s.pcf"
 FONT_SMALL = "/assets/fonts/B612-12s.pcf"

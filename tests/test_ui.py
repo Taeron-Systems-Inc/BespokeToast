@@ -137,7 +137,7 @@ def test_missing_values_render_as_dashes_not_crashes():
 
 def test_assets_referenced_by_the_theme_exist():
     root = os.path.join(os.path.dirname(__file__), "..", "firmware")
-    for path in (T.FONT_READOUT, T.FONT_READOUT_MED, T.FONT_LARGE,
+    for path in (T.FONT_READOUT, T.FONT_READOUT_XL, T.FONT_LARGE,
                  T.FONT_BODY, T.FONT_SMALL,
                  T.LOGO_LARGE, T.LOGO_SMALL):
         assert os.path.exists(root + path), "%s is referenced but not shipped" % path
@@ -147,7 +147,7 @@ def test_font_budget_stays_small():
     """A full charset at 64 px is 329 KB; subsetting is what makes this fit."""
     root = os.path.join(os.path.dirname(__file__), "..", "firmware")
     total = sum(os.path.getsize(root + p) for p in
-                (T.FONT_READOUT, T.FONT_READOUT_MED, T.FONT_LARGE,
+                (T.FONT_READOUT, T.FONT_READOUT_XL, T.FONT_LARGE,
                  T.FONT_BODY, T.FONT_SMALL))
     assert total < 60000, "fonts total %d bytes" % total
 
@@ -366,3 +366,21 @@ def test_no_screen_ever_emits_an_empty_string():
             if cmd[0] == "text" and str(cmd[3]) == "":
                 offenders.append("open_the_door(rate=%r)" % rate)
     assert not offenders, "empty strings on: %s" % sorted(set(offenders))
+
+
+def test_the_live_readout_is_not_the_largest_face():
+    """Setting .text on a bitmap_label reallocates its bitmap. At 64 px that
+    is a ~2156-byte block, which is the allocation that failed 93 times in
+    the low-temp run; measured directly on the device, a 48 px label survived
+    40 text changes with no net drift while a 64 px one could not be built at
+    all. The biggest face is reserved for the splash, which is drawn once."""
+    assert T.FONT_READOUT.endswith("48.pcf")
+    assert T.FONT_READOUT_XL.endswith("64.pcf")
+    live = {c[5] for c in L.running(230.0, 232.0, 300, 188, "reflow", 45,
+                                    217, 0.5, True) if c[0] == "text"}
+    assert T.FONT_READOUT_XL not in live, \
+        "the largest face must not appear on a screen that updates"
+    for cmds in (L.open_the_door(180.0, -2.0),
+                 L.fault("x"),
+                 L.report([("peak", 1, True, "ok")], 1, 1)):
+        assert T.FONT_READOUT_XL not in {c[5] for c in cmds if c[0] == "text"}

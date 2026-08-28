@@ -27,6 +27,23 @@ ABS_MAX_C = 300.0
 MAX_DURATION_S = 24 * 3600
 
 
+def _interp_rate(table, value):
+    """Linear lookup into a measured (temperature, rate) table."""
+    if not table:
+        return None
+    pts = sorted(table)
+    if value <= pts[0][0]:
+        return pts[0][1]
+    if value >= pts[-1][0]:
+        return pts[-1][1]
+    for i in range(1, len(pts)):
+        if pts[i][0] >= value:
+            t0, r0 = pts[i - 1]
+            t1, r1 = pts[i]
+            return r0 + (r1 - r0) * (value - t0) / (t1 - t0)
+    return pts[-1][1]
+
+
 class ProfileError(Exception):
     """A profile could not be loaded, with a reason worth showing a user."""
 
@@ -156,7 +173,8 @@ class Profile(object):
                 raise ProfileError("liquidus_c %g C is out of range"
                                    % self.liquidus_c)
 
-    def warnings(self, max_ramp_up=None, max_ramp_down=None):
+    def warnings(self, max_ramp_up=None, max_ramp_down=None,
+                 heating_rates=None):
         """Non-fatal concerns, for showing before a run.
 
         With measured oven capability passed in, this reports demands the
@@ -181,6 +199,29 @@ class Profile(object):
             if hi is not None and tal > hi:
                 out.append("%.0f s above liquidus, more than the %.0f this "
                            "alloy wants" % (tal, hi))
+        if heating_rates:
+            # Per segment, against what the oven does AT THAT TEMPERATURE.
+            # Comparing only against the oven's peak rate hides the case that
+            # matters: this oven peaks at 1.85 C/s around 80 C but manages
+            # 1.29 at 150 C and 0.75 at 220 C, and reflow profiles demand
+            # their fastest rise exactly where it is weakest.
+            worst = None
+            for i in range(1, len(self.points)):
+                t0, c0 = self.points[i - 1]
+                t1, c1 = self.points[i]
+                need = (c1 - c0) / (t1 - t0)
+                if need <= 0:
+                    continue
+                have = _interp_rate(heating_rates, (c0 + c1) / 2.0)
+                if have is not None and need > have:
+                    gap = need - have
+                    if worst is None or gap > worst[0]:
+                        worst = (gap, c0, c1, need, have)
+            if worst is not None:
+                out.append(
+                    "%.0f-%.0f C needs %.2f C/s but this oven does %.2f C/s "
+                    "there" % (worst[1], worst[2], worst[3], worst[4]))
+
         if max_ramp_up is not None:
             need = self.max_ramp_up
             if need > max_ramp_up:

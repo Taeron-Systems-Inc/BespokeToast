@@ -222,3 +222,21 @@ def test_the_shipped_gains_survive_plant_error(scale):
         t += 0.25
     assert 225 <= m.peak_c <= 245
     assert 60 <= m.time_above_liquidus <= 150
+
+
+def test_capability_is_checked_per_segment_not_just_at_the_peak_rate():
+    """This oven peaks at 1.85 C/s near 80 C but manages 1.29 at 150 C and
+    0.75 at 220 C, and reflow profiles demand their fastest rise exactly
+    where it is weakest. A blanket comparison against the peak rate passes
+    profiles the oven cannot follow."""
+    p = Profile.from_dict({
+        "name": "steep where it hurts", "category": "reflow",
+        "liquidus_c": 217,
+        # 1.5 C/s from 200 to 230, which this oven cannot do up there,
+        # while never exceeding its 1.85 C/s peak figure
+        "points": [[0, 25], [140, 200], [160, 230], [200, 150]]})
+    blanket = p.warnings(max_ramp_up=1.85)
+    assert not any("does" in w for w in blanket), "blanket check should miss it"
+    per_segment = p.warnings(heating_rates=DATA["heating_rate_c_per_s"])
+    assert any("this oven does" in w for w in per_segment), \
+        "per-segment check must catch a rise the oven cannot make there"

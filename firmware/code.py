@@ -212,6 +212,13 @@ def main():
         elif cmd == "ACK":
             app.acknowledge_fault()
             print("# command ACK, state=%s" % app.state)
+        elif cmd == "DONE":
+            # Dismiss a finished run's report. The touchscreen has a DONE
+            # button; the console had no equivalent, so a run that finished
+            # with nobody present parked on the report screen indefinitely.
+            if app.state == STATE_REPORT:
+                app.state = STATE_IDLE
+            print("# command DONE, state=%s" % app.state)
         elif cmd.startswith("PROFILE "):
             wanted = cmd[8:].strip().lower()
             match = None

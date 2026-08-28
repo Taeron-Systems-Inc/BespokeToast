@@ -7,4 +7,7 @@
 # reports every glyph as missing, which looks like a font problem and is not.
 # Loading fonts earlier did not help, because the depth is in Label, not in
 # the font load.
-CIRCUITPY_PYSTACK_SIZE = 4096
+# 4096 was enough for boot but not for the first render of a screen whose
+# glyphs had never been loaded. The glyph preload in display.preload() is
+# the real fix; this is headroom behind it.
+CIRCUITPY_PYSTACK_SIZE = 8192

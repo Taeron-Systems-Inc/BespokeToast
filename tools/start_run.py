@@ -119,7 +119,12 @@ def preflight(s):
         return ["no telemetry: the firmware is not running or the port is busy"]
     last = rows[-1]
     problems = []
-    if last["state"] != "idle":
+    # "report" is a finished run waiting for someone to press DONE, and
+    # App.request_start accepts it. Requiring "idle" made the host stricter
+    # than the firmware it drives: with nobody at the oven to dismiss the
+    # report, the device sat ready while a watcher polled for a state it
+    # could never reach.
+    if last["state"] not in ("idle", "report"):
         problems.append("device is %s, not idle" % last["state"])
     if last["relay"]:
         problems.append("relay is already energised")

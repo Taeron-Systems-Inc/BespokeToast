@@ -299,3 +299,21 @@ def test_command_dispatch_tolerates_no_command():
     first_prefix = body.find(".startswith(")
     assert first_prefix == -1 or guard < first_prefix, (
         "a prefix match on the command appears before the None guard")
+
+
+def test_a_finished_run_can_be_restarted_without_being_dismissed(rig):
+    """A completed run parks on its report until someone presses DONE. With
+    nobody at the oven that state persists, so starting must work from it.
+    The firmware always allowed this; the host pre-flight did not, and a
+    watcher waited on a state that could never arrive."""
+    app, clock, _, sensor, profile, _ = rig
+    app.request_start(profile)
+    sensor.temp = profile.target_at(0.0)
+    run_for(app, clock, 1.0)
+    app.abort()
+    sensor.temp = 45.0
+    run_for(app, clock, 2.0)
+    assert app.state == STATE_REPORT
+    sensor.temp = 25.0
+    assert app.request_start(profile) is None
+    assert app.state == STATE_PREHEAT

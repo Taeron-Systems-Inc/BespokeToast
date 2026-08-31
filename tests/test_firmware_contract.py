@@ -77,3 +77,26 @@ def test_every_firmware_module_parses():
         for n in names:
             if n.endswith(".py"):
                 ast.parse(open(os.path.join(base, n)).read())
+
+
+def test_code_py_reserves_the_chart_buffer_at_startup():
+    """The chart buffer is ~5.9 KB and used to be allocated on the first
+    running screen -- after a run had already started, on whatever heap
+    remained. A freshly booted device managed it; one that had been working a
+    while failed with MemoryError and ran with no chart."""
+    src = open(os.path.join(FIRMWARE, "code.py")).read()
+    assert "reserve_chart" in src, "code.py must claim the chart buffer at boot"
+    main = src[src.index("def main("):]
+    reserve = main.index("reserve_chart")
+    loop = main.index("while True:")
+    assert reserve < loop, "the reservation must happen before the main loop"
+
+
+def test_the_renderer_does_not_release_the_chart_buffer():
+    """Releasing it when a chart-less screen appears means re-allocating on
+    the next run, on a heap that has meanwhile fragmented -- which is the
+    failure that releasing it was meant to avoid."""
+    src = open(os.path.join(FIRMWARE, "oven/ui/display.py")).read()
+    rebuild = src[src.index("def _rebuild"):src.index("def _update")]
+    assert "self._chart = None" not in rebuild, \
+        "_rebuild must not drop the chart buffer"

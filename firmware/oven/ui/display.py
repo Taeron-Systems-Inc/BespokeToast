@@ -99,6 +99,35 @@ class Display(object):
         self._chart_drawn = None
         self._chart_tile = None
 
+    def reserve_chart(self, w, h):
+        """Claim the chart buffer at startup, not on first use.
+
+        It is about 5.9 KB and was allocated the first time a running screen
+        appeared -- i.e. after a run had already started, on whatever heap
+        the program had by then. Measured: a freshly booted device managed it
+        every time, and a device that had been working for a while failed
+        with MemoryError, leaving the run with no chart at all. Claimed here,
+        at boot, it is contiguous and it is kept.
+        """
+        if self._chart_key == (w, h):
+            return True
+        try:
+            self._chart = displayio.Bitmap(w, h, 4)
+        except Exception as e:
+            print("# WARNING could not reserve the %dx%d chart buffer (%r); "
+                  "it will be attempted again on first use" % (w, h, e))
+            return False
+        palette = displayio.Palette(4)
+        palette[0] = T.BG
+        palette[1] = T.DIM
+        palette[2] = T.BRAND
+        palette[3] = T.DANGER
+        palette.make_transparent(0)
+        self._chart_palette = palette
+        self._chart_key = (w, h)
+        self._chart_drawn = None
+        return True
+
     def _set_root(self, group):
         # display.show() was removed in CircuitPython 9.
         try:
@@ -158,17 +187,12 @@ class Display(object):
         # fresh wrapper.
         self._chart_tile = None
 
-        # Release the chart bitmap too when the new screen has no chart.
-        # Every remaining render failure in run 7 came in one burst, on the
-        # first frame of the cooldown screen: a full rebuild while a 26 KB
-        # chart bitmap was still resident, with nothing left to allocate the
-        # new labels from. The cooldown screen does not plot anything, so
-        # holding its buffer costs a screen.
-        if not any(c[0] == "plot" for c in commands):
-            self._chart = None
-            self._chart_key = None
-            self._chart_palette = None
-            self._chart_drawn = None
+        # The chart buffer is NOT released here. It used to be, on the
+        # reasoning that a screen without a plot should not hold 5.9 KB --
+        # but releasing it means re-allocating on the next run, on a heap
+        # that has meanwhile fragmented, which is exactly the failure that
+        # reasoning was trying to avoid. Reserved once at boot and kept.
+        self._chart_drawn = None
 
         # Drop the outgoing group before building the new one, so the two are
         # never resident together.

@@ -80,6 +80,8 @@ def main():
     display = Display(board.DISPLAY)
     # Warm the font cache here, not inside the first render: see preload().
     preload((T.FONT_READOUT, T.FONT_LARGE, T.FONT_BODY, T.FONT_SMALL))
+    # Claim the chart buffer now, while the heap is whole.
+    display.reserve_chart(L.CHART[2], L.CHART[3])
 
     data = load_characterisation()
     if data:

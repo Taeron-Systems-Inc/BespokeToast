@@ -1,75 +1,63 @@
 {
   "name": "DIAGNOSTIC fast",
   "category": "reflow",
-  "liquidus_c": 45,
+  "liquidus_c": 33,
   "tal_min_s": 10,
   "tal_max_s": 200,
   "max_ramp_up_c_per_s": 2.5,
-  "notes": "NOT A SOLDERING PROFILE. Peaks at about 52 C so a whole cycle -- preheat, soak, a liquidus crossing, peak, cooldown and report -- runs in a couple of minutes and the oven is back under the 45 C pre-flight limit in a couple more, against roughly thirty for a reflow profile. It exists to iterate on things that have nothing to do with temperature: render failures, memory, screen transitions, the state machine, the console commands. liquidus_c is set to 45 C purely so the run crosses it and exercises the time-above-liquidus path; it means nothing metallurgical. Melts no solder and reflows nothing.",
+  "notes": "NOT A SOLDERING PROFILE. Peaks near 39 C -- barely warm -- so the whole cycle runs in about two minutes AND the oven is already under the 45 C pre-flight limit when it ends, making back-to-back iterations possible. An earlier version peaked at 52 C, which ran fine but then took ten minutes to cool the last fifteen degrees, because cooling near ambient is slow. It exercises preheat, soak, a liquidus crossing, peak, cooldown, report, every screen, the chart and the console commands. liquidus_c is 33 C purely so the run crosses it; that number means nothing metallurgical. Melts no solder and reflows nothing. Note that on a curve this short the oven overshoots by several degrees -- the feed-forward commands heat the thermal mass carries past -- which does not happen on a real profile's longer ramps.",
   "points": [
     [
       0,
-      25
+      24
     ],
     [
-      22,
+      54,
+      25.5
+    ],
+    [
+      81,
       27.0
     ],
     [
-      33,
-      29.2
+      98,
+      28.6
     ],
     [
-      40,
-      31.3
-    ],
-    [
-      45,
-      33.4
-    ],
-    [
-      49,
-      35.7
-    ],
-    [
-      53,
-      38
-    ],
-    [
-      68,
-      38
-    ],
-    [
-      75,
-      40.1
-    ],
-    [
-      82,
-      42.4
-    ],
-    [
-      87,
-      44
-    ],
-    [
-      90,
-      46.6
-    ],
-    [
-      93,
-      49.3
-    ],
-    [
-      96,
-      52
+      110,
+      30.2
     ],
     [
       116,
-      52
+      31
     ],
     [
-      143,
-      50.0
+      128,
+      31
+    ],
+    [
+      147,
+      32.5
+    ],
+    [
+      162,
+      34
+    ],
+    [
+      168,
+      35.7
+    ],
+    [
+      173,
+      37.4
+    ],
+    [
+      178,
+      39
+    ],
+    [
+      193,
+      39
     ]
   ],
   "diagnostic": true

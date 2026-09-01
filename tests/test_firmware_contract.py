@@ -179,3 +179,100 @@ def test_both_ways_of_starting_a_run_record_it():
     assert calls.count("begin_log") >= 2, (
         "begin_log is called %d time(s); every way of starting a run must "
         "record it" % calls.count("begin_log"))
+
+
+def test_boot_puts_the_relay_down_before_anything_that_can_raise():
+    """boot.py has one job that outranks the other.
+
+    It also decides filesystem ownership now, which touches storage and
+    supervisor and can raise. None of that may come before the relay is
+    driven low -- an exception above that line would leave the pulldown as
+    the only thing holding the oven off.
+    """
+    import ast
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "firmware", "boot.py")
+    tree = ast.parse(open(path).read())
+
+    relay_line = None
+    remount_line = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "deinit":
+            relay_line = node.lineno if relay_line is None else relay_line
+        if isinstance(node, ast.Call) and \
+                getattr(node.func, "attr", None) == "remount":
+            remount_line = node.lineno
+    assert relay_line is not None, "boot.py never releases the relay pin"
+    assert remount_line is not None, "boot.py never sets filesystem ownership"
+    assert relay_line < remount_line, (
+        "the filesystem work at line %d comes before the relay is safe at "
+        "line %d" % (remount_line, relay_line))
+
+
+def test_boot_takes_ownership_from_the_recorded_mode_not_from_usb():
+    """boot.py must not ask usb_connected -- it lies there.
+
+    CircuitPython starts USB after boot.py finishes, so the flag reads
+    False with a cable attached. Sampling it, and then polling it for five
+    seconds, both handed the filesystem to the oven while it was plugged in
+    and locked the host out of its own volume.
+    """
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "firmware", "boot.py")
+    import ast
+    source = open(path).read()
+    tree = ast.parse(source)
+    # The docstring explains why usb_connected is unusable here, so match
+    # on attribute access rather than on the text.
+    reads = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Attribute) and n.attr == "usb_connected"]
+    assert not reads, (
+        "boot.py reads usb_connected at line %s, which is False there even "
+        "when a host is attached" % (reads[0].lineno if reads else "?"))
+    calls = [getattr(n.func, "id", None) for n in ast.walk(tree)
+             if isinstance(n, ast.Call)]
+    assert "decode" in calls, "boot.py must use the recorded boot mode"
+
+
+def test_the_default_boot_mode_keeps_the_volume_with_the_host():
+    """Being wrong this way costs one unrecorded run. The other way costs
+    a board nobody can program."""
+    from oven.bootmode import HOST, decode, owns_filesystem
+    assert decode(None) == HOST
+    assert decode(bytearray((0xFF, 0xFF))) == HOST
+    assert owns_filesystem(decode(None)) is False
+
+
+def test_code_py_never_imports_a_module_inside_a_function():
+    """A local import makes that name local to the ENTIRE function.
+
+    code.py had "import gc" inside the MEM command handler, which made gc
+    local to main(). Every other gc reference in main() -- the MemoryError
+    guards, and select() -- then raised NameError instead of collecting,
+    and the firmware died the first time a profile was selected.
+    """
+    import ast
+    tree = _code_py_tree()
+    module_level = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                module_level.add((alias.asname or alias.name).split(".")[0])
+
+    offenders = []
+    for func in ast.walk(tree):
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for node in ast.walk(func):
+            if not isinstance(node, ast.Import):
+                continue
+            for alias in node.names:
+                bound = (alias.asname or alias.name).split(".")[0]
+                if bound in module_level:
+                    offenders.append(
+                        "%s() re-imports %s at line %d, which is already "
+                        "imported at module scope"
+                        % (func.name, bound, node.lineno))
+    assert not offenders, (
+        "a local import shadows the module-level one for the WHOLE "
+        "function, including nested functions: %s" % offenders)

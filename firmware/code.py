@@ -38,6 +38,29 @@ PROFILE_DIR = "/profiles"
 CHARACTERISATION = "/characterisation.json"
 
 
+def remember_boot_mode():
+    """Record, for the next boot, whether a host is attached.
+
+    boot.py cannot tell -- usb_connected reads False there because
+    CircuitPython starts USB afterwards. Here it is reliable, so the answer
+    is written to non-volatile memory, which does not care who owns the
+    filesystem. The cost is a boot of lag after the cable changes; the
+    alternative was locking the host out of its own volume, which happened
+    twice before this existed.
+    """
+    try:
+        import microcontroller
+        from oven.bootmode import HOST, STANDALONE, decode, encode, name
+        seen = HOST if supervisor.runtime.usb_connected else STANDALONE
+        if decode(microcontroller.nvm) != seen:
+            microcontroller.nvm[0:2] = encode(seen)
+            print("# boot mode recorded as %s; it takes effect on the next "
+                  "hard reset" % name(seen))
+    except Exception as e:
+        print("# WARNING could not record the boot mode (%r); the oven may "
+              "not be able to log its next run" % e)
+
+
 def storage_is_writable():
     """Can the device write to its own filesystem?
 
@@ -104,6 +127,7 @@ def main():
     # that has about 22 kB to give, and paying that for a feature that is
     # switched off is how the display ran out of memory in the first place.
     log_writable = storage_is_writable()
+    remember_boot_mode()
     logs = None
     LOG_INTERVAL_S = 1.0
     if log_writable:
@@ -361,7 +385,11 @@ def main():
                       % (pr.name,
                          " (selected)" if pr is selected_ref[0] else ""))
         elif cmd == "MEM":
-            import gc
+            # No "import gc" here: gc is imported at module scope, and a
+            # local import would make the name local to the whole of main(),
+            # so every other gc.collect() in this function -- including the
+            # ones in the MemoryError guards and in select() -- would raise
+            # NameError instead of collecting. That is exactly what happened.
             gc.collect()
             from oven.ui.display import largest_free_block
             print("# mem free=%d largest=%s memory_failures=%s"

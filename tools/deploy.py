@@ -111,6 +111,49 @@ def running_check(dest, port=None, listen_s=6.0):
             port, e)
 
 
+
+def claim_volume_for_the_host(port=None, mount=None, wait_s=30.0):
+    """If the oven owns the filesystem, take it back and reset.
+
+    In standalone mode the oven has write access and the host's volume is
+    read-only, so a deploy simply cannot write. That is the correct state
+    for the oven to be in when it is running on its own -- it is how it
+    records a run -- but it is useless for programming.
+
+    Rather than leave someone staring at "Read-only file system", this sets
+    the boot mode over the serial console and hard-resets the board. Serial
+    is always available when a cable is attached, which is exactly when a
+    deploy is happening. Two lock-outs were rescued by hand this way before
+    it was automated.
+    """
+    try:
+        import serial
+    except ImportError:
+        return "pyserial is not installed, so the volume cannot be reclaimed"
+    port = resolve_port(port)
+    script = (
+        "import microcontroller\r\n"
+        "microcontroller.nvm[0:2] = bytearray((0x7E, 0xA5))\r\n"
+        "import microcontroller; microcontroller.reset()\r\n"
+    )
+    try:
+        with serial.Serial(port, 115200, timeout=0.5) as s:
+            time.sleep(0.5)
+            for _ in range(3):
+                s.write(b"\x03")
+                time.sleep(0.4)
+            s.read(600)
+            for line in script.strip().split("\r\n"):
+                s.write((line + "\r\n").encode())
+                time.sleep(0.3)
+            s.flush()
+    except Exception as e:
+        return "could not reach %s to reclaim the volume (%r)" % (port, e)
+    # The board reboots and re-enumerates; the volume comes back writable.
+    time.sleep(wait_s)
+    return None
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
@@ -136,7 +179,23 @@ def main(argv):
               "CIRCUITPY volume" % dest)
         return 1
     if not dry and not os.access(dest, os.W_OK):
-        print("!! %s is read-only. Remount it writable to deploy." % dest)
+        # Most likely the oven owns the filesystem, which is correct when it
+        # is running standalone and useless for programming. Take it back
+        # over serial rather than reporting a wall.
+        print(".. %s is read-only; the oven probably owns it. Reclaiming "
+              "over serial and resetting the board." % dest)
+        problem = claim_volume_for_the_host()
+        if problem:
+            print("!! could not reclaim the volume: %s" % problem)
+            print("   the oven holds the filesystem while it is standalone. "
+                  "Set it back by hand over the REPL:")
+            print("     import microcontroller")
+            print("     microcontroller.nvm[0:2] = bytearray((0x7E, 0xA5))")
+            print("     microcontroller.reset()")
+            return 1
+        print(".. remount the volume and run this again:")
+        print("     sudo umount %s; sudo mount -o rw,uid=$(id -u) "
+              "$(blkid -L CIRCUITPY) %s" % (dest, dest))
         return 1
 
     blocked = running_check(dest)

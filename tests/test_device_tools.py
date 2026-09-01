@@ -70,3 +70,25 @@ def test_a_harness_that_fakes_a_relay_says_so(name):
             or "owns no pin" in lowered), (
         "%s defines %s without stating that it drives nothing"
         % (name, ", ".join(relays)))
+
+
+def test_the_touch_harness_calibration_matches_the_firmware():
+    """The harness duplicates the calibration; it must not drift from it.
+
+    It cannot import oven.hardware -- that is the module which claims the
+    relay pin -- so the constant is repeated, and repeated constants are
+    exactly the kind that quietly diverge. Testing the calibration with a
+    stale copy would prove nothing about the oven.
+    """
+    import re
+    hw = open(os.path.join(os.path.dirname(__file__), "..", "firmware",
+                           "oven", "hardware.py")).read()
+    harness = open(os.path.join(TOOLS, "touchtest.py")).read()
+
+    def calibration(source):
+        m = re.search(r"CALIBRATION\s*=\s*(\(\(.*?\)\))", source, re.S)
+        assert m, "no CALIBRATION found"
+        return eval(m.group(1))
+
+    assert calibration(hw) == calibration(harness), (
+        "touchtest.py tests a calibration the firmware does not use")

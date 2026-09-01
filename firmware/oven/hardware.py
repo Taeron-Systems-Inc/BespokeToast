@@ -123,12 +123,20 @@ class Thermocouple(object):
 class Touchscreen(object):
     """Resistive touch panel.
 
-    Calibration carried over from the previous firmware, which is the only
-    place it was ever recorded. It should be re-derived at some point, but
-    it demonstrably worked on this panel.
+    Calibration measured on this panel rather than inherited.
+
+    Re-derived 2026-09-01 with a person touching five crosses at known
+    points. The inherited values read consistently high: mean bias +11.8 px
+    in x and +5.6 px in y, and because the bias almost equalled the mean
+    absolute error it was systematic offset rather than noise. Both ends of
+    each axis are shifted by the same number of raw counts, which moves the
+    output without changing the scale.
+
+    Previous value, carried over from the firmware before this one and
+    never checked: ((5200, 59000), (5800, 57000)).
     """
 
-    CALIBRATION = ((5200, 59000), (5800, 57000))
+    CALIBRATION = ((7184, 60984), (6995, 58195))
 
     def __init__(self):
         self._ts = adafruit_touchscreen.Touchscreen(

@@ -54,9 +54,19 @@ def test_no_harness_names_the_relay_pin(name):
 
 @pytest.mark.parametrize("name", HARNESSES)
 def test_a_harness_that_fakes_a_relay_says_so(name):
-    """A fake relay is fine -- an unlabelled one invites confusion."""
+    """A fake relay is fine -- an unlabelled one invites confusion.
+
+    Matched on any class with Relay in its name, not one exact spelling:
+    the check quietly stopped applying the moment a harness called its
+    stand-in Relay instead of FakeRelay.
+    """
     source = open(os.path.join(TOOLS, name)).read()
-    if "class FakeRelay" in source:
-        assert "no heat" in source.lower() or "cannot energise" in source.lower(), (
-            "%s simulates a relay without stating that it drives nothing"
-            % name)
+    relays = [n.name for n in ast.walk(_tree(name))
+              if isinstance(n, ast.ClassDef) and "relay" in n.name.lower()]
+    if not relays:
+        return
+    lowered = source.lower()
+    assert ("no heat" in lowered or "cannot energise" in lowered
+            or "owns no pin" in lowered), (
+        "%s defines %s without stating that it drives nothing"
+        % (name, ", ".join(relays)))

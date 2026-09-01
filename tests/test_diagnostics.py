@@ -24,6 +24,13 @@ JUSTIFIED_SILENT = {
     "oven/ui/layout.py": "one of several candidate paths; total failure logs",
 }
 
+# Reporting a failure through an injected callback counts as speaking. It is
+# what print does, and a test can assert on it -- which is why logstore takes
+# its reporter as an argument instead of printing. The names are deliberately
+# few: this recognises deliberate reporting, not any method that happens to
+# be called in a handler.
+REPORTERS = ("_warn", "_fail", "warn", "log", "note_memory_failure")
+
 FIRMWARE = os.path.join(os.path.dirname(__file__), "..", "firmware")
 
 
@@ -42,7 +49,9 @@ def _silent_handlers():
                 body = node.body
                 speaks = any(
                     isinstance(x, ast.Expr) and isinstance(x.value, ast.Call)
-                    and getattr(x.value.func, "id", "") == "print"
+                    and (getattr(x.value.func, "id", "") == "print"
+                         or getattr(x.value.func, "attr", "") in REPORTERS
+                         or getattr(x.value.func, "id", "") in REPORTERS)
                     for x in body)
                 signals = any(isinstance(x, (ast.Raise, ast.Return))
                               for x in body)
@@ -76,3 +85,30 @@ def test_losing_the_measured_model_is_loud():
     idx = src.index("def load_characterisation")
     body = src[idx:src.index("def load_profiles")]
     assert "WARNING" in body and "ESTIMATED" in body
+
+
+def test_the_detector_still_catches_a_bare_pass():
+    """The rule above must not have been widened into a loophole."""
+    import ast as _ast
+    tree = _ast.parse("try:\n    x()\nexcept Exception:\n    pass\n")
+    handler = [n for n in _ast.walk(tree)
+               if isinstance(n, _ast.ExceptHandler)][0]
+    body = handler.body
+    speaks = any(isinstance(x, _ast.Expr) and isinstance(x.value, _ast.Call)
+                 and (getattr(x.value.func, "id", "") == "print"
+                      or getattr(x.value.func, "attr", "") in REPORTERS)
+                 for x in body)
+    signals = any(isinstance(x, (_ast.Raise, _ast.Return)) for x in body)
+    assert not (speaks or signals)
+
+
+def test_an_unrelated_method_call_does_not_count_as_speaking():
+    import ast as _ast
+    tree = _ast.parse("try:\n    x()\nexcept Exception:\n    self.reset()\n")
+    handler = [n for n in _ast.walk(tree)
+               if isinstance(n, _ast.ExceptHandler)][0]
+    speaks = any(isinstance(x, _ast.Expr) and isinstance(x.value, _ast.Call)
+                 and (getattr(x.value.func, "id", "") == "print"
+                      or getattr(x.value.func, "attr", "") in REPORTERS)
+                 for x in handler.body)
+    assert not speaks

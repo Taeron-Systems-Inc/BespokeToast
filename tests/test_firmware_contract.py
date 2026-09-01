@@ -100,3 +100,55 @@ def test_the_renderer_does_not_release_the_chart_buffer():
     rebuild = src[src.index("def _rebuild"):src.index("def _update")]
     assert "self._chart = None" not in rebuild, \
         "_rebuild must not drop the chart buffer"
+
+
+def _code_py_tree():
+    import ast
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "firmware", "code.py")
+    return ast.parse(open(path).read())
+
+
+def _guarded_calls(tree):
+    """Names of functions called inside a try that handles MemoryError."""
+    import ast
+    out = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        handles_memory = any(
+            (isinstance(h.type, ast.Name) and h.type.id == "MemoryError")
+            or (isinstance(h.type, ast.Tuple)
+                and any(getattr(e, "id", "") == "MemoryError"
+                        for e in h.type.elts))
+            for h in node.handlers)
+        if not handles_memory:
+            continue
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Call):
+                f = inner.func
+                out.add(getattr(f, "id", None) or getattr(f, "attr", None))
+    return out
+
+
+def test_the_display_path_cannot_kill_a_run():
+    """A run died at 90 C, relay at full duty, on a 256-byte allocation.
+
+    It was history.append in the main loop, and the MemoryError propagated
+    out of main(). The relay was driven low on the way out so it failed
+    safe, but the oven stopped controlling and stopped answering ABORT.
+    Everything that only feeds the screen must be survivable.
+    """
+    guarded = _guarded_calls(_code_py_tree())
+    for name in ("running", "fault", "render", "add", "_emit"):
+        assert name in guarded, (
+            "%s() is not inside a try that handles MemoryError; a failure "
+            "there would stop the firmware mid-run" % name)
+
+
+def test_the_control_step_is_not_swallowed():
+    """app.tick() must NOT be wrapped: a fault there has to surface."""
+    guarded = _guarded_calls(_code_py_tree())
+    assert "tick" not in guarded, (
+        "the control step is inside a MemoryError handler; safety logic "
+        "must not be silently skipped")

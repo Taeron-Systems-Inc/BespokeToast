@@ -117,6 +117,7 @@ class Supervisor(object):
         self.limits = limits or Limits()
         self.fault = None
         self._run_start = None
+        self._run_limit_s = None
         self._last_t = None
         self._last_temp = None
         self._relay_on_since = None
@@ -176,12 +177,30 @@ class Supervisor(object):
                 % (reading.hot, lim.start_min_c, lim.start_max_c))
         return None
 
-    def begin_run(self, t):
+    def begin_run(self, t, expected_duration_s=None):
+        """Start supervising a run.
+
+        The timeout follows the profile when one is given. It was a flat
+        3600 s, which the shipped 125 C MSL bake exceeds four times over --
+        that profile could never have completed, and would have faulted at
+        the one-hour mark every time it was run. A fixed ceiling is also
+        needlessly slack for a short run: a stuck eight-minute reflow had an
+        hour to sit there before anything noticed.
+
+        The allowance is ten minutes plus a quarter of the profile, which
+        covers a slow oven and a cold start without letting a runaway sit.
+        """
         self._run_start = t
+        if expected_duration_s:
+            self._run_limit_s = (expected_duration_s + 600.0
+                                 + 0.25 * expected_duration_s)
+        else:
+            self._run_limit_s = self.limits.max_run_s
         self._reset_tracking()
 
     def end_run(self):
         self._run_start = None
+        self._run_limit_s = None
         self._reset_tracking()
 
     # -- the per-step check ------------------------------------------------
@@ -240,10 +259,11 @@ class Supervisor(object):
                               "%.1f \u00b0C on the controller die, limit "
                               "%.1f \u00b0C" % (reading.cpu, lim.max_cpu_c), t)
 
-        if self._run_start is not None and t - self._run_start > lim.max_run_s:
+        limit_s = self._run_limit_s or lim.max_run_s
+        if self._run_start is not None and t - self._run_start > limit_s:
             return self._trip(FAULT_RUN_TIMEOUT,
                               "%.0f s elapsed, limit %.0f s"
-                              % (t - self._run_start, lim.max_run_s), t)
+                              % (t - self._run_start, limit_s), t)
 
         if self._last_t is not None:
             dt = t - self._last_t

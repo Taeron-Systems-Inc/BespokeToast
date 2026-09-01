@@ -21,6 +21,7 @@ CATEGORY_BAKE = "bake"
 CATEGORY_HOLD = "hold"
 CATEGORIES = (CATEGORY_REFLOW, CATEGORY_BAKE, CATEGORY_HOLD)
 
+
 # Refuse anything outside these no matter what a file claims.
 ABS_MIN_C = 0.0
 ABS_MAX_C = 300.0

@@ -29,7 +29,7 @@ def simulate(profile, oven=None, controller=None, supervisor=None,
     ctl = controller or Controller(profile)
     sup = supervisor if supervisor is not None else Supervisor()
     ctl.reset(0.0)
-    sup.begin_run(0.0)
+    sup.begin_run(0.0, expected_duration_s=profile.duration)
 
     res = Result()
     m = RunMetrics(profile.liquidus_c or 0.0)

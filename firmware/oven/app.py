@@ -191,7 +191,9 @@ class App(object):
 
     def _begin_running(self, now):
         self._run_started = now
-        self.supervisor.begin_run(now)
+        self.supervisor.begin_run(
+            now, expected_duration_s=self.profile.duration
+            if self.profile is not None else None)
         self.controller.reset(now)
         self._enter(STATE_RUNNING)
         self._emit(Event.RUN_STARTED, {"profile": self.profile.name})

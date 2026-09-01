@@ -6,6 +6,7 @@ loop. Deliberately thin: everything that decides anything lives in oven/,
 where it can be tested without a board.
 """
 
+import gc
 import json
 import os
 import sys
@@ -18,6 +19,7 @@ from oven.app import App, STATE_IDLE, STATE_RUNNING, STATE_PREHEAT, \
     STATE_COOLDOWN, STATE_REPORT, STATE_FAULT
 from oven.controller import Controller, FeedForward, PID
 from oven.hardware import Hardware, cpu_temperature
+from oven.history import History
 from oven.metrics import Limits as MetricLimits
 from oven.profile import Profile
 from oven.ui import layout as L
@@ -34,6 +36,23 @@ VERSION = "v2.0-dev"
 # Reading the console does not disable the REPL: Ctrl-C still interrupts.
 PROFILE_DIR = "/profiles"
 CHARACTERISATION = "/characterisation.json"
+
+
+def storage_is_writable():
+    """Can the device write to its own filesystem?
+
+    Only when CIRCUITPY is not mounted writable by a host. Asking directly is
+    better than assuming: the answer decides whether runs are recorded, and a
+    silent no would look exactly like a logging bug later.
+    """
+    probe = "/.write-probe"
+    try:
+        with open(probe, "w") as f:
+            f.write("x")
+        os.remove(probe)
+        return True
+    except OSError:
+        return False
 
 
 def load_characterisation():
@@ -83,6 +102,20 @@ def main():
     # Claim the chart buffer now, while the heap is whole.
     display.reserve_chart(L.CHART[2], L.CHART[3])
 
+    # Run logging. CircuitPython can only write to CIRCUITPY when the volume
+    # is NOT writable over USB, which is the opposite of what a development
+    # machine wants, so on a bench-connected board this is unavailable.
+    #
+    # Imported only when it can be used: the module costs 5.9 kB of a heap
+    # that has about 22 kB to give, and paying that for a feature that is
+    # switched off is how the display ran out of memory in the first place.
+    log_writable = storage_is_writable()
+    logs = None
+    LOG_INTERVAL_S = 1.0
+    if log_writable:
+        from oven.logstore import LogStore, INTERVAL_S as LOG_INTERVAL_S
+        logs = LogStore()
+
     data = load_characterisation()
     if data:
         ff = FeedForward(heating_rates=data.get("heating_rate_c_per_s"),
@@ -112,7 +145,11 @@ def main():
         ("relay safe state", not hw.relay.is_on()),
         ("profiles", bool(profiles)),
         ("characterisation", data is not None),
+        ("run logging", log_writable),
     ]))
+    if not log_writable:
+        print("# run logging unavailable: CIRCUITPY is writable over USB, so "
+              "the device cannot write to it. Serial telemetry is unaffected.")
     time.sleep(1.5)
 
     def make_controller(profile):
@@ -137,10 +174,63 @@ def main():
     # certainly along the thermocouple wires into its terminals. That is the
     # mechanism behind cold-junction compensation error, and logging both is
     # what turns it from a worry into a measurement.
+    memory_failures = {}
+
+    def note_memory_failure(where):
+        """Count a memory failure, and say so without making it worse.
+
+        Printing on every failure allocates, which is precisely what is
+        already failing, so this reports on a widening schedule. The totals
+        are available from MEM and are printed at the end of a run.
+        """
+        n = memory_failures.get(where, 0) + 1
+        memory_failures[where] = n
+        if n in (1, 10, 100, 1000):
+            print("# WARNING %s ran out of memory %d time(s); the display "
+                  "may be stale, the run is not affected" % (where, n))
+
+    last_log = [0.0]
+    logging_run = [False]
+
+    def begin_log(profile):
+        if logs is None:
+            return
+        path = logs.begin(profile.name, VERSION,
+                          "monotonic+%.0f" % hw.clock.monotonic())
+        logging_run[0] = path is not None
+        last_log[0] = 0.0
+        if path:
+            print("# recording this run to %s" % path)
+
+    def end_log():
+        if logging_run[0] and logs is not None:
+            summary = None
+            if app.metrics:
+                summary = "peak=%.1f tal=%.0f" % (app.metrics.peak_c,
+                                                  app.metrics.time_above_liquidus)
+            logs.end(summary)
+            logging_run[0] = False
+
     print("# t,state,temp_c,target_c,duty,relay,cold_c,cpu_c")
 
     def emit(row):
+        # Formatting and printing a row allocates. Losing a telemetry line
+        # is nothing; losing the run because of one is not acceptable.
+        try:
+            _emit(row)
+        except MemoryError:
+            gc.collect()
+            note_memory_failure("printing telemetry")
+
+    def _emit(row):
         cpu = cpu_temperature()
+        # One row a second on the device against four a second on the wire:
+        # nothing in a reflow profile moves faster than a second, and it
+        # quarters what the flash has to hold.
+        if logging_run[0] and row["t"] - last_log[0] >= LOG_INTERVAL_S:
+            last_log[0] = row["t"]
+            logs.write(row["t"], row["target"], row["temp"], row["relay"],
+                       row["cold"], cpu)
         print("%.2f,%s,%s,%s,%.3f,%d,%s,%s" % (
             row["t"], row["state"],
             "" if row["temp"] is None else "%.4f" % row["temp"],
@@ -156,16 +246,17 @@ def main():
               on_event=announce, sample=emit)
 
     # The chart needs a trace. One point every two seconds is plenty at 308
-    # pixels wide for a run of a few hundred seconds, and keeps the list
-    # short enough to redraw cheaply.
-    history = []
-    last_point = [None]
-    HISTORY_INTERVAL_S = 2.0
+    # pixels wide, and History is bounded: past its limit it halves its own
+    # resolution instead of growing. This was a plain list, and growing it
+    # killed a run at 90 C with the relay at full duty -- the allocation that
+    # failed was 256 bytes.
+    history = History(max_points=150, interval_s=2.0)
 
     def cooling_rate():
         if len(history) < 4:
             return None
-        (t0, v0), (t1, v1) = history[-4], history[-1]
+        pts = history.points
+        (t0, v0), (t1, v1) = pts[-4], pts[-1]
         return None if t1 <= t0 else (v1 - v0) / (t1 - t0)
 
     screen = []
@@ -190,8 +281,20 @@ def main():
                 command[0] += ch
         return None
 
+    previous_state = [app.state]
+
     while True:
         app.tick()
+
+        # A run has ended when it leaves the states that heat or cool. The
+        # log is closed here rather than on an event so that an abort, a
+        # fault and a normal finish all go through one path.
+        if app.state != previous_state[0]:
+            if previous_state[0] in (STATE_PREHEAT, STATE_RUNNING,
+                                     STATE_COOLDOWN) and \
+                    app.state in (STATE_REPORT, STATE_FAULT, STATE_IDLE):
+                end_log()
+            previous_state[0] = app.state
 
         cmd = poll_command()
         # poll_command returns None on every pass with no complete line, and
@@ -211,6 +314,7 @@ def main():
                 print("# command START refused: %s" % problem.message)
             else:
                 print("# command START accepted: %s" % selected.name)
+                begin_log(selected)
         elif cmd == "ACK":
             app.acknowledge_fault()
             print("# command ACK, state=%s" % app.state)
@@ -244,8 +348,9 @@ def main():
             import gc
             gc.collect()
             from oven.ui.display import largest_free_block
-            print("# mem free=%d largest=%s" % (gc.mem_free(),
-                                                largest_free_block()))
+            print("# mem free=%d largest=%s memory_failures=%s"
+                  % (gc.mem_free(), largest_free_block(),
+                     memory_failures or "none"))
         elif cmd == "STATUS":
             print("# status state=%s temp=%s target=%s relay=%d profile=%s"
                   % (app.state, app.temperature, app.target,
@@ -257,14 +362,19 @@ def main():
         if app.state in (STATE_RUNNING, STATE_COOLDOWN) and \
                 app.temperature is not None:
             now = hw.clock.monotonic()
-            if last_point[0] is None or now - last_point[0] >= HISTORY_INTERVAL_S:
-                last_point[0] = now
-                mark = app.elapsed if app.state == STATE_RUNNING else \
-                    (history[-1][0] if history else 0.0) + HISTORY_INTERVAL_S
-                history.append((mark, app.temperature))
-        elif app.state in (STATE_IDLE, STATE_PREHEAT) and history:
-            del history[:]
-            last_point[0] = None
+            # During cooldown the run clock has stopped, so the trace is
+            # continued on its own axis rather than restarting at zero.
+            mark = app.elapsed if app.state == STATE_RUNNING else now
+            # This is the line a run died on. History is bounded now, but a
+            # bounded buffer still allocates a tuple per sample, and a chart
+            # point is never worth a run.
+            try:
+                history.add(mark, app.temperature)
+            except MemoryError:
+                gc.collect()
+                note_memory_failure("recording a chart point")
+        elif app.state in (STATE_IDLE, STATE_PREHEAT) and len(history):
+            history.clear()
 
         # Touch is polled outside the control step: a press must not be able
         # to delay a control step, and a missed press is merely annoying.
@@ -285,35 +395,45 @@ def main():
                 selected = profiles[(profiles.index(selected) + 1) % len(profiles)] \
                     if selected in profiles else profiles[0]
 
-        if app.state == STATE_FAULT:
-            screen = L.fault(app.fault.message if app.fault else "unknown")
-        elif app.state in (STATE_RUNNING, STATE_PREHEAT):
-            remaining = 0.0
-            if app.profile is not None:
-                remaining = app.profile.duration - app.elapsed
-            screen = L.running(app.temperature, app.target, app.elapsed,
-                               remaining, app.stage,
-                               app.metrics.time_above_liquidus if app.metrics
-                               else 0.0,
-                               app.profile.liquidus_c if app.profile else None,
-                               app.duty, hw.relay.is_on(),
-                               history=history,
-                               profile_points=app.profile.points
-                               if app.profile else None,
-                               duration_s=app.profile.duration
-                               if app.profile else None)
-        elif app.state == STATE_COOLDOWN:
-            screen = L.open_the_door(app.temperature, cooling_rate())
-        elif app.state == STATE_REPORT and app.metrics and app.profile:
-            screen = L.report(app.metrics.check(
-                MetricLimits.for_profile(app.profile)),
-                app.metrics.peak_c, app.metrics.time_above_liquidus)
-        else:
-            ready = app.temperature is not None and app.temperature < 60.0
-            screen = L.home(app.temperature,
-                            selected.name if selected else None,
-                            ready and selected is not None,
-                            None if ready else "oven too hot to start")
+        # Composing a screen allocates, and the heap late in a run has no
+        # large holes left. A MemoryError here used to propagate out of
+        # main() and stop the firmware: the exit handler drove the relay
+        # low, so it failed safe, but the oven stopped controlling and
+        # stopped answering ABORT. The display is never worth a run -- on
+        # failure the previous screen simply stays up.
+        try:
+            if app.state == STATE_FAULT:
+                screen = L.fault(app.fault.message if app.fault else "unknown")
+            elif app.state in (STATE_RUNNING, STATE_PREHEAT):
+                remaining = 0.0
+                if app.profile is not None:
+                    remaining = app.profile.duration - app.elapsed
+                screen = L.running(app.temperature, app.target, app.elapsed,
+                                   remaining, app.stage,
+                                   app.metrics.time_above_liquidus if app.metrics
+                                   else 0.0,
+                                   app.profile.liquidus_c if app.profile else None,
+                                   app.duty, hw.relay.is_on(),
+                                   history=history.points,
+                                   profile_points=app.profile.points
+                                   if app.profile else None,
+                                   duration_s=app.profile.duration
+                                   if app.profile else None)
+            elif app.state == STATE_COOLDOWN:
+                screen = L.open_the_door(app.temperature, cooling_rate())
+            elif app.state == STATE_REPORT and app.metrics and app.profile:
+                screen = L.report(app.metrics.check(
+                    MetricLimits.for_profile(app.profile)),
+                    app.metrics.peak_c, app.metrics.time_above_liquidus)
+            else:
+                ready = app.temperature is not None and app.temperature < 60.0
+                screen = L.home(app.temperature,
+                                selected.name if selected else None,
+                                ready and selected is not None,
+                                None if ready else "oven too hot to start")
+        except MemoryError:
+            gc.collect()
+            note_memory_failure("composing a screen")
 
         # Rendering at the control cadence rebuilds every label four times a
         # second for no benefit; 2 Hz is beyond what anyone reads and halves
@@ -321,7 +441,11 @@ def main():
         now_r = hw.clock.monotonic()
         if now_r - last_render[0] >= 0.5:
             last_render[0] = now_r
-            display.render(screen)
+            try:
+                display.render(screen)
+            except MemoryError:
+                gc.collect()
+                note_memory_failure("drawing the screen")
 
 
 try:

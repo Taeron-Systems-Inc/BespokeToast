@@ -269,6 +269,17 @@ class Controller(object):
         self.profile = profile
         self.ff = feed_forward or FeedForward()
         self.pid = pid or PID()
+        # One switching window for every profile, deliberately.
+        #
+        # A long bake is where the relay wear is: simulation puts a 125 C MSL
+        # bake at ~1080 actuations against ~35 for a reflow run, so a relay
+        # good for 100k cycles is worth roughly 90 bakes. Widening the window
+        # for bakes cuts that hard -- 30 s gives 136 actuations -- but the
+        # oven climbs at over a degree a second, so a 30 s slug of heat
+        # overshoots the setpoint by 35 C and the loop cannot correct inside
+        # its own window. The trade is smooth, with no knee: 8 s still costs
+        # 4.7 C. An MSL bake exists to hold 125 C within a few degrees, and
+        # trading that for relay life is the wrong way round.
         self.tpo = tpo or TimeProportional()
         self.coast_tau_s = coast_tau_s
         self.peak_guard_c = peak_guard_c

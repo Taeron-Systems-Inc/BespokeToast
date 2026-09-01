@@ -446,3 +446,34 @@ def test_a_value_is_never_split_from_its_unit():
             % (i, line, lines[i + 1]))
     joined = " ".join(lines)
     assert "120.06 °C" in joined
+
+
+def test_the_running_screen_can_show_the_door_prompt():
+    """An event on the serial console is invisible at the oven.
+
+    The person who has to open the door is standing in front of the screen,
+    not reading a console, and they have about a minute in which opening it
+    still changes the outcome.
+    """
+    kw = dict(history=[(0.0, 25.0), (100.0, 150.0)],
+              profile_points=[[0, 25], [240, 165], [300, 95]],
+              duration_s=300.0)
+    quiet = L.running(150.0, 150.0, 150.0, 150.0, "reflow", 0.0, 137, 0.5,
+                      True, **kw)
+    loud = L.running(150.0, 150.0, 150.0, 150.0, "reflow", 0.0, 137, 0.5,
+                     True, open_the_door=True, **kw)
+    texts = [c[3] for c in loud if c[0] == "text"]
+    assert any("OPEN THE DOOR" in str(t) for t in texts)
+    assert not any("OPEN THE DOOR" in str(c[3])
+                   for c in quiet if c[0] == "text"), \
+        "the prompt must only appear when it has been raised"
+    assert len(loud) > len(quiet)
+
+
+def test_the_door_prompt_is_drawn_in_the_alarm_colour():
+    kw = dict(history=[(0.0, 25.0)], profile_points=[[0, 25], [240, 165]],
+              duration_s=300.0)
+    loud = L.running(150.0, 150.0, 150.0, 150.0, "reflow", 0.0, 137, 0.5,
+                     True, open_the_door=True, **kw)
+    banner = [c for c in loud if c[0] == "text" and "OPEN THE DOOR" in str(c[3])]
+    assert banner and banner[0][4] == T.DANGER

@@ -36,6 +36,18 @@ CONTROL_INTERVAL_S = 0.25
 PREHEAT_TOLERANCE_C = 5.0
 PREHEAT_TIMEOUT_S = 900.0
 
+# Opening the door does not cool the probe for about a minute.
+#
+# Measured with an operator who opened the door within two seconds of the
+# prompt: the reading kept RISING for 10 s on element inertia, then fell at
+# -0.4 C/s -- indistinguishable from a shut door -- for a further 50 s,
+# and only then dropped at -5.2 C/s. The thermocouple follows the cavity
+# walls, not the air, so the door's effect is delayed rather than weak.
+#
+# This was first read as operator reaction time, which was wrong and would
+# have put the prompt 60 s too late.
+DOOR_LAG_S = 60.0
+
 # Below this the cooldown is finished and the oven is safe to open or reload.
 COOLDOWN_TARGET_C = 60.0
 
@@ -189,30 +201,47 @@ class App(object):
         self.duty = 0.5 if temp < start_c - PREHEAT_TOLERANCE_C else 0.0
         self._drive(now, self.duty)
 
-    def _prompt_door_at_peak(self, temp):
-        """Ask for the door at the peak, not when the run is already over.
+    @property
+    def door_prompted(self):
+        """Whether the operator has been asked to open the door.
 
-        A profile that declares cooling_assumes_open_door cannot meet its
-        own curve with the door shut. The NC191 datasheet profile asks for
-        -1.33 to -1.67 C/s after its peak; this oven does -0.35 C/s at
-        150 C passively and -6.9 C/s with the door open. Run with the door
-        closed it held 133 s above liquidus against a 60-90 s window --
-        every second of which is heat into the parts.
+        Exposed so the running screen can show it. An event on the serial
+        console is invisible to someone standing at the oven, which is the
+        only person who can act on it.
+        """
+        return self._door_prompted
 
-        The prompt used to come at cooldown, which is after the profile's
-        cooling segment has already been missed. It comes at the peak now,
-        while opening the door can still change the outcome.
+    def _prompt_door_at_liquidus(self, temp):
+        """Ask for the door as the oven crosses liquidus on the way up.
+
+        That sounds far too early, and it is not, because the door takes
+        about a minute to show up on the thermocouple. Measured with the
+        door opened within two seconds of the prompt: the reading rose for
+        another 10 s, fell at -0.4 C/s for 50 s more -- exactly as if the
+        door were shut -- and only then dropped at -5.2 C/s. The probe
+        follows the cavity walls rather than the air.
+
+        So the prompt has to lead the effect by DOOR_LAG_S. Prompting at
+        the peak, which is what this did first, put the drop 60 s late: the
+        NC191 datasheet run held 95 s above liquidus against a 60-90 s
+        window. Crossing liquidus on the way up is roughly one lag earlier,
+        which lands it inside.
+
+        Only for profiles that declare cooling_assumes_open_door. The rest
+        are not asking for anything the closed oven cannot do.
         """
         if self._door_prompted or self.profile is None or temp is None:
             return
         if not getattr(self.profile, "cooling_assumes_open_door", False):
             return
-        if self.elapsed < self.profile.peak[0]:
+        liquidus = self.profile.liquidus_c
+        if liquidus is None or temp < liquidus:
             return
         self._door_prompted = True
         self._emit(Event.OPEN_THE_DOOR,
-                   {"temp": temp, "reason": "this profile cools faster than "
-                    "this oven can with the door shut"})
+                   {"temp": temp,
+                    "reason": "open now -- the door takes about a minute to "
+                              "reach the probe"})
 
     def _begin_running(self, now):
         # Enter the profile where the oven already is, not always at zero.
@@ -249,7 +278,7 @@ class App(object):
         self.metrics.add(self.elapsed, temp)
         self._track_stage()
         self._track_liquidus(temp)
-        self._prompt_door_at_peak(temp)
+        self._prompt_door_at_liquidus(temp)
 
         if self.elapsed >= self.profile.duration:
             self.relay.set(False)

@@ -444,13 +444,14 @@ def test_a_warm_run_is_not_given_the_full_duration_to_finish(rig):
     assert remaining < profile.duration
 
 
-def test_the_door_is_asked_for_at_the_peak_when_the_profile_needs_it():
-    """Asking at cooldown is asking after it stopped mattering.
+def test_the_door_is_asked_for_when_the_oven_crosses_liquidus():
+    """Early, because the door takes about a minute to reach the probe.
 
-    Measured on hardware: the NC191 datasheet profile demands -1.33 to
-    -1.67 C/s after its peak. This oven does -0.35 C/s at 150 C with the
-    door shut and -6.9 C/s with it open. Run closed, it held 133 s above
-    liquidus against a 60-90 s window.
+    Measured with the door opened within two seconds of the prompt: the
+    reading rose for another 10 s, fell at -0.4 C/s for 50 s more -- as if
+    the door were shut -- and only then dropped at -5.2 C/s. Prompting at
+    the peak put that drop 60 s late and the run held 95 s above liquidus
+    against a 60-90 s window. Prompting at the crossing predicts 65 s.
     """
     import os
     from oven.controller import Controller, FeedForward, PID
@@ -468,22 +469,47 @@ def test_the_door_is_asked_for_at_the_peak_when_the_profile_needs_it():
     sensor.temp = 25.0
     assert app.request_start(profile) is None
 
-    peak_t = profile.peak[0]
-    prompted_at = None
+    prompted_at_c = None
     for _ in range(int((profile.duration + 10) / CONTROL_INTERVAL_S)):
         clock.advance(CONTROL_INTERVAL_S)
         sensor.temp = profile.target_at(min(app.elapsed, profile.duration))
         app.tick()
-        if prompted_at is None and any(n == "open_the_door" for n, _ in events):
-            prompted_at = app.elapsed
+        if prompted_at_c is None and any(n == "open_the_door" for n, _ in events):
+            prompted_at_c = sensor.temp
         if app.state not in (STATE_RUNNING, STATE_PREHEAT):
             break
 
-    assert prompted_at is not None, "never asked for the door"
-    assert prompted_at >= peak_t - 1.0
-    assert prompted_at <= peak_t + 30.0, (
-        "asked at %.0f s, but the peak was at %.0f s -- too late to help"
-        % (prompted_at, peak_t))
+    assert prompted_at_c is not None, "never asked for the door"
+    assert prompted_at_c >= profile.liquidus_c
+    assert prompted_at_c < profile.peak[1], (
+        "asked at %.1f C, at or past the %.1f C peak -- one thermal lag too "
+        "late" % (prompted_at_c, profile.peak[1]))
+
+
+def test_the_door_prompt_says_why_it_is_early():
+    """A prompt that looks premature gets ignored unless it explains."""
+    import os
+    from oven.controller import Controller, FeedForward, PID
+    from oven.safety import Supervisor, Limits
+    profile = Profile.load(os.path.join(PROFILES, "nc191lta10-datasheet.json"))
+    clock, relay, sensor = FakeClock(), FakeRelay(), FakeSensor()
+    events = []
+    app = App(relay, sensor, clock,
+              lambda p: Controller(p, coast_tau_s=1.2,
+                                   feed_forward=FeedForward(), pid=PID()),
+              supervisor=Supervisor(Limits(max_rate_c_per_s=1e6)),
+              on_event=lambda n, p: events.append((n, p)))
+    sensor.temp = 25.0
+    app.request_start(profile)
+    for _ in range(int(profile.duration / CONTROL_INTERVAL_S)):
+        clock.advance(CONTROL_INTERVAL_S)
+        sensor.temp = profile.target_at(min(app.elapsed, profile.duration))
+        app.tick()
+        payloads = [p for n, p in events if n == "open_the_door"]
+        if payloads:
+            assert "reason" in payloads[0]
+            return
+    raise AssertionError("never asked for the door")
 
 
 def test_a_closed_door_profile_does_not_ask_for_the_door_mid_run(rig):

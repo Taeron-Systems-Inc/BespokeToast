@@ -210,7 +210,7 @@ ROW_FOOT = 220
 
 def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
             liquidus_c, duty, relay_on, history=None, profile_points=None,
-            duration_s=None, y_max=250.0):
+            duration_s=None, y_max=250.0, open_the_door=False):
     """The screen that matters.
 
     A chart carries the run: the target curve, what the oven has actually
@@ -287,6 +287,20 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
     out.append(("text", 248, ROW_FOOT,
                 "%ds liq" % int(tal_s) if tal_s else BLANK,
                 T.CAUTION if (tal_s or 0) > 130 else T.DANGER, T.FONT_BODY))
+    if open_the_door:
+        # Drawn over the chart, not squeezed beside the readings.
+        #
+        # This existed only as an event on the serial console, which nobody
+        # standing at the oven can see -- and they are the only person who
+        # can act on it. A profile declaring cooling_assumes_open_door
+        # cannot meet its curve with the door shut: NC191 asks for
+        # -1.33 C/s after its peak and this oven does -0.35 C/s closed, so
+        # this banner is the difference between a board in spec and one
+        # held 45 s too long above liquidus.
+        out += [("rect", 0, 92, T.SCREEN_W, 56, T.BG, True)]
+        out += frame(0, 92, T.SCREEN_W, 56, T.DANGER, 3)
+        out.append(("text", 16, 120, "OPEN THE DOOR", T.DANGER, T.FONT_LARGE))
+
     return out
 
 

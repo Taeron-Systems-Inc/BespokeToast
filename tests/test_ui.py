@@ -369,11 +369,12 @@ def test_no_screen_ever_emits_an_empty_string():
 
 
 def test_the_live_readout_is_not_the_largest_face():
-    """Setting .text on a bitmap_label reallocates its bitmap. At 64 px that
-    is a ~2156-byte block, which is the allocation that failed 93 times in
-    the low-temp run; measured directly on the device, a 48 px label survived
-    40 text changes with no net drift while a 64 px one could not be built at
-    all. The biggest face is reserved for the splash, which is drawn once."""
+    """The live readout stays at 48 px; 64 px is for the splash only.
+
+    Glyph tiles are allocations, and the heap during a run has ~22 kB free
+    with no contiguous hole above ~900 bytes (measured, not estimated). The
+    larger face buys nothing at that cost -- "234 °C" is 153 px wide at 48 px
+    against 205 at 64, and both read across a bench."""
     assert T.FONT_READOUT.endswith("48.pcf")
     assert T.FONT_READOUT_XL.endswith("64.pcf")
     live = {c[5] for c in L.running(230.0, 232.0, 300, 188, "reflow", 45,
@@ -404,3 +405,26 @@ def test_the_error_describer_never_raises():
     for cmd in samples:
         out = _describe(cmd)
         assert isinstance(out, str) and out
+
+
+def test_no_layout_asks_for_a_large_contiguous_allocation():
+    """Every rect must fit in a hole a fragmented heap can still offer.
+
+    adafruit_display_shapes.Rect allocates width x height at one bit per
+    pixel whether it is filled or an outline. Measured mid-run, the heap has
+    around 22 kB free but no contiguous block above ~900 bytes, so anything
+    above that will fail -- and it failed on the fault screen, whose
+    full-screen border wanted 9600 bytes in one piece. 900 bytes is 7200
+    pixels; this holds every layout under that.
+    """
+    limit_px = 7200
+    offenders = []
+    for name in sorted(SCREENS):
+        for cmd in SCREENS[name]():
+            if cmd[0] != "rect":
+                continue
+            _, _x, _y, w, h, _colour, _filled = cmd
+            if w * h > limit_px:
+                offenders.append("%s: %dx%d = %d px (%d bytes)"
+                                 % (name, w, h, w * h, w * h // 8))
+    assert not offenders, "oversized rects: %s" % offenders

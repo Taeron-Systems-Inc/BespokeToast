@@ -70,6 +70,22 @@ def text_width(text, font):
     return sum(widths.get(str(ord(c)), m["max_width"]) for c in str(text))
 
 
+def frame(x, y, w, h, colour, thickness=2):
+    """An outlined box drawn as four thin bars.
+
+    adafruit_display_shapes.Rect allocates a bitmap of the full width by
+    height even when only the outline is drawn, so a 200x48 button asks for
+    1200 contiguous bytes and a full-screen frame asks for 9600. Measured
+    mid-run the heap has ~22 kB free with no hole above ~900 bytes, so those
+    requests fail while memory is still plentiful. Four bars cost a couple of
+    hundred bytes and look the same on screen.
+    """
+    return [("rect", x, y, w, thickness, colour, True),
+            ("rect", x, y + h - thickness, w, thickness, colour, True),
+            ("rect", x, y, thickness, h, colour, True),
+            ("rect", x + w - thickness, y, thickness, h, colour, True)]
+
+
 def button(x, y, w, h, label, colour, name, font=None):
     """A box with its label centred in it, and a matching touch target.
 
@@ -78,9 +94,10 @@ def button(x, y, w, h, label, colour, name, font=None):
     """
     font = font or T.FONT_BODY
     tx = x + max(0, (w - text_width(label, font)) // 2)
-    return [("rect", x, y, w, h, colour, False),
-            ("text", tx, y + h // 2, label, colour, font),
-            ("touch", x, y, w, h, name)]
+    # The touch target stays the full box; only the drawing is bars.
+    return frame(x, y, w, h, colour) + [
+        ("text", tx, y + h // 2, label, colour, font),
+        ("touch", x, y, w, h, name)]
 
 
 def wrap(text, font, width_px, max_lines=3):
@@ -105,6 +122,11 @@ def wrap(text, font, width_px, max_lines=3):
     return lines
 
 
+def border(colour, thickness=3):
+    """A full-screen frame, for the fault screen."""
+    return frame(0, 0, T.SCREEN_W, T.SCREEN_H, colour, thickness)
+
+
 def _t(value, unit=True):
     """A temperature, written the way anyone would write it: "234 °C".
 
@@ -113,7 +135,7 @@ def _t(value, unit=True):
     sign, so a number on screen never has to be guessed at.
     """
     if value is None:
-        return "-- °C" if unit else "--"
+        return "-- %sC" % DEG if unit else "--"
     return "%d %sC" % (round(value), DEG) if unit else "%d" % round(value)
 
 
@@ -287,10 +309,8 @@ def fault(message):
     what you want to be reading while an oven cools down.
     """
     lines = wrap(message, T.FONT_BODY, 296, max_lines=3)
-    out = [
-        ("rect", 0, 0, T.SCREEN_W, T.SCREEN_H, T.DANGER, False),
-        ("text", 12, 34, "FAULT", T.DANGER, T.FONT_LARGE),
-    ]
+    out = border(T.DANGER)
+    out.append(("text", 12, 34, "FAULT", T.DANGER, T.FONT_LARGE))
     y = 84
     for line in lines:
         out.append(("text", 12, y, line, T.TEXT, T.FONT_BODY))

@@ -414,5 +414,7 @@
       "overshoot_c": 0.56,
       "seconds": 2.0
     }
-  }
+  },
+  "heating_rate_correction": "Values at or below 85 C are NOT measurements; they are extrapolated from the clean region by the fit rate = 2.5359 -0.00818*T. The step test's first ~37 s are transport dead time, during which the oven is not yet responding, so the recorded rate there describes the delay rather than the capability -- it read 0.09 C/s at 25 C, rising to a peak at 80 C. Capability cannot rise with temperature: losses grow with the gap to ambient, so the true rate falls monotonically. The fit reproduces the clean region to within 0.03 C/s (1.84 vs 1.80 at 85 C, 1.31 vs 1.29 at 150, 0.74 vs 0.75 at 220), which is why it is trusted below it. The raw measurements are kept in heating_rate_measured_raw and the step-test logs are untouched.",
+  "heating_rate_note": "These are measured trajectory rates from a cold-start step test, and the entries below ~80 C include the oven's ~37 s of transport dead time -- the recorded 0.09 C/s at 25 C is the element not yet delivering heat, not the oven's steady-state capability there (extrapolating the clean region above 85 C, where a straight line fits to within 0.03 C/s, gives ~2.3 C/s). Both numbers are true about different questions. Keep the measured values: the simulator and feed-forward predict trajectories from a cold start, which is what these describe. Do NOT read the low end as capability when generating profiles -- a profile whose whole temperature band sits below 80 C will be given an unfollowably shallow ramp. Put the band above the dead-time region instead."
 }

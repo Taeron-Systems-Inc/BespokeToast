@@ -25,12 +25,13 @@ SCREEN_H = 240
 
 # The live readout is 48 px, not 64.
 #
-# Measured on the device: setting .text on a bitmap_label reallocates its
-# internal bitmap, and at 64 px that is a ~2156-byte block -- the exact
-# allocation that failed 93 times during the low-temp run. In a direct test,
-# a 48 px label survived 40 text changes with no net drift while the 64 px
-# label could not even be constructed. "234 °C" measures 153 px at 48 px
-# against 205 at 64, so it still reads across a bench and leaves more room.
+# Text is drawn with label.Label, which builds one small tile per glyph, so
+# the readout no longer needs a contiguous block the size of the whole
+# string -- that change is what stopped the readout freezing mid-run (see
+# display.py). Size still matters for the same underlying reason though:
+# every glyph tile is an allocation, and a heap measured mid-run has ~22 kB
+# free with no hole above ~900 bytes. "234 °C" measures 153 px at 48 px
+# against 205 at 64, so 48 reads across a bench and costs less.
 #
 # 64 px stays for the splash, which is drawn once and never updated.
 FONT_READOUT = "/assets/fonts/B612-Bold-48.pcf"

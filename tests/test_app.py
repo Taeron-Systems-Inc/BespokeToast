@@ -317,3 +317,45 @@ def test_a_finished_run_can_be_restarted_without_being_dismissed(rig):
     sensor.temp = 25.0
     assert app.request_start(profile) is None
     assert app.state == STATE_PREHEAT
+
+
+def test_preheat_actually_energises_the_relay(rig):
+    """Preheat must heat, not merely report a duty.
+
+    On hardware the oven sat in preheat at 26.5 C with a target of 45 C,
+    reporting duty=0.500 every step while the relay stayed open and the
+    temperature drifted *down*. It would have sat there until the 900 s
+    timeout. The cause: preheat's only duty value is exactly 0.5, and the
+    drive gated on `duty > 0.5`, which is false for 0.5. Nothing in the
+    telemetry looked wrong -- duty read 0.5, as intended -- so this asserts
+    the relay, which is the only thing that means heat.
+    """
+    app, clock, relay, sensor, _, _ = rig
+    sensor.temp = 26.5
+    assert app.request_start(warm_start_profile()) is None
+    assert app.state == STATE_PREHEAT
+    run_for(app, clock, 20.0)
+    assert app.state == STATE_PREHEAT, "should still be climbing to the start"
+    assert app.duty > 0.0, "preheat should be asking for heat"
+    assert any(relay.history), (
+        "preheat commanded duty=%.2f for 20 s and the relay never closed"
+        % app.duty)
+
+
+def test_a_duty_of_exactly_one_half_produces_on_time(rig):
+    """No relay path may use a strict comparison against its own duty value.
+
+    Generalises the bug above: 0.5 is the exact boundary, so it is the value
+    a threshold is most likely to mishandle, and it is the one preheat asks
+    for every single time.
+    """
+    app, clock, relay, sensor, profile, _ = rig
+    sensor.temp = 25.0
+    assert app.request_start(profile) is None
+    run_for(app, clock, 2.0)
+    relay.history[:] = []
+    for _ in range(80):
+        clock.advance(0.25)
+        app._drive(clock.monotonic(), 0.5)
+    assert any(relay.history), "duty of exactly 0.5 never closed the relay"
+    assert not all(relay.history), "duty of exactly 0.5 held the relay closed"

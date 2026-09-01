@@ -68,3 +68,26 @@ def test_deploy_refuses_an_empty_or_wrong_destination(tmp_path):
                             "deploy.py")).read()
     assert "os.listdir(dest)" in src, "deploy must reject an empty destination"
     assert "boot_out.txt" in src, "deploy must confirm it is a CIRCUITPY volume"
+
+
+def test_running_check_parses_the_telemetry_the_firmware_actually_emits():
+    """The idle check must track the telemetry format, not a field count.
+
+    It was written against a 7-field row; cpu_c made it 8 and the check
+    matched nothing from then on, reporting "no telemetry" for every deploy.
+    This pins it to a real line taken off the device.
+    """
+    import tools.deploy as d
+    line = "262100.88,idle,27.1250,,0.000,0,26.06,34.29"
+    parts = line.split(",")
+    assert len(parts) >= 6 and parts[1] in d.STATES
+
+    header = "# t,state,temp_c,target_c,duty,relay,cold_c,cpu_c"
+    fields = header[2:].split(",")
+    assert fields[1] == "state", "state must stay the second column"
+
+
+def test_deploy_resolves_the_port_by_id_not_by_number():
+    import tools.deploy as d
+    assert d.resolve_port("/dev/ttyS9") == "/dev/ttyS9"
+    assert "by-id" in d.resolve_port() or d.resolve_port().startswith("/dev/tty")

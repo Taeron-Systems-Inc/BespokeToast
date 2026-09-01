@@ -240,6 +240,12 @@ def main():
             for pr in profiles:
                 print("# profile %s%s" % (pr.name,
                                           " (selected)" if pr is selected else ""))
+        elif cmd == "MEM":
+            import gc
+            gc.collect()
+            from oven.ui.display import largest_free_block
+            print("# mem free=%d largest=%s" % (gc.mem_free(),
+                                                largest_free_block()))
         elif cmd == "STATUS":
             print("# status state=%s temp=%s target=%s relay=%d profile=%s"
                   % (app.state, app.temperature, app.target,

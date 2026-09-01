@@ -44,7 +44,24 @@ def files():
             yield full, os.path.relpath(full, SRC)
 
 
-def running_check(dest, port="/dev/ttyACM0", listen_s=3.0):
+STATES = ("idle", "preheat", "running", "cooldown", "report", "fault")
+
+
+def resolve_port(port=None):
+    """Find the PyPortal by its stable by-id name.
+
+    /dev/ttyACM0 is not stable: a hard reset moved the board to ttyACM1 and
+    every tool that had the number baked in stopped working at once. The
+    by-id symlink is tied to the board's serial number instead.
+    """
+    if port:
+        return port
+    import glob
+    found = sorted(glob.glob("/dev/serial/by-id/*PyPortal*"))
+    return found[0] if found else "/dev/ttyACM0"
+
+
+def running_check(dest, port=None, listen_s=6.0):
     """Ask the DEVICE whether it is mid-run, and refuse to deploy if it is.
 
     The firmware prints a CSV line every control step whose second field is
@@ -64,6 +81,7 @@ def running_check(dest, port="/dev/ttyACM0", listen_s=3.0):
     except ImportError:
         return None                    # cannot check; caller decides
     busy = ("running", "preheat", "cooldown")
+    port = resolve_port(port)
     try:
         with serial.Serial(port, 115200, timeout=0.5) as s:
             buf = ""
@@ -74,7 +92,13 @@ def running_check(dest, port="/dev/ttyACM0", listen_s=3.0):
                 while "\n" in buf:
                     line, buf = buf.split("\n", 1)
                     parts = line.strip().split(",")
-                    if len(parts) == 7:
+                    # Keyed on the state name, NOT on len(parts): this
+                    # check was written against a 7-field row, then cpu_c was
+                    # added and it silently matched nothing ever again. It
+                    # failed closed, so nothing burned -- but a guard that
+                    # always says "cannot confirm" is a guard you learn to
+                    # bypass, which is how it would have killed a run.
+                    if len(parts) >= 6 and parts[1] in STATES:
                         seen = parts[1]
             if seen is None:
                 return ("no telemetry from %s in %.0f s -- cannot confirm the "

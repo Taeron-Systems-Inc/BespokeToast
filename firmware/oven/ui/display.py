@@ -13,7 +13,15 @@ inside a redraw would show.
 import displayio
 import terminalio
 from adafruit_bitmap_font import bitmap_font
-from adafruit_display_text import bitmap_label
+# label.Label, not bitmap_label.Label. bitmap_label packs the whole string
+# into one contiguous bitmap and reallocates it on every text change: at 48 px
+# that is a 928-byte block for "89 °C" and 1160 for "100 °C". Measured during
+# a run, the heap has ~22 kB free but no contiguous hole above ~900 bytes, so
+# every readout update failed and the temperature on screen froze. label.Label
+# instead builds one small tile per glyph, which a fragmented heap can still
+# satisfy. Free memory was never the problem -- fragmentation was, and
+# MicroPython's collector does not compact, so it cannot be recovered.
+from adafruit_display_text import label as text_label
 from adafruit_display_shapes.rect import Rect
 
 from . import theme as T
@@ -66,6 +74,44 @@ def preload(paths, coverage_path="/assets/fonts/coverage.json"):
         except Exception as e:
             print("# WARNING could not preload glyphs for %s (%r)" % (path, e))
 
+
+
+def largest_free_block(limit=65536):
+    """Biggest single allocation that still succeeds, by halving.
+
+    Free memory is not the number that matters when an allocation fails --
+    a heap with 40 kB free in 300-byte holes cannot hand out a 5 kB bitmap.
+    Reporting only mem_free() sent me looking for a leak when the problem
+    was fragmentation.
+    """
+    try:
+        import gc
+    except ImportError:
+        return None
+    lo, hi = 0, limit
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        try:
+            b = bytearray(mid)
+        except MemoryError:
+            hi = mid - 1
+        else:
+            del b
+            lo = mid
+    gc.collect()
+    return lo
+
+
+def _mem_note(exc):
+    """Attach heap state to a failure, but only when it is a memory failure."""
+    if not isinstance(exc, MemoryError):
+        return ""
+    try:
+        import gc
+        gc.collect()
+        return " [free=%d largest=%s]" % (gc.mem_free(), largest_free_block())
+    except Exception:
+        return " [heap state unavailable]"
 
 
 class Display(object):
@@ -179,7 +225,8 @@ class Display(object):
             try:
                 self._update(slot, cmd)
             except Exception as e:
-                print("# WARNING update failed: %s (%r)" % (_describe(cmd), e))
+                print("# WARNING update failed: %s (%r)%s"
+                      % (_describe(cmd), e, _mem_note(e)))
 
     def _rebuild(self, commands, sig):
         # Any retained layer belongs to the OUTGOING group, and displayio
@@ -206,7 +253,8 @@ class Display(object):
             try:
                 item = self._build(cmd)
             except Exception as e:
-                print("# WARNING build failed: %s (%r)" % (_describe(cmd), e))
+                print("# WARNING build failed: %s (%r)%s"
+                      % (_describe(cmd), e, _mem_note(e)))
                 item = None
             slots.append(item)
             if item is not None:
@@ -248,8 +296,8 @@ class Display(object):
         kind = cmd[0]
         if kind == "text":
             _, x, y, text, colour, font = cmd
-            label = bitmap_label.Label(_font(font), text=str(text),
-                                       color=colour)
+            label = text_label.Label(_font(font), text=str(text),
+                                     color=colour)
             label.x = x
             label.y = y
             return label

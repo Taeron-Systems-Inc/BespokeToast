@@ -238,10 +238,19 @@ class App(object):
         if not self.supervisor.allow_heat():
             self.relay.set(False)
             return
-        if self.state == STATE_RUNNING:
+        if self.controller is not None:
+            # Every heating state modulates through the same time-proportional
+            # output. Preheat used to be a special case that bang-banged on
+            # `duty > 0.5` -- while the only duty preheat ever asks for is
+            # exactly 0.5, so the relay could never close. On hardware the
+            # oven sat at 26.5 C with a 45 C target, reporting duty=0.500 each
+            # step and cooling, and would have done so until the 900 s
+            # timeout. Telemetry looked correct throughout, which is why this
+            # went unnoticed through eleven runs: only profiles starting above
+            # ambient enter preheat at all, and none of them had.
             self.relay.set(self.controller.relay_state(now, duty))
         else:
-            self.relay.set(duty > 0.5)
+            self.relay.set(duty >= 0.5)
 
     def _read(self):
         try:

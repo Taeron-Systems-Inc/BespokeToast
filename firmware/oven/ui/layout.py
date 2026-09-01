@@ -106,7 +106,17 @@ def wrap(text, font, width_px, max_lines=3):
     Slicing at a fixed character count split "exceeds" into "e" and "xceeds"
     on the fault screen, which is where legibility matters most.
     """
-    words = str(text).split()
+    words = []
+    for word in str(text).split():
+        # A unit belongs to the number in front of it. Splitting on plain
+        # spaces put "120.06" at the end of one line and "°C" at the start of
+        # the next, which is exactly the ambiguity writing the unit out was
+        # meant to remove.
+        if (words and word and (word[0] == DEG or word in ("s", "C", "C/s"))
+                and words[-1][-1:].isdigit()):
+            words[-1] = words[-1] + " " + word
+        else:
+            words.append(word)
     lines, current = [], ""
     for word in words:
         candidate = (current + " " + word).strip()

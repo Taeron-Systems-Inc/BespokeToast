@@ -428,3 +428,21 @@ def test_no_layout_asks_for_a_large_contiguous_allocation():
                 offenders.append("%s: %dx%d = %d px (%d bytes)"
                                  % (name, w, h, w * h, w * h // 8))
     assert not offenders, "oversized rects: %s" % offenders
+
+
+def test_a_value_is_never_split_from_its_unit():
+    """"120.06" on one line and "°C" on the next defeats the point.
+
+    Temperatures are written with the unit spelled out so a number on screen
+    is never ambiguous; wrapping them apart puts the ambiguity back, and the
+    fault screen is where it would happen, because that is the only place
+    that wraps.
+    """
+    message = "sensor reading not changing: 120.06 °C for 31 s during a run"
+    lines = L.wrap(message, T.FONT_BODY, 296, max_lines=3)
+    for i, line in enumerate(lines[:-1]):
+        assert not lines[i + 1].startswith("°"), (
+            "line %d ends %r and the next begins with a unit: %r"
+            % (i, line, lines[i + 1]))
+    joined = " ".join(lines)
+    assert "120.06 °C" in joined

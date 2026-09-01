@@ -76,6 +76,39 @@ def preload(paths, coverage_path="/assets/fonts/coverage.json"):
 
 
 
+def renderable(text, font):
+    """Text with any glyph the font lacks replaced by a question mark.
+
+    A missing glyph does not fall back to a placeholder inside
+    adafruit_display_text -- get_glyph returns None and the layout maths
+    then raises TypeError, which takes the whole screen down. That has
+    happened twice here: the word OPEN drawn in the digits-only readout
+    font, and an empty string in a blanked field.
+
+    Both of those were fixed at the callsite, which works only for text
+    this code writes. Profile names come out of JSON files that anyone can
+    drop in /profiles, and fault details are assembled from measurements,
+    so the guard belongs where the font is actually known. A question mark
+    on screen is a cosmetic problem; a raise here is a dead oven.
+
+    The font is asked directly rather than consulting the build-time
+    coverage manifest, so this cannot drift from the fonts that shipped.
+    """
+    if not text:
+        return text
+    out = None
+    for i in range(len(text)):
+        try:
+            has = font.get_glyph(ord(text[i])) is not None
+        except Exception:
+            has = False
+        if not has:
+            if out is None:
+                out = list(text)
+            out[i] = "?"
+    return text if out is None else "".join(out)
+
+
 def largest_free_block(limit=65536):
     """Biggest single allocation that still succeeds, by halving.
 
@@ -270,7 +303,8 @@ class Display(object):
             return
         kind = cmd[0]
         if kind == "text":
-            _, x, y, text, colour, _font = cmd
+            _, x, y, text, colour, _font_path = cmd
+            text = renderable(str(text), _font(_font_path))
             text = str(text)
             if item.text != text:
                 item.text = text
@@ -296,7 +330,9 @@ class Display(object):
         kind = cmd[0]
         if kind == "text":
             _, x, y, text, colour, font = cmd
-            label = text_label.Label(_font(font), text=str(text),
+            face = _font(font)
+            label = text_label.Label(face,
+                                     text=renderable(str(text), face),
                                      color=colour)
             label.x = x
             label.y = y

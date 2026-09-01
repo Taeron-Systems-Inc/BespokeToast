@@ -23,6 +23,8 @@ And one thing that is not a controller at all:
     stop by looking only at the present temperature can hit a peak.
 """
 
+from oven.ratetable import as_table
+
 
 def clamp(x, lo, hi):
     return lo if x < lo else (hi if x > hi else x)
@@ -51,22 +53,28 @@ class FeedForward(object):
 
     def __init__(self, table=None, heating_rates=None, cooling_rates=None,
                  ambient_c=22.0, full_power_rise_c=300.0):
-        self.table = sorted(table) if table else None
-        self.heating_rates = sorted(heating_rates) if heating_rates else None
-        self.cooling_rates = sorted(cooling_rates) if cooling_rates else None
+        # Packed into array('f') rather than kept as lists of pairs. The
+        # numbers are identical -- see tests/test_ratetable.py, which checks
+        # agreement against the plain interpolation across the whole
+        # measured span -- but a Python float is a heap object and a
+        # two-element list is another, so sixty pairs cost about 7 kB of a
+        # heap with 30 kB free. As arrays they cost a few hundred bytes.
+        self.table = as_table(table)
+        self.heating_rates = as_table(heating_rates)
+        self.cooling_rates = as_table(cooling_rates)
         self.ambient_c = ambient_c
         self.full_power_rise_c = full_power_rise_c
 
     def duty_for(self, temp_c, rate_c_per_s=0.0):
         if self.heating_rates and self.cooling_rates:
-            h = _interp(self.heating_rates, temp_c)
-            c = _interp(self.cooling_rates, temp_c)
+            h = self.heating_rates.at(temp_c)
+            c = self.cooling_rates.at(temp_c)
             span = h - c
             if span <= 0:
                 return 1.0 if rate_c_per_s > 0 else 0.0
             return clamp((rate_c_per_s - c) / span, 0.0, 1.0)
         if self.table:
-            return clamp(_interp(self.table, temp_c), 0.0, 1.0)
+            return clamp(self.table.at(temp_c), 0.0, 1.0)
         rise = temp_c - self.ambient_c
         if rise <= 0:
             return 0.0
@@ -77,8 +85,8 @@ class FeedForward(object):
         operator up front that a profile is asking for more than exists."""
         if not (self.heating_rates and self.cooling_rates):
             return None
-        h = _interp(self.heating_rates, temp_c)
-        c = _interp(self.cooling_rates, temp_c)
+        h = self.heating_rates.at(temp_c)
+        c = self.cooling_rates.at(temp_c)
         return c + duty * (h - c)
 
 

@@ -21,7 +21,7 @@ from oven.controller import Controller, FeedForward, PID
 from oven.hardware import Hardware, cpu_temperature
 from oven.history import History
 from oven.metrics import Limits as MetricLimits
-from oven.profile import Profile
+from oven.profile import Profile, scan as scan_profiles
 from oven.ui import layout as L
 from oven.ui import theme as T
 from oven.ui.display import Display, preload
@@ -72,21 +72,15 @@ def load_characterisation():
 
 
 def load_profiles():
-    out = []
-    try:
-        names = [n for n in os.listdir(PROFILE_DIR) if n.endswith(".json")]
-    except OSError as e:
-        print("# WARNING cannot list %s (%r): no profiles available"
-              % (PROFILE_DIR, e))
-        return out
-    for name in sorted(names):
-        try:
-            out.append(Profile.load(PROFILE_DIR + "/" + name))
-        except Exception as e:
-            # A bad profile must not stop boot, but a profile that quietly
-            # fails to appear is worse than one that refuses loudly.
-            print("# WARNING profile %s rejected: %s" % (name, e))
-    return out
+    """Catalogue the profiles without keeping them.
+
+    Each file is parsed and validated here, so a broken profile is reported
+    at boot rather than when someone presses START with a board in the oven
+    -- but only the name and a couple of flags are retained. Holding all ten
+    cost 24 kB of a heap with about 180 kB in it, measured on the device,
+    for nine profiles nobody had selected.
+    """
+    return scan_profiles(PROFILE_DIR)
 
 
 HARDWARE = None
@@ -128,13 +122,33 @@ def main():
     profiles = load_profiles()
     # Alphabetical order would select "4900P (as run)", which measurement
     # shows this oven cannot follow. A profile may declare itself the default.
-    selected = None
-    for p in profiles:
-        if getattr(p, "is_default", False):
-            selected = p
+    chosen = None
+    for ref in profiles:
+        if ref.is_default:
+            chosen = ref
             break
-    if selected is None and profiles:
-        selected = profiles[0]
+    if chosen is None and profiles:
+        chosen = profiles[0]
+
+    # Exactly one profile is resident at a time: the one that is selected.
+    selected_ref = [chosen]
+    selected_profile = [None]
+
+    def selected():
+        """The loaded profile for the current selection, read on demand."""
+        if selected_profile[0] is None and selected_ref[0] is not None:
+            try:
+                selected_profile[0] = selected_ref[0].load()
+            except Exception as e:
+                print("# WARNING could not load %s (%r)"
+                      % (selected_ref[0].name, e))
+                return None
+        return selected_profile[0]
+
+    def select(ref):
+        selected_ref[0] = ref
+        selected_profile[0] = None
+        gc.collect()
 
     display.render(L.splash(VERSION))
     time.sleep(1.2)
@@ -307,14 +321,15 @@ def main():
             app.abort()
             print("# command ABORT accepted, state=%s" % app.state)
         elif cmd == "START":
-            problem = app.request_start(selected) if selected else None
-            if selected is None:
+            profile = selected()
+            problem = app.request_start(profile) if profile else None
+            if profile is None:
                 print("# command START refused: no profile")
             elif problem is not None:
                 print("# command START refused: %s" % problem.message)
             else:
-                print("# command START accepted: %s" % selected.name)
-                begin_log(selected)
+                print("# command START accepted: %s" % profile.name)
+                begin_log(profile)
         elif cmd == "ACK":
             app.acknowledge_fault()
             print("# command ACK, state=%s" % app.state)
@@ -338,12 +353,13 @@ def main():
             elif app.state not in (STATE_IDLE, STATE_REPORT):
                 print("# command PROFILE refused: oven is %s" % app.state)
             else:
-                selected = match
-                print("# command PROFILE selected: %s" % selected.name)
+                select(match)
+                print("# command PROFILE selected: %s" % match.name)
         elif cmd == "PROFILES":
             for pr in profiles:
-                print("# profile %s%s" % (pr.name,
-                                          " (selected)" if pr is selected else ""))
+                print("# profile %s%s"
+                      % (pr.name,
+                         " (selected)" if pr is selected_ref[0] else ""))
         elif cmd == "MEM":
             import gc
             gc.collect()
@@ -355,7 +371,7 @@ def main():
             print("# status state=%s temp=%s target=%s relay=%d profile=%s"
                   % (app.state, app.temperature, app.target,
                      1 if hw.relay.is_on() else 0,
-                     selected.name if selected else None))
+                     selected_ref[0].name if selected_ref[0] else None))
         elif cmd:
             print("# unknown command %r" % cmd)
 
@@ -381,10 +397,15 @@ def main():
         point = hw.touch.press()
         if point is not None:
             action = L.hit(screen, point[0], point[1])
-            if action == "start" and selected is not None:
-                problem = app.request_start(selected)
+            if action == "start" and selected_ref[0] is not None:
+                # A run started here is the one most likely to have nobody
+                # watching it, so it is the one that most needs recording.
+                profile = selected()
+                problem = app.request_start(profile) if profile else None
                 if problem is not None:
                     print("# start refused: %s" % problem.message)
+                elif profile is not None:
+                    begin_log(profile)
             elif action == "abort":
                 app.abort()
             elif action == "acknowledge":
@@ -392,8 +413,11 @@ def main():
             elif action == "done":
                 app.state = STATE_IDLE
             elif action == "profiles" and profiles:
-                selected = profiles[(profiles.index(selected) + 1) % len(profiles)] \
-                    if selected in profiles else profiles[0]
+                if selected_ref[0] in profiles:
+                    nxt = (profiles.index(selected_ref[0]) + 1) % len(profiles)
+                else:
+                    nxt = 0
+                select(profiles[nxt])
 
         # Composing a screen allocates, and the heap late in a run has no
         # large holes left. A MemoryError here used to propagate out of
@@ -428,8 +452,8 @@ def main():
             else:
                 ready = app.temperature is not None and app.temperature < 60.0
                 screen = L.home(app.temperature,
-                                selected.name if selected else None,
-                                ready and selected is not None,
+                                selected_ref[0].name if selected_ref[0] else None,
+                                ready and selected_ref[0] is not None,
                                 None if ready else "oven too hot to start")
         except MemoryError:
             gc.collect()

@@ -15,6 +15,7 @@ Pure stdlib: runs on CircuitPython and under CPython for tests.
 """
 
 import json
+import os
 
 CATEGORY_REFLOW = "reflow"
 CATEGORY_BAKE = "bake"
@@ -47,6 +48,61 @@ def _interp_rate(table, value):
 
 class ProfileError(Exception):
     """A profile could not be loaded, with a reason worth showing a user."""
+
+
+class ProfileRef(object):
+    """A profile that is known about but not loaded.
+
+    Ten profiles cost 24 kB of a heap that has about 180 kB in total, and
+    only one of them is ever in use. Measured on the device, that is more
+    than the WiFi stack needs to exist at all, and it was being spent to
+    keep nine profiles nobody had selected. A ref holds what the picker and
+    the console need -- a name and where to find it -- and the points are
+    read when the profile is actually chosen.
+    """
+
+    __slots__ = ("path", "name", "category", "is_default", "diagnostic")
+
+    def __init__(self, path, name, category, is_default, diagnostic):
+        self.path = path
+        self.name = name
+        self.category = category
+        self.is_default = is_default
+        self.diagnostic = diagnostic
+
+    def load(self):
+        """Read the whole profile. The caller keeps it; nothing is cached."""
+        return Profile.load(self.path)
+
+    def __repr__(self):
+        return "ProfileRef(%s)" % self.name
+
+
+def scan(directory, on_warning=None):
+    """List the profiles in *directory* without keeping any of them.
+
+    Each file is parsed and validated so a broken profile is reported at
+    boot rather than when someone selects it, but only the name and a
+    couple of flags survive the call.
+    """
+    warn = on_warning or (lambda msg: print("# WARNING %s" % msg))
+    try:
+        names = [n for n in os.listdir(directory) if n.endswith(".json")]
+    except OSError as e:
+        warn("cannot list %s (%r): no profiles available" % (directory, e))
+        return []
+    refs = []
+    for name in sorted(names):
+        path = directory + "/" + name
+        try:
+            profile = Profile.load(path)
+        except Exception as e:
+            warn("profile %s rejected: %s" % (name, e))
+            continue
+        refs.append(ProfileRef(path, profile.name, profile.category,
+                               profile.is_default, profile.diagnostic))
+        profile = None
+    return refs
 
 
 class Profile(object):

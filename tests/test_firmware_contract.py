@@ -152,3 +152,30 @@ def test_the_control_step_is_not_swallowed():
     assert "tick" not in guarded, (
         "the control step is inside a MemoryError handler; safety logic "
         "must not be silently skipped")
+
+
+def test_both_ways_of_starting_a_run_record_it():
+    """The touchscreen path is the one most likely to be unattended.
+
+    Logging was wired into the console START and not into the touch
+    handler, so a run begun by pressing START on the oven -- the case the
+    log exists for -- would not have been recorded.
+    """
+    import ast
+    tree = _code_py_tree()
+    starts = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if getattr(node.func, "attr", None) != "request_start":
+            continue
+        starts.append(node)
+    assert len(starts) >= 2, (
+        "expected a console and a touchscreen start path, found %d"
+        % len(starts))
+
+    calls = [getattr(c.func, "id", None) for c in ast.walk(tree)
+             if isinstance(c, ast.Call)]
+    assert calls.count("begin_log") >= 2, (
+        "begin_log is called %d time(s); every way of starting a run must "
+        "record it" % calls.count("begin_log"))

@@ -189,6 +189,31 @@ class App(object):
         self.duty = 0.5 if temp < start_c - PREHEAT_TOLERANCE_C else 0.0
         self._drive(now, self.duty)
 
+    def _prompt_door_at_peak(self, temp):
+        """Ask for the door at the peak, not when the run is already over.
+
+        A profile that declares cooling_assumes_open_door cannot meet its
+        own curve with the door shut. The NC191 datasheet profile asks for
+        -1.33 to -1.67 C/s after its peak; this oven does -0.35 C/s at
+        150 C passively and -6.9 C/s with the door open. Run with the door
+        closed it held 133 s above liquidus against a 60-90 s window --
+        every second of which is heat into the parts.
+
+        The prompt used to come at cooldown, which is after the profile's
+        cooling segment has already been missed. It comes at the peak now,
+        while opening the door can still change the outcome.
+        """
+        if self._door_prompted or self.profile is None or temp is None:
+            return
+        if not getattr(self.profile, "cooling_assumes_open_door", False):
+            return
+        if self.elapsed < self.profile.peak[0]:
+            return
+        self._door_prompted = True
+        self._emit(Event.OPEN_THE_DOOR,
+                   {"temp": temp, "reason": "this profile cools faster than "
+                    "this oven can with the door shut"})
+
     def _begin_running(self, now):
         # Enter the profile where the oven already is, not always at zero.
         #
@@ -224,6 +249,7 @@ class App(object):
         self.metrics.add(self.elapsed, temp)
         self._track_stage()
         self._track_liquidus(temp)
+        self._prompt_door_at_peak(temp)
 
         if self.elapsed >= self.profile.duration:
             self.relay.set(False)

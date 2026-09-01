@@ -136,19 +136,38 @@ def claim_volume_for_the_host(port=None, mount=None, wait_s=30.0):
         "microcontroller.nvm[0:2] = bytearray((0x7E, 0xA5))\r\n"
         "import microcontroller; microcontroller.reset()\r\n"
     )
+    # Opening the port often fails with EIO on the first try, especially
+    # just after the board has re-enumerated. Every manual recovery needed
+    # two or three attempts, so this does the same rather than reporting a
+    # wall on the first refusal.
+    handle = None
+    last = None
+    for attempt in range(4):
+        try:
+            handle = serial.Serial(port, 115200, timeout=0.5)
+            break
+        except Exception as e:
+            last = e
+            time.sleep(3)
+    if handle is None:
+        return "could not reach %s after 4 attempts (%r)" % (port, last)
     try:
-        with serial.Serial(port, 115200, timeout=0.5) as s:
-            time.sleep(0.5)
-            for _ in range(3):
-                s.write(b"\x03")
-                time.sleep(0.4)
-            s.read(600)
-            for line in script.strip().split("\r\n"):
-                s.write((line + "\r\n").encode())
-                time.sleep(0.3)
-            s.flush()
+        time.sleep(1.0)
+        for _ in range(3):
+            handle.write(b"\x03")
+            time.sleep(0.4)
+        handle.read(800)
+        for line in script.strip().split("\r\n"):
+            handle.write((line + "\r\n").encode())
+            time.sleep(0.3)
+        handle.flush()
     except Exception as e:
-        return "could not reach %s to reclaim the volume (%r)" % (port, e)
+        return "could not reclaim over %s (%r)" % (port, e)
+    finally:
+        try:
+            handle.close()
+        except Exception:
+            pass
     # The board reboots and re-enumerates; the volume comes back writable.
     time.sleep(wait_s)
     return None
@@ -169,7 +188,7 @@ def main(argv):
     # back -- so a deploy can report success while writing nowhere near the
     # device. Refuse rather than write into the void.
     if not os.listdir(dest):
-        print("!! %s is empty. The volume is probably mounted from a stale")
+        print("!! %s is empty. The volume is probably mounted from a stale" % dest)
         print("   device node. Remount by label:")
         print("     sudo umount %s && sudo mount -o ro $(blkid -L CIRCUITPY) %s"
               % (dest, dest))

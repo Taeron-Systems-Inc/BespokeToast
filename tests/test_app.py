@@ -442,3 +442,61 @@ def test_a_warm_run_is_not_given_the_full_duration_to_finish(rig):
     run_for(app, clock, 2.0)
     remaining = profile.duration - app.elapsed
     assert remaining < profile.duration
+
+
+def test_the_door_is_asked_for_at_the_peak_when_the_profile_needs_it():
+    """Asking at cooldown is asking after it stopped mattering.
+
+    Measured on hardware: the NC191 datasheet profile demands -1.33 to
+    -1.67 C/s after its peak. This oven does -0.35 C/s at 150 C with the
+    door shut and -6.9 C/s with it open. Run closed, it held 133 s above
+    liquidus against a 60-90 s window.
+    """
+    import os
+    from oven.controller import Controller, FeedForward, PID
+    from oven.safety import Supervisor, Limits
+    profile = Profile.load(os.path.join(PROFILES, "nc191lta10-datasheet.json"))
+    assert profile.cooling_assumes_open_door, "wrong profile for this test"
+
+    clock, relay, sensor = FakeClock(), FakeRelay(), FakeSensor()
+    events = []
+    app = App(relay, sensor, clock,
+              lambda p: Controller(p, coast_tau_s=1.2,
+                                   feed_forward=FeedForward(), pid=PID()),
+              supervisor=Supervisor(Limits(max_rate_c_per_s=1e6)),
+              on_event=lambda n, p: events.append((n, p)))
+    sensor.temp = 25.0
+    assert app.request_start(profile) is None
+
+    peak_t = profile.peak[0]
+    prompted_at = None
+    for _ in range(int((profile.duration + 10) / CONTROL_INTERVAL_S)):
+        clock.advance(CONTROL_INTERVAL_S)
+        sensor.temp = profile.target_at(min(app.elapsed, profile.duration))
+        app.tick()
+        if prompted_at is None and any(n == "open_the_door" for n, _ in events):
+            prompted_at = app.elapsed
+        if app.state not in (STATE_RUNNING, STATE_PREHEAT):
+            break
+
+    assert prompted_at is not None, "never asked for the door"
+    assert prompted_at >= peak_t - 1.0
+    assert prompted_at <= peak_t + 30.0, (
+        "asked at %.0f s, but the peak was at %.0f s -- too late to help"
+        % (prompted_at, peak_t))
+
+
+def test_a_closed_door_profile_does_not_ask_for_the_door_mid_run(rig):
+    """Only profiles that declare the assumption should interrupt."""
+    app, clock, relay, sensor, profile, events = rig
+    assert not getattr(profile, "cooling_assumes_open_door", False)
+    sensor.temp = 25.0
+    assert app.request_start(profile) is None
+    for _ in range(int(profile.duration / CONTROL_INTERVAL_S)):
+        clock.advance(CONTROL_INTERVAL_S)
+        sensor.temp = profile.target_at(min(app.elapsed, profile.duration))
+        app.tick()
+        if app.state not in (STATE_RUNNING, STATE_PREHEAT):
+            break
+    during = [n for n, _ in events if n == "open_the_door"]
+    assert not during, "asked for the door on a profile that does not need it"

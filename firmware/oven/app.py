@@ -190,13 +190,32 @@ class App(object):
         self._drive(now, self.duty)
 
     def _begin_running(self, now):
-        self._run_started = now
+        # Enter the profile where the oven already is, not always at zero.
+        #
+        # A warm oven started at t=0 opens with the target below it, so the
+        # controller withholds heat while the profile burns through a ramp
+        # already achieved. Not a bug fix: two back-to-back SAC305 runs from
+        # ~50 C both met their J-STD windows without this. It shortens a
+        # warm run and gives the controller a meaningful target from the
+        # first second. Not yet validated on hardware.
+        entry = 0.0
+        if self.profile is not None and self.temperature is not None:
+            entry = self.profile.entry_time_for(self.temperature)
+
+        self._run_started = now - entry
+        self.elapsed = entry
         self.supervisor.begin_run(
-            now, expected_duration_s=self.profile.duration
+            now, expected_duration_s=(self.profile.duration - entry)
             if self.profile is not None else None)
         self.controller.reset(now)
         self._enter(STATE_RUNNING)
-        self._emit(Event.RUN_STARTED, {"profile": self.profile.name})
+        payload = {"profile": self.profile.name}
+        if entry > 0.0:
+            # Worth saying out loud: it changes what the run means, and a
+            # large skip is a sign the oven was not given time to cool.
+            payload["entered_at_s"] = round(entry, 1)
+            payload["oven_c"] = round(self.temperature, 1)
+        self._emit(Event.RUN_STARTED, payload)
 
     def _in_running(self, now):
         self.elapsed = now - self._run_started

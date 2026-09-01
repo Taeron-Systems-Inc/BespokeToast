@@ -306,6 +306,59 @@ class Profile(object):
         """(time, temperature) of the hottest point."""
         return max(self.points, key=lambda p: p[1])
 
+    def entry_time_for(self, temp_c, max_skip_fraction=0.5):
+        """Where in the profile an oven already at *temp_c* should start.
+
+        A run that begins warm and starts the clock at zero opens with the
+        target below the oven, so the controller correctly withholds heat
+        while the profile burns through a ramp the oven has already done.
+
+        This is NOT fixing an observed failure. Two back-to-back SAC305 runs
+        from about 50 C both landed inside their J-STD windows -- 236.7 C
+        with 103 s above liquidus, and 236.9 C with 100 s -- and simulation
+        across starting temperatures from 25 to 80 C passes either way. An
+        earlier note here claimed otherwise; it was written from a run that
+        was still in progress when it was measured.
+
+        What this does buy is a warm run that takes less time, and a target
+        that means something from the first second rather than after the
+        profile catches up. In simulation it also lengthens time above
+        liquidus slightly, 86 s to 92-98 s. It has not yet been run on
+        hardware.
+
+        So the clock starts where the profile has already been satisfied:
+        the first point on the RISING part of the curve that is at least as
+        hot as the oven. Only the rising part -- matching a temperature on
+        the way back down would skip the peak entirely.
+
+        The skip is capped at *max_skip_fraction* of the profile. Beyond
+        that the oven is not "a little warm", it is still hot from the last
+        run, and quietly running a fraction of a profile would be its own
+        kind of wrong. The caller decides what to do about that.
+        """
+        pts = self.points
+        peak_index = 0
+        for i in range(len(pts)):
+            if pts[i][1] > pts[peak_index][1]:
+                peak_index = i
+        if temp_c is None or temp_c <= pts[0][1]:
+            return 0.0
+
+        limit = self.duration * max_skip_fraction
+        previous_t, previous_v = pts[0]
+        for i in range(1, peak_index + 1):
+            t, v = pts[i]
+            if v >= temp_c:
+                if v == previous_v:
+                    found = t
+                else:
+                    span = v - previous_v
+                    found = previous_t + (t - previous_t) * \
+                        (temp_c - previous_v) / span
+                return found if found <= limit else limit
+            previous_t, previous_v = t, v
+        return limit
+
     def target_at(self, t):
         """Linearly interpolated target temperature at time *t* seconds.
 

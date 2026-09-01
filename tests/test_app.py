@@ -400,3 +400,45 @@ def test_a_completed_run_is_not_faulted_while_it_cools(rig):
             "faulted %.0f s into cooling at %.0f C: %s"
             % (i * CONTROL_INTERVAL_S, temp,
                app.fault.message if app.fault else "?"))
+
+
+def test_a_warm_start_enters_the_profile_where_the_oven_already_is(rig):
+    """A warm oven should not be handed a target below itself.
+
+    Not a repair: back-to-back SAC305 runs from ~50 C met their J-STD
+    windows without this. It shortens a warm run and makes the target
+    meaningful immediately.
+    """
+    app, clock, relay, sensor, profile, events = rig
+    sensor.temp = 60.0
+    assert app.request_start(profile) is None
+    run_for(app, clock, 2.0)
+    assert app.state == STATE_RUNNING
+    assert app.elapsed > 0.0, "a warm oven started at the beginning"
+    # The target it is handed must match the oven, not sit far below it.
+    assert app.target == pytest.approx(60.0, abs=3.0), (
+        "entered at %.0f s where the target is %.1f C, with the oven at 60"
+        % (app.elapsed, app.target))
+    started = [p for n, p in events if n == "run_started"]
+    assert started and "entered_at_s" in started[0], (
+        "a skipped entry must be reported, not silent")
+
+
+def test_a_cold_start_still_begins_at_zero(rig):
+    app, clock, relay, sensor, profile, events = rig
+    sensor.temp = 22.0
+    assert app.request_start(profile) is None
+    run_for(app, clock, 2.0)
+    assert app.elapsed < 3.0
+    started = [p for n, p in events if n == "run_started"]
+    assert started and "entered_at_s" not in started[0]
+
+
+def test_a_warm_run_is_not_given_the_full_duration_to_finish(rig):
+    """The timeout has to shrink with the run, or it stops guarding."""
+    app, clock, relay, sensor, profile, _ = rig
+    sensor.temp = 60.0
+    assert app.request_start(profile) is None
+    run_for(app, clock, 2.0)
+    remaining = profile.duration - app.elapsed
+    assert remaining < profile.duration

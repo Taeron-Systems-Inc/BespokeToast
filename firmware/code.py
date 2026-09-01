@@ -135,10 +135,18 @@ def main():
         logs = LogStore()
 
     data = load_characterisation()
+    have_characterisation = data is not None
     if data:
         ff = FeedForward(heating_rates=data.get("heating_rate_c_per_s"),
                          cooling_rates=data.get("cooling_rate_c_per_s"))
         coast = data.get("coast_tau_s", 1.2)
+        # Drop the parsed JSON. FeedForward has packed the curves into
+        # array('f'); holding the dict as well keeps the original lists of
+        # [temperature, rate] pairs alive for the life of the run, which is
+        # the 7 kB the packing was meant to recover. Measured: free went
+        # DOWN, from 30352 to 27056, until this line existed.
+        data = None
+        gc.collect()
     else:
         ff = FeedForward()
         coast = 1.2
@@ -182,7 +190,7 @@ def main():
         ("thermocouple", reading is not None and reading.ok),
         ("relay safe state", not hw.relay.is_on()),
         ("profiles", bool(profiles)),
-        ("characterisation", data is not None),
+        ("characterisation", have_characterisation),
         ("run logging", log_writable),
     ]))
     if not log_writable:

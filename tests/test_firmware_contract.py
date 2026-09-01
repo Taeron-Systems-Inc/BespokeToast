@@ -276,3 +276,25 @@ def test_code_py_never_imports_a_module_inside_a_function():
     assert not offenders, (
         "a local import shadows the module-level one for the WHOLE "
         "function, including nested functions: %s" % offenders)
+
+
+def test_the_parsed_characterisation_is_released_after_use():
+    """Holding the JSON keeps the very lists the packing replaced.
+
+    FeedForward copies the curves into array('f'); if code.py also keeps the
+    parsed dict, both live for the whole run and the saving is negative.
+    Measured: free fell from 30352 to 27056 until the dict was dropped.
+    """
+    import ast
+    tree = _code_py_tree()
+    released = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        targets = [getattr(t, "id", None) for t in node.targets]
+        if "data" in targets and isinstance(node.value, ast.Constant) \
+                and node.value.value is None:
+            released = True
+    assert released, (
+        "code.py never releases the parsed characterisation; the packed "
+        "rate tables then cost memory instead of saving it")

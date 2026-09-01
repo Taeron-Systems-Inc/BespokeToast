@@ -300,3 +300,48 @@ def test_a_gap_outside_a_run_is_still_harmless():
     s = Supervisor()                      # begin_run never called
     s.update(1.0, Reading(25.0), False)
     assert s.update(600.0, Reading(25.0), False) is None
+
+
+def test_the_run_timeout_follows_the_profile_it_was_given():
+    """A flat hour was both too slack and, for the MSL bake, impossible.
+
+    The 125 C bake is 15201 s, so under a fixed 3600 s limit it could never
+    have completed -- it would have faulted at the one-hour mark every time.
+    A short reflow, meanwhile, had an hour to sit stuck.
+    """
+    from oven.safety import Supervisor, Limits, FAULT_RUN_TIMEOUT
+    from oven.hal import Reading
+
+    def trip_time(expected):
+        sup = Supervisor(Limits(max_rate_c_per_s=1e6))
+        sup.begin_run(0.0, expected_duration_s=expected)
+        t = 0.0
+        while t < expected * 4 + 8000:
+            t += 1.0
+            f = sup.update(t, Reading(25.0 + (t % 3), cold=25.0), False)
+            if f is not None:
+                assert f.code == FAULT_RUN_TIMEOUT, f.message
+                return t
+        return None
+
+    short = trip_time(360.0)
+    long_ = trip_time(15201.0)
+    assert short is not None and long_ is not None
+    assert short < 1200, "a 6-minute profile should not get an hour"
+    assert long_ > 15201, "the bake must be allowed to finish"
+
+
+def test_cooldown_gets_its_own_clock():
+    """Passive cooling outlasts the profile that caused it."""
+    from oven.safety import Supervisor, Limits, FAULT_RUN_TIMEOUT
+    from oven.hal import Reading
+    sup = Supervisor(Limits(max_rate_c_per_s=1e6))
+    sup.begin_run(0.0, expected_duration_s=360.0)
+    sup.begin_cooldown(360.0)
+    t = 360.0
+    temp = 224.0
+    while t < 360.0 + 1800.0:
+        t += 1.0
+        temp = max(30.0, temp - 0.11)
+        f = sup.update(t, Reading(temp, cold=25.0), False)
+        assert f is None, "faulted while cooling: %s" % f.message

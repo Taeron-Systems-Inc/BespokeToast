@@ -54,14 +54,16 @@ class Limits(object):
     __slots__ = ("max_temp_c", "max_rate_c_per_s", "max_enclosure_c",
                  "stall_window_s", "stall_min_rise_c", "max_run_s",
                  "sensor_stale_s", "sensor_frozen_s", "start_min_c",
-                 "start_max_c", "rate_window_s", "max_cpu_c")
+                 "start_max_c", "rate_window_s", "max_cpu_c",
+                 "max_cooldown_s")
 
     def __init__(self, max_temp_c=260.0, max_rate_c_per_s=4.0,
                  max_enclosure_c=70.0, stall_window_s=90.0,
                  stall_min_rise_c=2.0, max_run_s=3600.0,
                  sensor_stale_s=3.0, sensor_frozen_s=30.0,
                  start_min_c=5.0, start_max_c=60.0,
-                 rate_window_s=3.0, max_cpu_c=80.0):
+                 rate_window_s=3.0, max_cpu_c=80.0,
+                 max_cooldown_s=3600.0):
         self.max_temp_c = max_temp_c
         self.max_rate_c_per_s = max_rate_c_per_s
         self.max_enclosure_c = max_enclosure_c
@@ -91,6 +93,7 @@ class Limits(object):
         # so tripping here would mean something genuinely unlike any run so
         # far, which is exactly what a guard is for.
         self.max_cpu_c = max_cpu_c
+        self.max_cooldown_s = max_cooldown_s
 
 
 class Fault(object):
@@ -189,6 +192,8 @@ class Supervisor(object):
 
         The allowance is ten minutes plus a quarter of the profile, which
         covers a slow oven and a cold start without letting a runaway sit.
+        It covers the heated phase only -- see begin_cooldown, which is a
+        separate and much slower clock.
         """
         self._run_start = t
         if expected_duration_s:
@@ -197,6 +202,24 @@ class Supervisor(object):
         else:
             self._run_limit_s = self.limits.max_run_s
         self._reset_tracking()
+
+    def begin_cooldown(self, t):
+        """The profile is done; the oven is now just losing heat.
+
+        Cooldown gets its own clock. Leaving the run's timeout running
+        through it faulted a completed run: passive cooling from 224 C took
+        longer than the profile's own allowance, so a perfectly good run
+        ended in "run exceeded its time limit" -- and because a fault
+        latches, every subsequent run was refused until it was acknowledged.
+
+        Measured passive cooling is about -0.7 C/s at 190 C and falls off
+        sharply as the oven approaches ambient, so cooling from a reflow
+        peak takes tens of minutes with the door shut. The guard still
+        exists, because an oven that never cools has something wrong with
+        it, but it is set for the physics rather than the profile.
+        """
+        self._run_start = t
+        self._run_limit_s = self.limits.max_cooldown_s
 
     def end_run(self):
         self._run_start = None

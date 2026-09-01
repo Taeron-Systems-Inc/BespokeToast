@@ -286,6 +286,11 @@ class App(object):
     def _enter(self, state):
         self.state = state
         self._state_entered = self.clock.monotonic()
+        # Cooldown is entered from three places -- a finished profile, an
+        # abort, and a preheat that timed out -- so the handover to the
+        # cooldown clock is done here rather than at each of them.
+        if state == STATE_COOLDOWN:
+            self.supervisor.begin_cooldown(self._state_entered)
 
     def _emit(self, name, payload):
         try:

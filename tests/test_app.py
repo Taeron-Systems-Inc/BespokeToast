@@ -359,3 +359,44 @@ def test_a_duty_of_exactly_one_half_produces_on_time(rig):
         app._drive(clock.monotonic(), 0.5)
     assert any(relay.history), "duty of exactly 0.5 never closed the relay"
     assert not all(relay.history), "duty of exactly 0.5 held the relay closed"
+
+
+def test_a_completed_run_is_not_faulted_while_it_cools(rig):
+    """Cooling takes longer than the profile that caused it.
+
+    The run timeout used to keep running through cooldown. Once it followed
+    the profile's own duration, a completed 360 s run faulted at 1050 s while
+    passively cooling from 224 C -- and because faults latch, every later run
+    was refused until someone acknowledged it. Cooldown has its own clock.
+
+    The profile is followed exactly here so that nothing except a timeout is
+    able to fault, and the run reaches cooldown the way a real one does
+    rather than by jumping the clock (which the supervision-gap guard
+    correctly refuses).
+    """
+    app, clock, relay, sensor, profile, _ = rig
+    sensor.temp = profile.target_at(0.0)
+    assert app.request_start(profile) is None
+
+    for _ in range(int((profile.duration + 30.0) / CONTROL_INTERVAL_S)):
+        clock.advance(CONTROL_INTERVAL_S)
+        sensor.temp = profile.target_at(min(app.elapsed, profile.duration))
+        app.tick()
+        if app.state not in (STATE_RUNNING, STATE_PREHEAT):
+            break
+    assert app.state == STATE_COOLDOWN, (
+        "expected cooldown, got %s (%s)"
+        % (app.state, app.fault.message if app.fault else ""))
+
+    # Twenty minutes of cooling at the control cadence -- longer than the
+    # profile itself, which is the whole point.
+    temp = sensor.temp
+    for i in range(int(1200.0 / CONTROL_INTERVAL_S)):
+        clock.advance(CONTROL_INTERVAL_S)
+        temp = max(30.0, temp - 0.04)
+        sensor.temp = temp
+        app.tick()
+        assert app.state != STATE_FAULT, (
+            "faulted %.0f s into cooling at %.0f C: %s"
+            % (i * CONTROL_INTERVAL_S, temp,
+               app.fault.message if app.fault else "?"))

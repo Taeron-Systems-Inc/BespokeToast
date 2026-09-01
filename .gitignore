@@ -27,3 +27,7 @@ managed_components/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Device-only WiFi credentials. Never committed.
+wifi.json
+firmware/wifi.json

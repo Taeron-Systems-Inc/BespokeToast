@@ -173,6 +173,33 @@ def claim_volume_for_the_host(port=None, mount=None, wait_s=30.0):
     return None
 
 
+# Libraries this firmware carries frozen in flash. A copy of any of these on
+# CIRCUITPY is loaded into RAM instead of executed from flash, for no
+# benefit -- and the cost is not small. Measured on this board: importing
+# adafruit_esp32spi cost 16064 bytes from a .mpy on the filesystem and 16
+# bytes frozen, and a whole connected WiFi session went from 22592 bytes to
+# 1872. Idle free memory went from 29376 to 36032 simply by moving them out
+# of the way.
+#
+# They arrive by accident: installing the Adafruit bundle drops them in.
+FROZEN_IN_FIRMWARE = (
+    "adafruit_display_text",
+    "adafruit_esp32spi",
+    "adafruit_bus_device",
+    "adafruit_portalbase",
+    "adafruit_requests.mpy",
+    "adafruit_requests.py",
+    "neopixel.mpy",
+    "neopixel.py",
+)
+
+
+def shadowing_frozen_libraries(dest):
+    """Names on the volume that shadow something already frozen in flash."""
+    return [n for n in FROZEN_IN_FIRMWARE
+            if os.path.exists(os.path.join(dest, n))]
+
+
 def main(argv):
     if len(argv) < 2:
         print(__doc__)
@@ -216,6 +243,21 @@ def main(argv):
         print("     sudo umount %s; sudo mount -o rw,uid=$(id -u) "
               "$(blkid -L CIRCUITPY) %s" % (dest, dest))
         return 1
+
+    shadowed = shadowing_frozen_libraries(dest)
+    if shadowed:
+        print("!! %s carries copies of libraries this firmware already has"
+              % dest)
+        print("   frozen in flash. A copy on the filesystem SHADOWS the")
+        print("   frozen one and is loaded into RAM instead:")
+        for name in shadowed:
+            print("     %s" % name)
+        print("   Measured: the whole connected WiFi stack costs 1872 bytes")
+        print("   frozen and 22592 bytes shadowed. Move them aside:")
+        print("     mkdir -p %s/.shadowed && mv %s/{%s} %s/.shadowed/"
+              % (dest, dest, ",".join(shadowed), dest))
+        if "--force" not in argv:
+            return 1
 
     blocked = running_check(dest)
     if blocked and "--force" not in argv:

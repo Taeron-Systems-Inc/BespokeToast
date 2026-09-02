@@ -32,35 +32,48 @@ can read `wifi.json`. That is inherent to the platform, not to this choice
 of file. If the oven ever moves somewhere less trusted, put it on an
 isolated SSID rather than trying to hide the file.
 
-## What the radio can and cannot do
+## What the radio costs
 
-Measured on the device, not estimated:
+This was measured twice and the second answer is twenty times smaller than
+the first. The first was right about the numbers and wrong about the cause.
 
-| | bytes |
-|---|---|
-| firmware free, idle | 30352 |
-| the running screen costs | −14080 |
-| **free during a run** | **16272** |
-| `esp32spi` + socket, resident | 18192 |
-| a connected session | 4400 |
-| **WiFi needs** | **22592** |
+The PyPortal firmware already carries `adafruit_esp32spi`,
+`adafruit_display_text`, `adafruit_requests`, `neopixel`,
+`adafruit_bus_device` and `adafruit_portalbase` **frozen into flash** —
+`help("modules")` on the device lists them. A copy of any of those on
+CIRCUITPY *shadows* the frozen one and is loaded into RAM instead, for no
+benefit whatsoever. Installing the Adafruit bundle puts them there.
 
-So the radio **fits while the oven is idle**, with about 7.7 kB spare, and
-is **6.3 kB short during a run**.
+| | shadowed by a .mpy | frozen in flash |
+|---|---|---|
+| `import adafruit_esp32spi` | 16064 | **16** |
+| `import ..._socket` | 2320 | 112 |
+| create, scan, connect | ~1700 | 1312 |
+| one HTTP exchange | ~2400 | 432 |
+| **whole connected session** | **22592** | **1872** |
 
-`adafruit_requests` was dropped for raw sockets, which saved 9.7 kB — an
-HTTP POST is a dozen lines by hand and NTP is a 48-byte UDP packet. The only
-remaining item of that size is 59 kB of fonts and their glyphs, which cannot
-shrink without a font toolchain this repository does not have.
+Moving those copies aside took idle free memory from 29376 to 36032 bytes
+and cost nothing: the display renders 1454 frames across 20-260 °C with
+zero failures, and the frozen socket API is the same one this code was
+written against (`getaddrinfo`, `SOCK_STREAM`, `set_interface`, no
+`TCP_MODE`).
 
-This splits the work by where it has to run:
+`tools/deploy.py` refuses to deploy if any of them reappear, because the
+failure is silent — everything works, just with 20 kB less to work in.
 
-**On the oven, while idle** — upload a finished run, sync the clock, fetch
-profiles, send a notification once the run has ended.
+### What this means
 
-**On the attached host** — watching a run live, and stopping one from
-elsewhere. Both must work *during* a run, which the oven cannot do, and both
-already work over the USB serial link that carries every telemetry row.
+The earlier conclusion here was that the radio fits while idle and is
+6.3 kB short during a run, so live view and remote abort had to live on the
+attached host. That was arithmetic on the shadowed figures. At 1872 bytes
+against roughly 22 kB free during a run, the memory objection is gone.
+
+What has not gone is the timing one: the control loop holds a 250 ms
+deadline and an SPI call to the co-processor can block for longer. Anything
+that talks to the network *during* a run puts that latency inside the loop
+that decides when the heater switches off. That needs solving on its own
+terms before a live view is worth building, and it is not a memory
+problem.
 
 ## Measured facts
 

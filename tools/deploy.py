@@ -268,7 +268,20 @@ def main(argv):
     if blocked:
         print("!! WARNING deploying anyway despite: %s" % blocked)
 
-    planned = list(files())
+    # When the oven package is frozen into the firmware there must be no
+    # copy on the volume: a filesystem copy shadows the frozen one and puts
+    # ~48 kB of bytecode back into a 256 kB RAM. Deploying it would silently
+    # undo the flash, and everything would still work -- just with a third
+    # of the memory.
+    frozen_build = not os.path.isdir(os.path.join(dest, "oven"))
+    planned = [(src, rel) for src, rel in files()
+               if not (frozen_build and rel.startswith("oven/"))]
+    if frozen_build:
+        skipped = len(list(files())) - len(planned)
+        print(".. this board runs a frozen build: skipping %d file(s) under"
+              % skipped)
+        print("   oven/. Changes to them need a rebuild and a reflash, not a")
+        print("   deploy -- see docs/frozen-build.md.")
     if os.path.exists(CHARACTERISATION):
         planned.append((CHARACTERISATION, "characterisation.json"))
 

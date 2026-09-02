@@ -22,6 +22,10 @@ JUSTIFIED_SILENT = {
     # Per-candidate `continue` while searching two paths; exhausting both
     # does log.
     "oven/ui/layout.py": "one of several candidate paths; total failure logs",
+    # The SNTP poll keeps the last error and reports once after the retries
+    # are exhausted. Warning on every poll would say the same thing twenty
+    # times while the co-processor is simply not ready yet.
+    "oven/radio.py": "retry loop reports once after exhausting attempts",
 }
 
 # Reporting a failure through an injected callback counts as speaking. It is
@@ -47,12 +51,15 @@ def _silent_handlers():
                 if not isinstance(node, ast.ExceptHandler):
                     continue
                 body = node.body
+                # Walk the whole handler, not just its top level: a
+                # report that only fires on the last retry sits inside an
+                # if, and reporting conditionally is still reporting.
                 speaks = any(
-                    isinstance(x, ast.Expr) and isinstance(x.value, ast.Call)
-                    and (getattr(x.value.func, "id", "") == "print"
-                         or getattr(x.value.func, "attr", "") in REPORTERS
-                         or getattr(x.value.func, "id", "") in REPORTERS)
-                    for x in body)
+                    isinstance(x, ast.Call)
+                    and (getattr(x.func, "id", "") == "print"
+                         or getattr(x.func, "attr", "") in REPORTERS
+                         or getattr(x.func, "id", "") in REPORTERS)
+                    for stmt in body for x in ast.walk(stmt))
                 signals = any(isinstance(x, (ast.Raise, ast.Return))
                               for x in body)
                 if not (speaks or signals):
@@ -112,3 +119,44 @@ def test_an_unrelated_method_call_does_not_count_as_speaking():
                       or getattr(x.value.func, "attr", "") in REPORTERS)
                  for x in handler.body)
     assert not speaks
+
+
+def test_the_detector_sees_a_report_nested_in_a_branch():
+    """A warning that only fires on the last retry still counts.
+
+    radio.connect() retries three times and reports once, on the final
+    failure, so its report lives inside an if. Only inspecting the
+    handler's top-level statements missed it.
+    """
+    import ast as _ast
+    src = ("try:\n    x()\n"
+           "except Exception as e:\n"
+           "    if last:\n        self._warn('gave up: %r' % e)\n"
+           "    sleep(1)\n")
+    handler = [n for n in _ast.walk(_ast.parse(src))
+               if isinstance(n, _ast.ExceptHandler)][0]
+    speaks = any(
+        isinstance(x, _ast.Call)
+        and (getattr(x.func, "id", "") == "print"
+             or getattr(x.func, "attr", "") in REPORTERS
+             or getattr(x.func, "id", "") in REPORTERS)
+        for stmt in handler.body for x in _ast.walk(stmt))
+    assert speaks
+
+
+def test_the_detector_still_rejects_a_silent_branch():
+    """Widening the search must not let a genuinely silent handler pass."""
+    import ast as _ast
+    src = ("try:\n    x()\n"
+           "except Exception:\n    if last:\n        cleanup()\n")
+    handler = [n for n in _ast.walk(_ast.parse(src))
+               if isinstance(n, _ast.ExceptHandler)][0]
+    speaks = any(
+        isinstance(x, _ast.Call)
+        and (getattr(x.func, "id", "") == "print"
+             or getattr(x.func, "attr", "") in REPORTERS
+             or getattr(x.func, "id", "") in REPORTERS)
+        for stmt in handler.body for x in _ast.walk(stmt))
+    signals = any(isinstance(x, (_ast.Raise, _ast.Return))
+                  for stmt in handler.body for x in _ast.walk(stmt))
+    assert not (speaks or signals)

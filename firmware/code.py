@@ -61,6 +61,133 @@ def remember_boot_mode():
               "not be able to log its next run" % e)
 
 
+def set_rtc(epoch_seconds):
+    """Put the network's answer into the board's own clock, then start over.
+
+    The reload is the point. Importing the WiFi stack costs 7280 bytes
+    measured, and sys.modules holds that for the life of the program even
+    after the connection is dropped -- 22% of a heap that then has to build
+    a run screen. It showed immediately: on the boot that first synced the
+    clock, the font metrics failed to load and every button label fell back
+    to being centred by estimate.
+
+    Deleting the modules by hand did not give it back; it made things
+    worse, 25392 free becoming 11472. So instead the clock is written to
+    the RTC and the program restarts. The next pass sees a clock that is
+    already set, never imports the radio at all, and runs with the full
+    heap. It costs one extra boot per power cycle, and nothing per run.
+    """
+    try:
+        import rtc
+        import time as _time
+        rtc.RTC().datetime = _time.localtime(epoch_seconds)
+    except Exception as e:
+        print("# clock: could not set the RTC (%r); the time will not "
+              "survive this restart" % e)
+        return False
+    print("# clock: set; restarting so the run gets its memory back")
+    try:
+        supervisor.reload()
+    except Exception as e:
+        print("# clock: could not restart (%r); continuing with the radio "
+              "still resident" % e)
+        return False
+    return True
+
+
+def now_iso():
+    """The current UTC time as a sortable stamp, or None if unknown.
+
+    Reads the RTC rather than anything sync_clock returned. sync_clock
+    returns None in the ordinary case -- when the clock is already set and
+    the radio is deliberately not touched -- so relying on its return value
+    put "monotonic+" in the header of every log except the first after a
+    power cut, which is exactly backwards.
+    """
+    try:
+        import rtc
+        import time as _time
+        from oven import timesync
+        now = rtc.RTC().datetime
+        if now.tm_year < 2025:
+            return None
+        return timesync.iso(_time.mktime(now))
+    except Exception as e:
+        print("# clock: cannot read the time (%r)" % e)
+        return None
+
+
+def clock_is_set():
+    """Whether this board already knows the date.
+
+    CircuitPython's RTC keeps running as long as the board has power, and
+    this oven is powered continuously -- USB carries 5 V from an internal
+    converter even with no data host. So the clock survives soft resets and
+    auto-reloads, and only a power cut clears it.
+    """
+    try:
+        import rtc
+        from oven import timesync
+        now = rtc.RTC().datetime
+        return now.tm_year >= 2025
+    except Exception as e:
+        # No rtc module, or it has never been set. Either way the answer is
+        # "no", and the caller will go and ask the network.
+        print("# clock: not set (%r)" % e)
+        return False
+
+
+def sync_clock():
+    """Ask the network what time it is, once, at boot.
+
+    The oven has no battery-backed clock, so every run it records is
+    otherwise stamped with seconds since boot -- enough to plot a run
+    against itself, useless for saying which run it was.
+
+    Only at boot, and only here: the radio needs about 18 kB and the oven
+    has roughly 16 kB free once a run is on screen, so it cannot come up
+    mid-run. Nothing about the run depends on this succeeding.
+
+    Returns the epoch seconds at boot, or None. Callers add uptime.
+    """
+    if clock_is_set():
+        return None            # already known; do not pay for the radio
+
+    try:
+        from oven import netconfig
+        from oven.radio import Radio
+    except Exception as e:
+        print("# clock: no networking available (%r)" % e)
+        return None
+
+    networks = netconfig.load()
+    if not networks:
+        return None
+    if not netconfig.may_connect("idle", heating=False):
+        return None
+
+    radio = Radio()
+    try:
+        chosen = netconfig.choose(networks, radio.scan())
+        if chosen is None:
+            print("# clock: none of the known networks are in range")
+            return None
+        if not radio.connect(chosen):
+            return None
+        print("# clock: joined %s as %s" % (chosen.ssid, radio.ip))
+        now = radio.utc_now()
+        if now is None:
+            return None
+        from oven import timesync
+        print("# clock: %s UTC" % timesync.iso(now))
+        set_rtc(now)
+        return now
+    finally:
+        # The connection goes away either way. Holding a socket open for
+        # the life of a run is exactly the memory this cannot spare.
+        radio.close()
+
+
 def storage_is_writable():
     """Can the device write to its own filesystem?
 
@@ -241,8 +368,8 @@ def main():
     def begin_log(profile):
         if logs is None:
             return
-        path = logs.begin(profile.name, VERSION,
-                          "monotonic+%.0f" % hw.clock.monotonic())
+        stamp = now_iso() or ("monotonic+%.0f" % hw.clock.monotonic())
+        path = logs.begin(profile.name, VERSION, stamp)
         logging_run[0] = path is not None
         last_log[0] = 0.0
         if path:
@@ -256,6 +383,8 @@ def main():
                                                   app.metrics.time_above_liquidus)
             logs.end(summary)
             logging_run[0] = False
+
+    sync_clock()          # sets the RTC if it is not already set
 
     print("# t,state,temp_c,target_c,duty,relay,cold_c,cpu_c")
 

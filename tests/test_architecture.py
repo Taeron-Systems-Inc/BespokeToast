@@ -15,7 +15,11 @@ OVEN = os.path.join(os.path.dirname(__file__), "..", "firmware", "oven")
 BOARD_ONLY = {"board", "digitalio", "busio", "microcontroller", "displayio",
               "audioio", "audiocore", "neopixel", "adafruit_mcp9600",
               "supervisor", "storage", "usb_cdc"}
-ALLOWED = {"hardware.py"}
+ALLOWED = {"hardware.py",
+           # Board-only, like hardware.py and ui/display.py: it is the
+           # WiFi hardware. Everything decidable without a radio lives in
+           # netconfig.py and timesync.py, which are tested on the host.
+           "radio.py"}
 
 
 def modules():

@@ -36,17 +36,19 @@ CONTROL_INTERVAL_S = 0.25
 PREHEAT_TOLERANCE_C = 5.0
 PREHEAT_TIMEOUT_S = 900.0
 
-# Opening the door does not cool the probe for about a minute.
+# Opening the door reaches the probe in about four seconds.
 #
-# Measured with an operator who opened the door within two seconds of the
-# prompt: the reading kept RISING for 10 s on element inertia, then fell at
-# -0.4 C/s -- indistinguishable from a shut door -- for a further 50 s,
-# and only then dropped at -5.2 C/s. The thermocouple follows the cavity
-# walls, not the air, so the door's effect is delayed rather than weak.
+# Measured: the operator opened the door within two seconds of the screen
+# asking, and cooling faster than -1.5 C/s appeared four seconds after that,
+# reaching -5.2 C/s within ten. Closed, this oven manages -0.4 C/s.
 #
-# This was first read as operator reaction time, which was wrong and would
-# have put the prompt 60 s too late.
-DOOR_LAG_S = 60.0
+# Two wrong numbers were published for this before it was right. The trace
+# appeared to show a 60 s delay, which was read first as a slow operator
+# and then as thermal lag in the probe. Both were artefacts of anchoring to
+# a prompt that never appeared on screen -- the banner was not wired up, so
+# what the operator actually responded to was the cooldown screen a minute
+# later. The instrument was wrong, not the oven.
+DOOR_COOLING_C_PER_S = 5.2
 
 # Below this the cooldown is finished and the oven is safe to open or reload.
 COOLDOWN_TARGET_C = 60.0
@@ -211,37 +213,45 @@ class App(object):
         """
         return self._door_prompted
 
-    def _prompt_door_at_liquidus(self, temp):
-        """Ask for the door as the oven crosses liquidus on the way up.
+    def _prompt_door_for_liquidus_window(self, temp):
+        """Ask for the door when opening it now lands inside the window.
 
-        That sounds far too early, and it is not, because the door takes
-        about a minute to show up on the thermocouple. Measured with the
-        door opened within two seconds of the prompt: the reading rose for
-        another 10 s, fell at -0.4 C/s for 50 s more -- exactly as if the
-        door were shut -- and only then dropped at -5.2 C/s. The probe
-        follows the cavity walls rather than the air.
+        Time above liquidus is what a low-temperature alloy cares about, and
+        both ends of the window matter: on the measured NC191 run, opening
+        the door at the peak would have given 44 s against a 60 s minimum,
+        while leaving it shut gave 133 s against a 90 s maximum. Earlier is
+        not simply better.
 
-        So the prompt has to lead the effect by DOOR_LAG_S. Prompting at
-        the peak, which is what this did first, put the drop 60 s late: the
-        NC191 datasheet run held 95 s above liquidus against a 60-90 s
-        window. Crossing liquidus on the way up is roughly one lag earlier,
-        which lands it inside.
+        So the prompt fires when the run has banked enough time that the
+        descent will land it mid-window: accumulated time above liquidus,
+        plus what the descent itself will add at the measured door-open
+        rate, reaching the middle of the profile's own window.
 
-        Only for profiles that declare cooling_assumes_open_door. The rest
-        are not asking for anything the closed oven cannot do.
+        The descent is short -- the door reaches the probe in about four
+        seconds and then pulls 5.2 C/s -- so it is the accumulated time,
+        not the descent, that decides the outcome.
         """
         if self._door_prompted or self.profile is None or temp is None:
             return
         if not getattr(self.profile, "cooling_assumes_open_door", False):
             return
-        liquidus = self.profile.liquidus_c
-        if liquidus is None or temp < liquidus:
+        if self.metrics is None or self.profile.liquidus_c is None:
+            return
+        floor = self.profile.tal_min_s
+        if not floor:
+            return
+        ceiling = self.profile.tal_max_s or floor
+        target = (floor + ceiling) / 2.0
+        descent_s = max(0.0, (temp - self.profile.liquidus_c)
+                        / DOOR_COOLING_C_PER_S)
+        if self.metrics.time_above_liquidus + descent_s < target:
             return
         self._door_prompted = True
         self._emit(Event.OPEN_THE_DOOR,
                    {"temp": temp,
-                    "reason": "open now -- the door takes about a minute to "
-                              "reach the probe"})
+                    "tal_s": round(self.metrics.time_above_liquidus, 1),
+                    "reason": "open now to land inside this profile's time "
+                              "above liquidus"})
 
     def _begin_running(self, now):
         # Enter the profile where the oven already is, not always at zero.
@@ -278,7 +288,7 @@ class App(object):
         self.metrics.add(self.elapsed, temp)
         self._track_stage()
         self._track_liquidus(temp)
-        self._prompt_door_at_liquidus(temp)
+        self._prompt_door_for_liquidus_window(temp)
 
         if self.elapsed >= self.profile.duration:
             self.relay.set(False)

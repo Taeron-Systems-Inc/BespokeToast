@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+# toaster — persistent "Tpi - Toaster" Claude Code session.
+#
+# Runs Claude Code inside a detached tmux server so the session survives an
+# SSH disconnect. Re-run it after reconnecting to reattach exactly where you
+# left off. If the tmux session is gone (reboot, tmux kill), it resumes the
+# recorded Claude conversation by session id instead of starting fresh.
+#
+# Usage:
+#   toaster            start or reattach   (Ctrl-b d to detach, leaves it running)
+#   toaster status     show tmux + conversation state
+#   toaster new        start a brand-new conversation (archives the old id)
+#   toaster log        tail the raw transcript jsonl
+#   toaster kill       kill the tmux session (conversation stays resumable)
+
+set -euo pipefail
+
+TMUX_SESSION="${TOASTER_TMUX_SESSION:-tpi-toaster}"
+WORKDIR="${TOASTER_WORKDIR:-$HOME}"
+STATE_DIR="$HOME/.claude/toaster"
+STATE_FILE="$STATE_DIR/$TMUX_SESSION.session-id"
+CLAUDE_BIN="${TOASTER_CLAUDE_BIN:-$HOME/.local/bin/claude}"
+CLAUDE_ARGS="${TOASTER_CLAUDE_ARGS:-}"
+
+command -v tmux >/dev/null || { echo "toaster: tmux not installed" >&2; exit 1; }
+[ -x "$CLAUDE_BIN" ] || CLAUDE_BIN="$(command -v claude)" || {
+  echo "toaster: claude CLI not found" >&2; exit 1; }
+
+mkdir -p "$STATE_DIR"
+
+# Transcript dir for this working directory, e.g. ~/.claude/projects/-home-kaan
+project_dir() {
+  printf '%s/.claude/projects/%s\n' "$HOME" "$(printf '%s' "$WORKDIR" | tr -c 'a-zA-Z0-9' '-')"
+}
+
+new_uuid() {
+  if command -v uuidgen >/dev/null; then uuidgen | tr 'A-Z' 'a-z'
+  else cat /proc/sys/kernel/random/uuid; fi
+}
+
+recorded_id() { [ -f "$STATE_FILE" ] && cat "$STATE_FILE" || true; }
+
+# A recorded id is only resumable if Claude actually wrote a transcript for it.
+transcript_for() {
+  local id="$1"
+  [ -n "$id" ] || return 1
+  local f="$(project_dir)/$id.jsonl"
+  [ -s "$f" ] && printf '%s\n' "$f"
+}
+
+# The command tmux runs in the pane. Keeps the pane alive after Claude exits so
+# a disconnect-during-exit doesn't nuke the window, and so `toaster` can be
+# re-run from inside it.
+pane_cmd() {
+  local id="$1" mode="$2"   # mode: resume | fresh
+  local inner
+  if [ "$mode" = resume ]; then
+    inner="$CLAUDE_BIN --resume $id $CLAUDE_ARGS"
+  else
+    inner="$CLAUDE_BIN --session-id $id $CLAUDE_ARGS"
+  fi
+  printf 'cd %q && %s; printf "\\n[toaster] claude exited (%%s). session id: %s\\n" "$?"; exec %q -l' \
+    "$WORKDIR" "$inner" "$id" "${SHELL:-/bin/bash}"
+}
+
+attach() {
+  if [ -n "${TMUX:-}" ]; then
+    exec tmux switch-client -t "$TMUX_SESSION"
+  else
+    exec tmux attach-session -t "$TMUX_SESSION"
+  fi
+}
+
+start_or_attach() {
+  if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    echo "toaster: attaching to running tmux session '$TMUX_SESSION' (Ctrl-b d to detach)"
+    attach
+  fi
+
+  # Best effort: keep the user's processes alive after logout on systems
+  # configured with KillUserProcesses=yes. Harmless / silent if not permitted.
+  loginctl enable-linger "$USER" >/dev/null 2>&1 || true
+
+  local id mode
+  id="$(recorded_id)"
+  if transcript_for "$id" >/dev/null; then
+    mode=resume
+    echo "toaster: resuming conversation $id"
+  else
+    id="${id:-$(new_uuid)}"
+    mode=fresh
+    echo "toaster: starting new conversation $id"
+  fi
+  printf '%s\n' "$id" > "$STATE_FILE"
+
+  tmux new-session -d -s "$TMUX_SESSION" -c "$WORKDIR" "$(pane_cmd "$id" "$mode")"
+  tmux set-option -t "$TMUX_SESSION" -q status-left "#[bold] toaster:$TMUX_SESSION " >/dev/null 2>&1 || true
+  tmux set-option -t "$TMUX_SESSION" destroy-unattached off >/dev/null 2>&1 || true
+  echo "toaster: tmux session '$TMUX_SESSION' started (Ctrl-b d to detach)"
+  attach
+}
+
+case "${1:-attach}" in
+  attach|start|"") start_or_attach ;;
+  status)
+    id="$(recorded_id)"
+    echo "tmux session : $TMUX_SESSION $(tmux has-session -t "$TMUX_SESSION" 2>/dev/null && echo '[running]' || echo '[not running]')"
+    echo "workdir      : $WORKDIR"
+    echo "conversation : ${id:-<none recorded>}"
+    if t="$(transcript_for "$id")"; then
+      echo "transcript   : $t ($(wc -l < "$t") events, modified $(date -r "$t" '+%Y-%m-%d %H:%M:%S'))"
+    else
+      echo "transcript   : <none yet — will start fresh>"
+    fi
+    tmux list-sessions 2>/dev/null || true
+    ;;
+  new)
+    if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+      echo "toaster: '$TMUX_SESSION' is still running — 'toaster kill' it first." >&2; exit 1
+    fi
+    [ -f "$STATE_FILE" ] && mv "$STATE_FILE" "$STATE_FILE.$(date +%Y%m%d%H%M%S).bak"
+    new_uuid > "$STATE_FILE"
+    echo "toaster: new conversation $(cat "$STATE_FILE")"
+    start_or_attach
+    ;;
+  log)
+    id="$(recorded_id)"
+    t="$(transcript_for "$id")" || { echo "toaster: no transcript for '${id:-<none>}'" >&2; exit 1; }
+    exec tail -f "$t"
+    ;;
+  kill)
+    tmux kill-session -t "$TMUX_SESSION" 2>/dev/null && echo "toaster: killed '$TMUX_SESSION'" \
+      || echo "toaster: '$TMUX_SESSION' was not running"
+    echo "toaster: conversation $(recorded_id) stays resumable — just run 'toaster'"
+    ;;
+  -h|--help|help) sed -n '2,$p' "$0" | sed -n '/^#/!q;p' | sed 's/^# \{0,1\}//' ;;
+  *) echo "toaster: unknown command '$1' (try: attach|status|new|log|kill)" >&2; exit 1 ;;
+esac

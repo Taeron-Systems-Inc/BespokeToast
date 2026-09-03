@@ -1,0 +1,17 @@
+[Unit]
+Description=Disable WiFi power save on wlan0
+# Power save left this host associated but asleep, so it missed broadcast
+# ARP requests: other machines got "Destination Host Unreachable" while it
+# was up, healthy and answering nothing. Turning it off cut ping jitter from
+# 3.16 ms mdev to 0.83 ms as a side effect.
+After=network.target sys-subsystem-net-devices-wlan0.device
+Wants=sys-subsystem-net-devices-wlan0.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/iw dev wlan0 set power_save off
+ExecStop=/usr/sbin/iw dev wlan0 set power_save on
+
+[Install]
+WantedBy=multi-user.target

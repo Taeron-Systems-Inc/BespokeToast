@@ -1,0 +1,16 @@
+[Unit]
+Description=Announce this host's MAC to the LAN (gratuitous ARP)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Three unsolicited ARP replies saying "10.20.10.237 is at b8:27:eb:...".
+# Peers cache that without having to ask, which is the point: when this
+# host became unreachable, the failure was eridani's ARP request going
+# unanswered while this machine was up, associated and healthy. Announcing
+# keeps neighbours' caches warm regardless of why a request might be missed.
+ExecStart=/usr/bin/arping -U -c 3 -I wlan0 -s 10.20.10.237 10.20.10.237
+# arping exits non-zero when nothing replies to an unsolicited announce,
+# which is the normal case. The announce still went out.
+SuccessExitStatus=0 1 2

@@ -117,6 +117,16 @@ def now_iso():
         return None
 
 
+def uploader_pending(logs):
+    """How many runs are waiting, without importing the radio."""
+    try:
+        from oven import uploader
+        return uploader.pending(logs.runs())
+    except Exception as e:
+        print("# archive: cannot list pending runs (%r)" % e)
+        return []
+
+
 def upload_finished_runs(logs, state, heating):
     """Send any runs the oven has kept but not yet handed over.
 
@@ -161,13 +171,19 @@ def upload_finished_runs(logs, state, heating):
         print("# archive: uploading %d run(s) to %s:%d%s"
               % (len(waiting), host, port, path))
         for name in waiting:
-            body = logs.read(name)
-            if body is None:
+            length = logs.size(name)
+            if length is None:
                 continue
             ok = False
             for _ in range(uploader.MAX_ATTEMPTS):
+                # A callable, not the bytes: the log is streamed off the
+                # filesystem straight into the socket and never exists as
+                # one object. Reading a 26 kB run whole failed with
+                # MemoryError with the radio up.
                 if uploader.succeeded(
-                        radio.post(host, port, path, name, body)):
+                        radio.post(host, port, path, name,
+                                   lambda n=name: logs.chunks(n),
+                                   length=length)):
                     ok = True
                     break
             if not ok:
@@ -428,6 +444,13 @@ def main():
 
     last_log = [0.0]
     logging_run = [False]
+    run_started_at = [0.0]
+
+    def _detail(payload):
+        """A dict flattened to one readable field, without json."""
+        if not payload:
+            return ""
+        return " ".join("%s=%s" % (k, payload[k]) for k in sorted(payload))
 
     def begin_log(profile):
         if logs is None:
@@ -436,6 +459,7 @@ def main():
         path = logs.begin(profile.name, VERSION, stamp)
         logging_run[0] = path is not None
         last_log[0] = 0.0
+        run_started_at[0] = hw.clock.monotonic()
         if path:
             print("# recording this run to %s" % path)
 
@@ -445,6 +469,20 @@ def main():
             if app.metrics:
                 summary = "peak=%.1f tal=%.0f" % (app.metrics.peak_c,
                                                   app.metrics.time_above_liquidus)
+                # The verdict too, so the log answers "was this run good?"
+                # without needing the profile file alongside it.
+                if app.profile is not None:
+                    try:
+                        checks = app.metrics.check(
+                            MetricLimits.for_profile(app.profile))
+                        for name, _value, ok, text in checks:
+                            logs.event(app.elapsed, "check",
+                                       "%s %s %s" % (name,
+                                                     "ok" if ok else "FAILED",
+                                                     text))
+                    except Exception as e:
+                        print("# WARNING could not record the run checks "
+                              "(%r)" % e)
             logs.end(summary)
             logging_run[0] = False
 
@@ -487,6 +525,13 @@ def main():
 
     def announce(name, payload):
         print("# event %s %s" % (name, payload))
+        # Into the run's own log as well. A log that stops without saying
+        # why is indistinguishable from a power cut.
+        if logging_run[0] and logs is not None:
+            detail = payload if isinstance(payload, str) else _detail(payload)
+            logs.event(app.elapsed if app.state == STATE_RUNNING
+                       else hw.clock.monotonic() - run_started_at[0],
+                       name, detail)
 
     app = App(hw.relay, hw.sensor, hw.clock, make_controller,
               on_event=announce, sample=emit)
@@ -608,6 +653,19 @@ def main():
             print("# mem free=%d largest=%s memory_failures=%s"
                   % (gc.mem_free(), largest_free_block(),
                      memory_failures or "none"))
+        elif cmd == "UPLOAD":
+            # Force a hand-over now. Useful when a receiver has been down,
+            # and the only way to exercise this path without waiting for a
+            # run to finish.
+            if logs is None:
+                print("# command UPLOAD refused: the host owns the "
+                      "filesystem, so there are no logs of our own")
+            else:
+                waiting = len(uploader_pending(logs))
+                print("# command UPLOAD: %d run(s) waiting" % waiting)
+                sent = upload_finished_runs(logs, app.state,
+                                            hw.relay.is_on())
+                print("# command UPLOAD done: %d sent" % sent)
         elif cmd == "STATUS":
             print("# status state=%s temp=%s target=%s relay=%d profile=%s"
                   % (app.state, app.temperature, app.target,

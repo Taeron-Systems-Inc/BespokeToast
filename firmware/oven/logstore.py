@@ -96,6 +96,30 @@ class LogStore(object):
                        "not be recorded" % e)
             return False
 
+    def event(self, t, name, detail=""):
+        """Record something that happened, in line with the samples.
+
+        Without this a run that faulted looks exactly like a run that was
+        unplugged: the samples simply stop. The fault, the abort, the
+        request to open the door and the liquidus crossings are the parts
+        someone reads the log to understand, and they were the one thing
+        it did not carry.
+
+        Written as a comment so a CSV reader skips it, and in time order so
+        it can be lined up against the temperature either side of it.
+        """
+        if self._file is None:
+            return False
+        text = str(detail).replace("\n", " ").replace("\r", " ")
+        try:
+            self._file.write("# event,%.1f,%s,%s\n" % (t, name, text))
+            self._file.flush()
+            return True
+        except Exception as e:
+            self._fail("could not record event %s (%r); the rest of this run "
+                       "will not be recorded" % (name, e))
+            return False
+
     def end(self, summary=None):
         if self._file is None:
             return
@@ -147,6 +171,34 @@ class LogStore(object):
         except Exception as e:
             self._warn("cannot read run log %s (%r)" % (name, e))
             return None
+
+    def size(self, name):
+        """Bytes on disk, for a Content-Length without reading the file."""
+        try:
+            return self.fs.size("%s/%s" % (self.root, name))
+        except Exception as e:
+            self._warn("cannot size run log %s (%r)" % (name, e))
+            return None
+
+    def chunks(self, name, size=512):
+        """Yield the file in pieces. Never holds the whole run in memory."""
+        try:
+            handle = self.fs.open("%s/%s" % (self.root, name), "r")
+        except Exception as e:
+            self._warn("cannot open run log %s (%r)" % (name, e))
+            return
+        try:
+            while True:
+                piece = handle.read(size)
+                if not piece:
+                    return
+                yield piece
+        finally:
+            try:
+                handle.close()
+            except Exception:
+                self._warn("run log %s would not close after reading; the "
+                           "next upload may fail to open it" % name)
 
     def mark_sent(self, name):
         """Rename a log to record that it has been handed over.

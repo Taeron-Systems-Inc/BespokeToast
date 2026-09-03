@@ -132,13 +132,28 @@ class Radio(object):
             return None
         return seconds
 
-    def post(self, host, port, path, filename, body, timeout_s=20):
+    def post(self, host, port, path, filename, body, timeout_s=120,
+             length=None):
         """Send one run log. Returns the raw reply, or None.
 
         Raw sockets rather than an HTTP client: adafruit_requests costs
         9.7 kB and this is a POST with a known length. The reply is read
         only as far as the status line matters -- uploader.succeeded()
         decides, and anything short of a 2xx leaves the log pending.
+
+        The timeout is generous because this link is slow in a way that has
+        nothing to do with how much is sent. Measured against a real
+        receiver: 1 kB, 4 kB and 8 kB payloads each took 47 seconds and all
+        returned 200. A fixed cost, not a throughput limit -- consistent
+        with the library busy-polling a GPIO for readiness rather than
+        waiting on an interrupt.
+
+        A 20 s timeout was firing before the exchange could finish and
+        reporting TimeoutError('ESP32 not responding'), which reads like
+        broken hardware and is actually an impatient caller.
+
+        Forty-seven seconds is acceptable only because this never runs
+        during a profile -- netconfig.may_connect enforces that.
         """
         from adafruit_esp32spi import adafruit_esp32spi_socket as socket
 
@@ -161,10 +176,21 @@ class Radio(object):
             # whole thing does not fail, it simply never returns. A ten
             # minute run is about 26 kB, so this is roughly 26 calls at a
             # few milliseconds each -- fine, because the oven is idle.
-            payload = uploader.request(host, path, filename, body, port)
-            step = 1024
-            for start in range(0, len(payload), step):
-                sock.send(payload[start:start + step])
+            if callable(body):
+                # Streamed: headers first, then the file in pieces, so a
+                # 26 kB run log never exists as a single object. Reading one
+                # whole failed with MemoryError while the radio was up.
+                sock.send(uploader.request_head(host, path, filename,
+                                                length, port))
+                for piece in body():
+                    if isinstance(piece, str):
+                        piece = piece.encode("utf-8")
+                    sock.send(piece)
+            else:
+                payload = uploader.request(host, path, filename, body, port)
+                step = 1024
+                for start in range(0, len(payload), step):
+                    sock.send(payload[start:start + step])
             reply = b""
             deadline = time.monotonic() + timeout_s
             while time.monotonic() < deadline and len(reply) < 512:

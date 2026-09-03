@@ -34,9 +34,17 @@ class FakeFile(object):
 class FakeReader(object):
     def __init__(self, text):
         self.text = text
+        self.pos = 0
 
-    def read(self):
-        return self.text
+    def read(self, size=None):
+        if size is None:
+            return self.text
+        piece = self.text[self.pos:self.pos + size]
+        self.pos += len(piece)
+        return piece
+
+    def close(self):
+        pass
 
     def __enter__(self):
         return self
@@ -275,3 +283,89 @@ def test_sent_runs_are_still_visible_for_eviction():
     fs.files["/logs/0001-a.csv"] = "x"
     fs.files["/logs/" + sent_name("0002-b.csv")] = "x"
     assert len(store.runs()) == 2
+
+
+def test_events_are_recorded_in_line_with_the_samples():
+    """A log that stops without saying why looks like a power cut."""
+    store, fs, _ = make()
+    path = store.begin("p", "v", "t")
+    store.write(0.0, 25.0, 24.9, False, 30.0, 34.0)
+    store.event(1.5, "fault", "over temperature: 262.3 C exceeds 260.0 C")
+    store.write(2.0, 26.0, 25.5, True, 30.0, 34.0)
+    store.end()
+    lines = fs.files[path].splitlines()
+    idx = [i for i, l in enumerate(lines) if l.startswith("# event,")]
+    assert len(idx) == 1
+    assert "over temperature" in lines[idx[0]]
+    # in time order, between the samples either side of it
+    assert lines[idx[0] - 1].startswith("0.0,")
+    assert lines[idx[0] + 1].startswith("2.0,")
+
+
+def test_an_event_is_a_comment_so_csv_readers_skip_it():
+    store, fs, _ = make()
+    path = store.begin("p", "v", "t")
+    store.event(1.0, "aborted", "")
+    body = fs.files[path]
+    data = [l for l in body.splitlines()
+            if l and not l.startswith("#") and not l.startswith("t,")]
+    assert data == []
+
+
+def test_newlines_in_a_detail_cannot_break_the_format():
+    store, fs, _ = make()
+    path = store.begin("p", "v", "t")
+    store.event(1.0, "fault", "line one\nline two\rline three")
+    events = [l for l in fs.files[path].splitlines() if l.startswith("# event")]
+    assert len(events) == 1
+    assert "line one line two line three" in events[0]
+
+
+def test_an_event_before_a_run_is_ignored_not_raised():
+    store, fs, _ = make()
+    assert store.event(0.0, "fault", "no run open") is False
+
+
+def test_a_run_is_streamed_in_pieces_not_read_whole():
+    """Reading a 26 kB log into memory failed with MemoryError.
+
+    The heap has a few thousand bytes in its largest hole once the radio is
+    up, so the file has to go to the socket in pieces and never exist as a
+    single object.
+    """
+    store, fs, _ = make()
+    path = store.begin("p", "v", "t")
+    for i in range(200):
+        store.write(float(i), 25.0 + i, 24.0 + i, i % 2 == 0, 30.0, 34.0)
+    store.end()
+    name = path.rsplit("/", 1)[-1]
+
+    size = store.size(name)
+    assert size == len(fs.files[path])
+
+    pieces = list(store.chunks(name, size=64))
+    assert len(pieces) > 20, "should have been split into many pieces"
+    assert max(len(p) for p in pieces) <= 64
+    assert "".join(pieces) == fs.files[path], "streaming lost or reordered data"
+
+
+def test_streaming_a_missing_run_yields_nothing_and_reports():
+    store, fs, warnings = make()
+    assert list(store.chunks("nope.csv")) == []
+    assert warnings
+
+
+def test_the_streamed_length_matches_what_the_header_will_claim():
+    """A Content-Length that disagrees with the body hangs the receiver."""
+    from oven.uploader import request_head
+    store, fs, _ = make()
+    path = store.begin("p", "v", "t")
+    for i in range(50):
+        store.write(float(i), 25.0, 24.0, False, 30.0, 34.0)
+    store.end()
+    name = path.rsplit("/", 1)[-1]
+    length = store.size(name)
+    streamed = sum(len(p) for p in store.chunks(name, size=100))
+    assert streamed == length
+    head = request_head("h", "/runs", name, length, 8788).decode()
+    assert "Content-Length: %d\r\n" % streamed in head

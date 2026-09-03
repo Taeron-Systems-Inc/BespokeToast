@@ -38,6 +38,27 @@ def sent_name(name):
     return name + SENT_SUFFIX
 
 
+def request_head(host, path, filename, length, port=80):
+    """Just the headers, for a body that will be streamed after them.
+
+    Reading a run log into memory to send it does not fit: a 26 kB file
+    needs a 26 kB allocation on a heap whose largest hole is a few
+    thousand bytes, and it failed with MemoryError while the radio was up.
+    The length is known from the file size, so the body never has to exist
+    as one object.
+    """
+    return (
+        "POST %s HTTP/1.0\r\n"
+        "Host: %s\r\n"
+        "X-Run-Log: %s\r\n"
+        "Content-Type: text/csv\r\n"
+        "Content-Length: %d\r\n"
+        "Connection: close\r\n"
+        "\r\n" % (path, host if port == 80 else "%s:%d" % (host, port),
+                  filename, length)
+    ).encode("utf-8")
+
+
 def request(host, path, filename, body, port=80):
     """The bytes of an HTTP POST. Written out rather than using a client.
 

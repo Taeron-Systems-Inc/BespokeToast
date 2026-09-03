@@ -99,3 +99,18 @@ def test_a_real_run_log_is_far_larger_than_one_socket_buffer():
     ten_minute_run = 26601
     esp32_socket_buffer = 4000
     assert ten_minute_run > esp32_socket_buffer * 6
+
+
+def test_the_transport_is_slow_in_a_way_that_is_not_about_size():
+    """Recorded so nobody 'optimises' the payload to make it faster.
+
+    Measured against a real receiver: 1 kB, 4 kB and 8 kB each took 47
+    seconds and all returned 200. The cost is per-exchange, not per-byte,
+    so splitting a log into smaller requests would make it slower, not
+    faster.
+    """
+    measured = {1024: 46.9, 4096: 46.8, 8192: 47.0}
+    times = list(measured.values())
+    assert max(times) - min(times) < 1.0, (
+        "these were within a fifth of a second of each other across an "
+        "eightfold size range")

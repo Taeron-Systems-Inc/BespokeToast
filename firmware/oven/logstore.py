@@ -134,10 +134,36 @@ class LogStore(object):
         """
         try:
             names = [n for n in self.fs.listdir(self.root)
-                     if n.endswith(".csv")]
+                     if ".csv" in n]
         except Exception:
             return []
         return sorted(names, key=_sequence_of)
+
+    def read(self, name):
+        """A stored run's bytes, or None. Used by the uploader."""
+        try:
+            with self.fs.open("%s/%s" % (self.root, name), "r") as f:
+                return f.read()
+        except Exception as e:
+            self._warn("cannot read run log %s (%r)" % (name, e))
+            return None
+
+    def mark_sent(self, name):
+        """Rename a log to record that it has been handed over.
+
+        A rename rather than an index: an index is a second thing to keep
+        consistent with the directory, and it is what will be wrong after a
+        power cut halfway through a write.
+        """
+        from oven.uploader import sent_name
+        try:
+            self.fs.rename("%s/%s" % (self.root, name),
+                           "%s/%s" % (self.root, sent_name(name)))
+            return True
+        except Exception as e:
+            self._warn("could not mark %s as sent (%r); it will be uploaded "
+                       "again" % (name, e))
+            return False
 
     def free_bytes(self):
         try:
@@ -156,7 +182,13 @@ class LogStore(object):
         if free is None:
             return
         removed = []
-        for name in self.runs():
+        # Already-uploaded runs first: they exist somewhere else, and one
+        # that has not been handed over may be the only copy there is.
+        # Oldest first within each group.
+        from oven.uploader import SENT_SUFFIX
+        ordered = ([n for n in self.runs() if n.endswith(SENT_SUFFIX)]
+                   + [n for n in self.runs() if not n.endswith(SENT_SUFFIX)])
+        for name in ordered:
             if free >= self.reserve_bytes:
                 break
             path = "%s/%s" % (self.root, name)
@@ -226,6 +258,9 @@ class _RealFS(object):
 
     def open(self, path, mode):
         return open(path, mode)
+
+    def rename(self, old, new):
+        _os.rename(old, new)
 
     def free_bytes(self):
         st = _os.statvfs("/")

@@ -38,14 +38,17 @@ class Radio(object):
     def __init__(self, on_warning=None):
         self._warn = on_warning or (lambda msg: print("# WARNING %s" % msg))
         self._esp = None
+        self._spi = None
+        self._pins = []
 
     def _hardware(self):
         if self._esp is None:
+            self._spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
+            self._pins = [DigitalInOut(board.ESP_CS),
+                          DigitalInOut(board.ESP_BUSY),
+                          DigitalInOut(board.ESP_RESET)]
             self._esp = adafruit_esp32spi.ESP_SPIcontrol(
-                busio.SPI(board.SCK, board.MOSI, board.MISO),
-                DigitalInOut(board.ESP_CS),
-                DigitalInOut(board.ESP_BUSY),
-                DigitalInOut(board.ESP_RESET))
+                self._spi, self._pins[0], self._pins[1], self._pins[2])
         return self._esp
 
     def scan(self):
@@ -129,13 +132,89 @@ class Radio(object):
             return None
         return seconds
 
+    def post(self, host, port, path, filename, body, timeout_s=20):
+        """Send one run log. Returns the raw reply, or None.
+
+        Raw sockets rather than an HTTP client: adafruit_requests costs
+        9.7 kB and this is a POST with a known length. The reply is read
+        only as far as the status line matters -- uploader.succeeded()
+        decides, and anything short of a 2xx leaves the log pending.
+        """
+        from adafruit_esp32spi import adafruit_esp32spi_socket as socket
+
+        from oven import uploader
+        try:
+            esp = self._hardware()
+            socket.set_interface(esp)
+            addr = socket.getaddrinfo(host, port)[0][4]
+        except Exception as e:
+            self._warn("cannot resolve %s:%s (%r)" % (host, port, e))
+            return None
+
+        sock = None
+        try:
+            sock = socket.socket()
+            sock.settimeout(timeout_s)
+            sock.connect(addr)
+            # Sent in pieces. The co-processor's socket buffer is 4000
+            # bytes and a run log is tens of kilobytes; handing send() the
+            # whole thing does not fail, it simply never returns. A ten
+            # minute run is about 26 kB, so this is roughly 26 calls at a
+            # few milliseconds each -- fine, because the oven is idle.
+            payload = uploader.request(host, path, filename, body, port)
+            step = 1024
+            for start in range(0, len(payload), step):
+                sock.send(payload[start:start + step])
+            reply = b""
+            deadline = time.monotonic() + timeout_s
+            while time.monotonic() < deadline and len(reply) < 512:
+                chunk = sock.recv(256)
+                if not chunk:
+                    break
+                reply += chunk
+                if b"\r\n\r\n" in reply:
+                    break
+            return reply
+        except Exception as e:
+            self._warn("upload of %s failed (%r)" % (filename, e))
+            return None
+        finally:
+            if sock is not None:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+
     def close(self):
-        """Drop the connection. The modules stay imported; the socket does not."""
+        """Drop the connection AND release the bus.
+
+        Releasing matters more than it sounds. busio.SPI stays claimed for
+        the life of the object, so a Radio that is finished with but not
+        released makes every later one fail with "SCK in use" -- which is
+        exactly what happened: one failed upload at boot left the bus held,
+        and every subsequent attempt died before it reached the network.
+        """
+        ok = True
         try:
             if self._esp is not None and self._esp.is_connected:
                 self._esp.disconnect()
         except Exception as e:
-            self._warn("could not drop the wifi connection (%r); it will be "
-                       "dropped by the next reset" % e)
-            return False
-        return True
+            self._warn("could not drop the wifi connection (%r)" % e)
+            ok = False
+        self._esp = None
+        for pin in self._pins:
+            try:
+                pin.deinit()
+            except Exception:
+                ok = False
+                self._warn("a radio pin would not release")
+        self._pins = []
+        try:
+            if self._spi is not None:
+                self._spi.deinit()
+        except Exception as e:
+            self._warn("the SPI bus would not release (%r); further radio "
+                       "use will fail with 'SCK in use'" % e)
+            ok = False
+        self._spi = None
+        return ok

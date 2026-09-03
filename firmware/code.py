@@ -117,6 +117,70 @@ def now_iso():
         return None
 
 
+def upload_finished_runs(logs, state, heating):
+    """Send any runs the oven has kept but not yet handed over.
+
+    Only when the oven is idle and not heating -- netconfig.may_connect
+    decides that, and the reason is in its docstring. An SPI call to the
+    co-processor can block for 227 ms against a 250 ms control deadline,
+    so the radio has no business being up while a profile is running.
+
+    A log is marked sent only on a 2xx. Anything else leaves it pending,
+    because marking it wrongly means the oven's copy is the only one and
+    the next run's eviction may delete it.
+    """
+    if logs is None:
+        return 0
+    try:
+        from oven import netconfig, uploader
+        from oven.radio import Radio
+    except Exception as e:
+        print("# archive: no networking available (%r)" % e)
+        return 0
+
+    endpoint = netconfig.archive()
+    if endpoint is None:
+        return 0
+    if not netconfig.may_connect(state, heating):
+        return 0
+    waiting = uploader.pending(logs.runs())
+    if not waiting:
+        return 0
+
+    networks = netconfig.load()
+    if not networks:
+        return 0
+
+    host, port, path = endpoint
+    radio = Radio()
+    sent = 0
+    try:
+        chosen = netconfig.choose(networks, radio.scan())
+        if chosen is None or not radio.connect(chosen):
+            return 0
+        print("# archive: uploading %d run(s) to %s:%d%s"
+              % (len(waiting), host, port, path))
+        for name in waiting:
+            body = logs.read(name)
+            if body is None:
+                continue
+            ok = False
+            for _ in range(uploader.MAX_ATTEMPTS):
+                if uploader.succeeded(
+                        radio.post(host, port, path, name, body)):
+                    ok = True
+                    break
+            if not ok:
+                print("# archive: %s not accepted; keeping it" % name)
+                break          # a receiver that is refusing will refuse the rest
+            if logs.mark_sent(name):
+                sent += 1
+                print("# archive: sent %s" % name)
+    finally:
+        radio.close()
+    return sent
+
+
 def clock_is_set():
     """Whether this board already knows the date.
 
@@ -386,6 +450,13 @@ def main():
 
     sync_clock()          # sets the RTC if it is not already set
 
+    # Anything left over from a run that finished while the network was
+    # down, or before an archive was configured. Without this a log that
+    # missed its upload waits for the NEXT run to end, which may be days,
+    # and may be evicted first.
+    if logs is not None:
+        upload_finished_runs(logs, "idle", False)
+
     print("# t,state,temp_c,target_c,duty,relay,cold_c,cpu_c")
 
     def emit(row):
@@ -469,6 +540,11 @@ def main():
                                      STATE_COOLDOWN) and \
                     app.state in (STATE_REPORT, STATE_FAULT, STATE_IDLE):
                 end_log()
+            if app.state == STATE_IDLE and previous_state[0] != STATE_IDLE:
+                # Back to idle with nothing on the line: the one moment the
+                # radio is allowed up.
+                upload_finished_runs(logs, app.state,
+                                     hw.relay.is_on())
             previous_state[0] = app.state
 
         cmd = poll_command()

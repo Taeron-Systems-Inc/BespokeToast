@@ -31,6 +31,20 @@ class FakeFile(object):
         self.closed = True
 
 
+class FakeReader(object):
+    def __init__(self, text):
+        self.text = text
+
+    def read(self):
+        return self.text
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
 class FakeFS(object):
     def __init__(self, free=5000000, readonly=False, full=False):
         self.files = {}
@@ -63,11 +77,20 @@ class FakeFS(object):
     def size(self, path):
         return len(self.files[path])
 
-    def open(self, path, mode):
+    def open(self, path, mode="r"):
+        if mode == "r":
+            if path not in self.files:
+                raise OSError(2, "No such file")
+            return FakeReader(self.files[path])
         if self.readonly:
             raise OSError(30, "Read-only filesystem")
         self.files[path] = ""
         return FakeFile(self, path)
+
+    def rename(self, old, new):
+        if self.readonly:
+            raise OSError(30, "Read-only filesystem")
+        self.files[new] = self.files.pop(old)
 
     def free_bytes(self):
         return self.free
@@ -182,3 +205,73 @@ def test_logging_failure_never_raises_into_the_control_loop():
 def test_rate_is_one_hertz_and_documented():
     from oven import logstore
     assert logstore.INTERVAL_S == 1.0
+
+
+
+def test_a_stored_run_can_be_read_back_for_upload():
+    store, fs, _ = make()
+    path = store.begin("p", "v", "t")
+    store.write(0.0, 25.0, 24.9, False, 30.0, 34.0)
+    store.end(summary="peak=100")
+    body = store.read(path.rsplit("/", 1)[-1])
+    assert body is not None
+    assert "peak=100" in body
+    assert "24.900" in body
+
+
+def test_reading_a_missing_run_reports_rather_than_raises():
+    store, fs, warnings = make()
+    assert store.read("nope.csv") is None
+    assert warnings
+
+
+def test_marking_sent_renames_and_removes_it_from_pending():
+    from oven.uploader import pending, sent_name
+    store, fs, _ = make()
+    path = store.begin("p", "v", "t")
+    store.write(0.0, 1.0, 1.0, False, 1.0, 1.0)
+    store.end()
+    name = path.rsplit("/", 1)[-1]
+    assert pending(store.runs()) == [name]
+    assert store.mark_sent(name) is True
+    assert pending(store.runs()) == []
+    assert sent_name(name) in store.runs()
+
+
+def test_a_failed_rename_leaves_the_log_pending():
+    """Better uploaded twice than marked sent and later evicted."""
+    from oven.uploader import pending
+    store, fs, warnings = make()
+    path = store.begin("p", "v", "t")
+    store.write(0.0, 1.0, 1.0, False, 1.0, 1.0)
+    store.end()
+    name = path.rsplit("/", 1)[-1]
+    fs.readonly = True
+    assert store.mark_sent(name) is False
+    assert pending(store.runs()) == [name]
+    assert warnings
+
+
+
+def test_uploaded_runs_are_evicted_before_unsent_ones():
+    """A run that has not been handed over may be the only copy there is."""
+    from oven.uploader import SENT_SUFFIX
+    fs = FakeFS(free=1000)
+    store, fs, warnings = make(fs=fs, reserve_bytes=5000)
+    fs.files["/logs/0001-old.csv"] = "x" * 2000          # never uploaded
+    fs.files["/logs/0002-old.csv" + SENT_SUFFIX] = "x" * 2000
+    fs.files["/logs/0003-old.csv" + SENT_SUFFIX] = "x" * 2000
+    store.begin("new", "v", "t")
+    assert fs.removed[0].endswith(SENT_SUFFIX), (
+        "evicted %s first, which had not been uploaded" % fs.removed[0])
+    assert "/logs/0001-old.csv" not in fs.removed, (
+        "deleted the only copy of a run that was never sent")
+
+
+def test_sent_runs_are_still_visible_for_eviction():
+    """They must not become invisible, or they fill the flash forever."""
+    from oven.uploader import sent_name
+    store, fs, _ = make()
+    fs.files["/logs/0001-a.csv"] = "x"
+    fs.files["/logs/" + sent_name("0002-b.csv")] = "x"
+    assert len(store.runs()) == 2

@@ -77,6 +77,36 @@ def load(path=CONFIG_PATH, opener=open, on_warning=None):
     return out
 
 
+def archive(path=CONFIG_PATH, opener=open, on_warning=None):
+    """Where finished runs should be sent, or None if nowhere.
+
+    Optional on purpose. An oven with no archive configured still records
+    every run to its own filesystem; it just keeps them all itself. Nothing
+    about a run depends on this.
+    """
+    warn = on_warning or (lambda msg: print("# WARNING %s" % msg))
+    try:
+        with opener(path) as f:
+            data = json.load(f)
+    except Exception:
+        return None                 # load() already reported a bad file
+    entry = data.get("archive")
+    if not entry:
+        return None
+    host = entry.get("host")
+    if not host:
+        warn("%s has an archive with no host; runs will not be uploaded"
+             % path)
+        return None
+    try:
+        port = int(entry.get("port", 80))
+    except (TypeError, ValueError):
+        warn("%s has a non-numeric archive port; runs will not be uploaded"
+             % path)
+        return None
+    return (host, port, entry.get("path", "/runs"))
+
+
 def choose(networks, scan):
     """Pick the strongest known network from *scan*.
 

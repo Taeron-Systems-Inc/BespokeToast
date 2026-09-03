@@ -62,9 +62,32 @@ def sync_sources():
 
 
 def build():
+    # The freeze manifest is generated once and make then treats it as up
+    # to date, so a NEWLY ADDED module is silently left out while the build
+    # reports success. That happened: oven/uploader.py was in the source
+    # tree, absent from the image, and the firmware raised ImportError at
+    # runtime. Removing the manifest and the compiled output forces both to
+    # be regenerated from whatever is actually there now.
     return ssh(
         "export PATH=$HOME/.local/bin:%s:$PATH && cd %s/ports/atmel-samd && "
+        "rm -rf build-pyportal/manifest.py build-pyportal/frozen_mpy "
+        "build-pyportal/frozen_content.c && "
         "make -j$(nproc) BOARD=pyportal 2>&1 | tail -6" % (TOOLCHAIN, REMOTE_TOP))
+
+
+def frozen_modules_match():
+    """Every module in firmware/oven must be in the image. Verify, do not hope.
+
+    A build that quietly omits a module produces a firmware that imports
+    fine until the moment it needs the missing one.
+    """
+    local = sorted(n[:-3] for n in os.listdir(LOCAL_OVEN)
+                   if n.endswith(".py"))
+    listing = ssh("ls %s/ports/atmel-samd/build-pyportal/frozen_mpy/oven/*.mpy"
+                  % REMOTE_TOP).stdout
+    built = sorted(os.path.basename(p)[:-4]
+                   for p in listing.split() if p.endswith(".mpy"))
+    return local, built, [m for m in local if m not in built]
 
 
 def fetch_uf2(into):
@@ -81,34 +104,41 @@ def shadowing():
 
 def enter_bootloader():
     """Ask the board to reboot into UF2. No physical access needed, which
-    matters: the USB port is behind a panel held by two screws."""
-    try:
-        import glob
+    matters: the USB port is behind a panel held by two screws.
 
-        import serial
-    except ImportError:
-        return "pyserial is not installed"
-    ports = sorted(glob.glob("/dev/serial/by-id/*PyPortal*"))
-    if not ports:
+    Escalates only for this step. The build talks to the build host over
+    ssh as the invoking user, and the serial port needs root here -- running
+    the whole tool under sudo breaks the first to fix the second.
+    """
+    program = (
+        "import glob, sys, time\n"
+        "try:\n"
+        "    import serial\n"
+        "except ImportError:\n"
+        "    print('NO_PYSERIAL'); sys.exit(1)\n"
+        "ports = sorted(glob.glob('/dev/serial/by-id/*PyPortal*'))\n"
+        "if not ports:\n"
+        "    print('NO_PORT'); sys.exit(1)\n"
+        "s = serial.Serial(ports[0], 115200, timeout=0.5)\n"
+        "time.sleep(0.5)\n"
+        "for _ in range(3):\n"
+        "    s.write(b'\\x03'); time.sleep(0.4)\n"
+        "s.read(800)\n"
+        "s.write(b'import microcontroller\\r\\n'); time.sleep(0.4)\n"
+        "s.write(b'microcontroller.on_next_reset("
+        "microcontroller.RunMode.BOOTLOADER)\\r\\n'); time.sleep(0.8)\n"
+        "s.write(b'microcontroller.reset()\\r\\n'); s.flush()\n"
+        "time.sleep(2); s.close(); print('OK')\n"
+    )
+    result = run("sudo python3 -c %s" % quote(program))
+    out = (result.stdout or "") + (result.stderr or "")
+    if "OK" in out:
+        return None
+    if "NO_PYSERIAL" in out:
+        return "pyserial is not installed for root"
+    if "NO_PORT" in out:
         return "no PyPortal serial port found"
-    try:
-        with serial.Serial(ports[0], 115200, timeout=0.5) as s:
-            time.sleep(0.5)
-            for _ in range(3):
-                s.write(b"\x03")
-                time.sleep(0.4)
-            s.read(800)
-            s.write(b"import microcontroller\r\n")
-            time.sleep(0.4)
-            s.write(b"microcontroller.on_next_reset("
-                    b"microcontroller.RunMode.BOOTLOADER)\r\n")
-            time.sleep(0.8)
-            s.write(b"microcontroller.reset()\r\n")
-            s.flush()
-            time.sleep(2)
-    except Exception as e:
-        return "could not reach the board (%r)" % e
-    return None
+    return "could not put the board into its bootloader: %s" % out.strip()[-200:]
 
 
 def wait_for_bootloader(timeout=45):
@@ -158,6 +188,15 @@ def main(argv):
     if "firmware.uf2" not in result.stdout:
         print("!! the build did not produce a uf2")
         return 1
+
+    local, built, missing = frozen_modules_match()
+    if missing:
+        print("!! the image is missing %d of %d modules: %s"
+              % (len(missing), len(local), ", ".join(missing)))
+        print("   A firmware that omits a module imports fine until the")
+        print("   moment it needs it. Not flashing this.")
+        return 1
+    print("frozen     : all %d modules present in the image" % len(local))
 
     if mode == "--build":
         return 0

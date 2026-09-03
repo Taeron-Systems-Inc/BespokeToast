@@ -69,6 +69,16 @@ class Handler(BaseHTTPRequestHandler):
 
         text = body.decode("utf-8", "replace")
         line = summarise(text)
+        faults = [l.split(",", 3)[-1] for l in text.splitlines()
+                  if l.startswith("# event,") and
+                  (",fault," in l or ",aborted," in l)]
+        failed = [l.split(",", 3)[-1] for l in text.splitlines()
+                  if l.startswith("# event,") and ",check," in l
+                  and "FAILED" in l]
+        if faults:
+            line += " | FAULTED: " + "; ".join(faults[:2])
+        if failed:
+            line += " | checks FAILED: " + "; ".join(failed[:3])
         print("[%s] %s  <- %s" % (stamp, name, line), flush=True)
         if self.notify:
             try:

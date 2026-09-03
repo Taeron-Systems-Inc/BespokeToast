@@ -117,6 +117,115 @@ def now_iso():
         return None
 
 
+class WebService(object):
+    """The oven's own web page, served only while it is idle.
+
+    The oven is the only machine present in normal operation: USB is
+    power-only behind a panel, and the network it sits on does not reach
+    the machine that builds its firmware. So a browser pointed at the oven
+    is how anyone gets a run log off it.
+
+    Up only while idle, and torn down the moment a run starts. Not a
+    preference: an SPI call to the co-processor can block for 227 ms
+    against a 250 ms control deadline, so polling a socket during a
+    profile would put network latency inside the loop that decides when
+    the heater switches off.
+    """
+
+    def __init__(self, logs, profiles_ref, status_fn):
+        self.logs = logs
+        self.profiles_ref = profiles_ref
+        self.status_fn = status_fn
+        self.radio = None
+        self.server = None
+        self.address = None
+
+    def start(self):
+        if self.server is not None:
+            return True
+        try:
+            from oven import netconfig
+            from oven.radio import Radio
+            from adafruit_esp32spi import adafruit_esp32spi_wsgiserver as wsgi
+        except Exception as e:
+            print("# web: not available (%r)" % e)
+            return False
+        networks = netconfig.load()
+        if not networks:
+            return False
+        self.radio = Radio()
+        chosen = netconfig.choose(networks, self.radio.scan())
+        if chosen is None or not self.radio.connect(chosen):
+            self.radio.close()
+            self.radio = None
+            return False
+        try:
+            wsgi.set_interface(self.radio._hardware())
+            self.server = wsgi.WSGIServer(80, application=self._app)
+            self.server.start()
+            self.address = self.radio.ip
+            print("# web: http://%s/ -- runs and profiles, while idle"
+                  % self.address)
+            return True
+        except Exception as e:
+            print("# web: could not start (%r)" % e)
+            self.stop()
+            return False
+
+    def stop(self):
+        self.server = None
+        if self.radio is not None:
+            self.radio.close()
+            self.radio = None
+        self.address = None
+
+    def poll(self):
+        if self.server is None:
+            return
+        try:
+            self.server.update_poll()
+        except Exception as e:
+            print("# web: stopped serving (%r)" % e)
+            self.stop()
+
+    def _app(self, environ, start_response):
+        from oven import webapp
+        method = environ.get("REQUEST_METHOD", "GET")
+        path = environ.get("PATH_INFO", "/")
+        kind, arg = webapp.route(method, path)
+
+        if kind == "log":
+            known = self.logs.runs() if self.logs else []
+            name = webapp.safe_log_name(arg, known)
+            if name is None:
+                start_response("404 Not Found", [("Content-Type", "text/plain")])
+                return [b"no such run"]
+            start_response("200 OK", [
+                ("Content-Type", "text/csv"),
+                ("Content-Disposition", "attachment; filename=%s" % name)])
+            # Streamed off the filesystem: a run log is tens of kilobytes
+            # and must never exist in memory as one object.
+            return self.logs.chunks(name, webapp.CHUNK)
+
+        if kind == "index":
+            runs = []
+            if self.logs:
+                for name in self.logs.runs():
+                    runs.append((name, self.logs.size(name)))
+            profiles = [(r.name, r is self.profiles_ref[0])
+                        for r in self.profiles_ref[1]]
+            page = webapp.index_page(self.status_fn(), runs, profiles)
+            start_response("200 OK", [("Content-Type", "text/html")])
+            return [page.encode("utf-8")]
+
+        if kind == "status":
+            start_response("200 OK", [("Content-Type", "text/plain")])
+            return [self.status_fn().encode("utf-8")]
+
+        start_response("404 Not Found", [("Content-Type", "text/plain")])
+        return [b"not found"]
+
+
 def uploader_pending(logs):
     """How many runs are waiting, without importing the radio."""
     try:
@@ -572,6 +681,17 @@ def main():
                 command[0] += ch
         return None
 
+    def status_line():
+        return "%s, %s, profile %s" % (
+            app.state,
+            "-- \u00b0C" if app.temperature is None
+            else "%d \u00b0C" % round(app.temperature),
+            selected_ref[0].name if selected_ref[0] else "none")
+
+    web = WebService(logs, (selected_ref[0], profiles), status_line)
+    # One attempt. If the radio is not there, do not spend a scan every
+    # time round the loop looking for it.
+    web_wanted = [True]
     previous_state = [app.state]
 
     while True:
@@ -585,6 +705,12 @@ def main():
                                      STATE_COOLDOWN) and \
                     app.state in (STATE_REPORT, STATE_FAULT, STATE_IDLE):
                 end_log()
+            if app.state != STATE_IDLE and web.server is not None:
+                # A run is starting. The radio comes down before anything
+                # else happens: polling a socket costs up to 227 ms and the
+                # control loop has 250.
+                print("# web: stopping for the run")
+                web.stop()
             if app.state == STATE_IDLE and previous_state[0] != STATE_IDLE:
                 # Back to idle with nothing on the line: the one moment the
                 # radio is allowed up.
@@ -690,6 +816,13 @@ def main():
                 note_memory_failure("recording a chart point")
         elif app.state in (STATE_IDLE, STATE_PREHEAT) and len(history):
             history.clear()
+
+        # The web page, only while idle and only between control steps.
+        if app.state == STATE_IDLE and not hw.relay.is_on():
+            if web.server is None and web_wanted[0]:
+                web_wanted[0] = web.start()
+            else:
+                web.poll()
 
         # Touch is polled outside the control step: a press must not be able
         # to delay a control step, and a missed press is merely annoying.

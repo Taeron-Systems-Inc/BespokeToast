@@ -298,3 +298,60 @@ def test_the_parsed_characterisation_is_released_after_use():
     assert released, (
         "code.py never releases the parsed characterisation; the packed "
         "rate tables then cost memory instead of saving it")
+
+
+def test_the_web_service_is_torn_down_when_a_run_starts():
+    """Polling a socket costs up to 227 ms; the control loop has 250.
+
+    The teardown must be driven by the state leaving idle, not by anything
+    the web code decides for itself.
+    """
+    import ast
+    source = open(os.path.join(os.path.dirname(__file__), "..", "firmware",
+                               "code.py")).read()
+    assert "web.stop()" in source, "nothing ever stops the web service"
+    tree = ast.parse(source)
+    stops = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        body = ast.dump(node)
+        if "web" in body and "stop" in body and "STATE_IDLE" in body:
+            stops.append(node.lineno)
+    assert stops, "the teardown is not guarded by the run state"
+
+
+def test_the_web_service_only_polls_while_idle():
+    """Polling a socket costs up to 227 ms; the control loop has 250.
+
+    Matched on the AST structurally. An earlier version of this test
+    searched for the text "web.poll" inside ast.dump output, which never
+    contains it -- attributes are rendered as nodes, not source. It passed
+    nothing and proved nothing.
+    """
+    import ast
+    source = open(os.path.join(os.path.dirname(__file__), "..", "firmware",
+                               "code.py")).read()
+    tree = ast.parse(source)
+
+    def calls_poll(node):
+        for inner in ast.walk(node):
+            if (isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "poll"
+                    and getattr(inner.func.value, "id", None) == "web"):
+                return True
+        return False
+
+    def tests_idle(node):
+        for inner in ast.walk(node.test):
+            if isinstance(inner, ast.Name) and inner.id == "STATE_IDLE":
+                return True
+        return False
+
+    assert calls_poll(tree), "web.poll() is never called"
+    guards = [n for n in ast.walk(tree)
+              if isinstance(n, ast.If) and calls_poll(n) and tests_idle(n)]
+    assert guards, (
+        "web.poll() is not inside any if that tests the run state; polling "
+        "during a run would put network latency in the control loop")

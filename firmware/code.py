@@ -887,7 +887,8 @@ def main():
                 screen = L.home(app.temperature,
                                 selected_ref[0].name if selected_ref[0] else None,
                                 ready and selected_ref[0] is not None,
-                                None if ready else "oven too hot to start")
+                                None if ready else "oven too hot to start",
+                                address=web.address)
         except MemoryError:
             gc.collect()
             note_memory_failure("composing a screen")

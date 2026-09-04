@@ -355,3 +355,24 @@ def test_the_web_service_only_polls_while_idle():
     assert guards, (
         "web.poll() is not inside any if that tests the run state; polling "
         "during a run would put network latency in the control loop")
+
+
+def test_the_idle_screen_is_given_the_address_it_displays():
+    """layout.home takes the address as a keyword with a default, so
+    forgetting to pass it renders "no network" on a perfectly connected
+    oven and nothing anywhere fails. That exact shape of silent breakage
+    has happened once already, with open_the_door on the run screen.
+    """
+    code = _code_py_tree()
+    calls = [n for n in ast.walk(code)
+             if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute) and n.func.attr == "home"]
+    assert calls, "code.py no longer renders the idle screen"
+    for call in calls:
+        names = [k.arg for k in call.keywords]
+        assert "address" in names, (
+            "L.home is called without address=, so the oven will show "
+            "'no network' whatever its real state")
+        value = [k.value for k in call.keywords if k.arg == "address"][0]
+        assert isinstance(value, ast.Attribute) and value.attr == "address", (
+            "address= must come from the web service, not a constant")

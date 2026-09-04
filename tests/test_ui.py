@@ -29,6 +29,10 @@ SCREENS = {
     "splash": lambda: L.splash("v2.0"),
     "home_ready": lambda: L.home(24.5, "SAC305 (this oven)", True),
     "home_hot": lambda: L.home(84.0, "SAC305 (this oven)", False, "oven too hot"),
+    "home_networked": lambda: L.home(24.5, "NC191LTA10 (datasheet)", True,
+                                     address="10.20.10.242"),
+    "home_widest_address": lambda: L.home(24.5, "SAC305 reduced peak", True,
+                                          address="255.255.255.255"),
     "running": lambda: L.running(212.4, 215.0, 300, 180, "reflow", 42,
                                  217, 0.62, True,
                                  history=[(i * 4.0, 25 + i * 2.0) for i in range(50)],
@@ -477,3 +481,26 @@ def test_the_door_prompt_is_drawn_in_the_alarm_colour():
                      True, open_the_door=True, **kw)
     banner = [c for c in loud if c[0] == "text" and "OPEN THE DOOR" in str(c[3])]
     assert banner and banner[0][4] == T.DANGER
+
+
+def test_the_idle_screen_says_where_to_point_a_browser():
+    """The address is not knowable from anywhere else. It comes from
+    whatever DHCP server the oven meets, and on a network that does not
+    carry broadcast nothing can discover the oven by asking for it -- so
+    the screen is the only place an operator can read it.
+    """
+    drawn = [c[3] for c in L.home(24.5, "SAC305", True, address="10.20.10.242")
+             if c[0] == "text"]
+    assert "http://10.20.10.242" in drawn
+
+
+def test_the_idle_screen_is_honest_when_there_is_no_network():
+    drawn = [c[3] for c in L.home(24.5, "SAC305", True) if c[0] == "text"]
+    assert "no network" in drawn
+    assert not any("http" in t for t in drawn)
+
+
+def test_the_address_is_written_out_for_someone_who_is_not_an_engineer():
+    assert L.web_address("10.20.10.242") == "http://10.20.10.242"
+    assert L.web_address(None) == "no network"
+    assert L.web_address("") == "no network"

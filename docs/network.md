@@ -165,6 +165,71 @@ been tested there.** That test is worth doing before any more is built on
 top of the web service, because it decides whether the whole approach
 survives. It needs nothing but a phone, the oven, and the Taeron network.
 
+#### It is worse than one unreachable machine
+
+While this was being written, eridani -- wired, and the machine every
+earlier test leaned on -- let its ARP entry expire and could not get it
+back:
+
+    eridani: 10.20.10.242 dev eno2 FAILED
+    eridani: ping 10.20.10.242      3 sent, 0 received
+    the Pi, handed the MAC by hand  4 of 4, and the page in 0.48 s
+
+The oven was in perfect health the whole time. **Once its neighbours'
+caches expire the oven is invisible to the entire network, wired included,
+until somebody types its MAC address into a host by hand.** That is the
+real severity of this, and it is not specific to wireless clients.
+
+#### Why no firmware change can fix it
+
+The obvious answer is to have the oven announce itself, so nothing ever
+has to ask. Half of that works: the oven's outgoing broadcast does reach
+the wired segment -- eridani's FAILED entry repaired itself, unprompted,
+the moment the oven broadcast an ARP request of its own.
+
+The other half does not. With the Pi's cache emptied and `tcpdump`
+watching every ARP frame, the oven was made to broadcast ARP requests for
+three addresses, one of them the Pi's own:
+
+    oven asks who-has 10.20.10.99     Pi saw nothing
+    oven asks who-has 10.20.10.201    Pi saw nothing
+    oven asks who-has 10.20.10.237    Pi saw nothing   <- the Pi's address
+    Pi's ARP entry for the oven       still absent
+
+Not as a broadcast, and not converted to unicast either. In the same
+capture the only ARP the Pi received was the gateway polling it, unicast,
+every ten seconds.
+
+So an announcement reaches wired hosts and never reaches wireless ones,
+and an operator's phone is a wireless one. There is nothing the oven can
+say that a phone can hear. **This is fixed at the access point or it is
+not fixed.**
+
+Worth trying there, in rough order of likelihood: proxy ARP, so the AP
+answers for its own clients; whatever the vendor calls multicast
+enhancement or broadcast filtering; and client isolation. Failing that,
+a routed path works -- a phone can always reach its gateway, and the
+gateway can always reach the oven, so the oven on its own subnet behind a
+port forward sidesteps the whole problem.
+
+#### What the firmware does about it
+
+It puts the address on the screen.
+
+That is not a fix and is not meant to be one. It is what makes the
+question answerable: the address comes from whatever DHCP server the oven
+meets, it is different on every network, and on a network like this one
+nothing can discover it by asking. An operator standing at the oven can
+read it off the front and type it into a phone, and that either works or
+it does not -- which is the test, and it now costs five seconds instead of
+an afternoon.
+
+A keepalive that has the oven broadcast periodically would very likely
+stop wired hosts ever losing it again, on the evidence of eridani
+repairing itself. It is not implemented, because that evidence is one
+unplanned observation rather than a controlled test, and the last change
+written here on an untested mechanism had to be reverted the same day.
+
 #### Two theories tested and discarded
 
 *ESP32 power saving.* The co-processor idles in WIFI_PS_MIN_MODEM, waking

@@ -177,11 +177,33 @@ def self_test(results):
     return out
 
 
-def home(temp_c, profile_name, ready, reason=None):
+def web_address(address):
+    """What to type into a browser, or why there is nothing to type.
+
+    Written out in full rather than as a bare address: the people who use
+    this are not required to know that a number with three dots in it goes
+    in the bar at the top.
+    """
+    if not address:
+        return "no network"
+    return "http://%s" % address
+
+
+def home(temp_c, profile_name, ready, reason=None, address=None):
+    """The idle screen. *address* is where the oven is answering, if it is.
+
+    It is on the screen because the screen is the only channel that works
+    when the network will not carry a broadcast. On a network like that
+    nothing can discover the oven by asking for it, and an operator with a
+    phone has no other way to learn where to point it -- the address comes
+    from whatever DHCP server happens to be there and is not knowable in
+    advance. Reading it off the front of the oven costs five seconds.
+    """
     out = [
         ("bitmap", 6, 6, T.LOGO_SMALL),
         ("text", 6, 76, _t(temp_c), T.BRAND, T.FONT_READOUT),
         ("text", 6, 134, profile_name or "no profile", T.TEXT, T.FONT_BODY),
+        ("text", 6, 156, web_address(address), T.DIM, T.FONT_SMALL),
     ]
     if ready:
         out += button(6, 176, 150, T.ABORT_TOUCH_PX, "START", T.BRAND,

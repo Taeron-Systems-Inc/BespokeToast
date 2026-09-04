@@ -104,29 +104,66 @@ were agreed, and a test walks the routes to check none of them resolves to
 starting or aborting one. A run begins with a person pressing START at the
 oven, having looked inside it.
 
-### One machine cannot reach the oven
+### The oven does not answer a broadcast ARP
 
-taeronpi — the Pi that programs it — cannot reach the oven at all, and the
-oven cannot reach the Pi. Everything else works:
+A host that has never spoken to the oven cannot reach it at all. A host that
+already knows its MAC address reaches it perfectly. That is the whole fault.
 
-| the oven pings | result |
+From taeronpi, with the ARP cache empty:
+
+    ping 10.20.10.242        3 sent, 0 received, entry goes to FAILED
+    arping -c3               0 responses from 3 broadcasts
+    tcpdump                  4 requests leave the radio, nothing comes back,
+                             0 packets dropped by the kernel
+
+Hand the same host the MAC address and everything works:
+
+    ip neigh replace 10.20.10.242 lladdr 34:ab:95:49:c9:bc dev wlan0 nud stale
+
+    ping        8 of 8, 49-140 ms          index page   200, 1565 B, 0.44 s
+
+The kernel then refreshes that entry with a *unicast* ARP probe, and the entry
+reaches REACHABLE — so the oven does answer ARP. It answers a request addressed
+to it and ignores one addressed to the broadcast address. Deleting the entry
+brings the fault straight back, every time.
+
+This is almost certainly the ESP32 asleep between DTIM beacons: a station in
+power save is signalled about buffered unicast individually, while
+group-addressed frames go out after the beacon whether it is listening or not.
+The 40-1084 ms ping spread is the same radio napping.
+
+Why only this one machine, then:
+
+| host | how it got the MAC |
 |---|---|
-| the gateway | ok |
-| eridani, wired | ok |
-| bench5, wireless | ok |
-| taeronpi, wireless | fails, every attempt |
+| eridani | the oven opened the upload connection to it first |
+| bench5 | the oven pinged it during the peer test |
+| taeronpi | never — nothing on the oven has ever addressed it |
 
-`arping` from the Pi to the oven gets 0 responses from 3 broadcasts, while
-bench5 answers 2 of 2, and every ARP sysctl on the Pi is at its default.
-The failure is mutual and specific to that pair. It is unexplained.
+Every host that works was handed the address by the oven talking first. The Pi
+is not special; it is just the only one that had to ask.
 
-It is a development nuisance rather than a product problem — an operator's
-phone or laptop behaves like bench5 — but it means **anything the oven
-serves has to be tested from eridani**, not from the Pi sitting next to it.
+**The fix belongs in the firmware, not on the Pi.** An operator's phone on the
+Taeron network will be in exactly the Pi's position — a cold cache and nothing
+to fill it — so the oven should announce itself unprompted, either with a
+gratuitous ARP every half minute or by advertising over mDNS, which does the
+same job and gives it a name. Until then, a static entry on the host is the
+workaround:
 
-Two wrong explanations were published before that was found: that the radio
-was dying (it was not — 45 000 polls, zero errors, connected throughout),
-and that the network isolated wireless clients (it does not — the Pi and
-bench5 reach each other fine). Both came from testing reachability only
-from the one machine that cannot reach it. The test that settled it was to
-ask the oven which peers *it* could reach, which took two minutes.
+    sudo ip neigh replace 10.20.10.242 lladdr 34:ab:95:49:c9:bc dev wlan0 nud permanent
+
+Note that `arp-announce.service` under `tools/host/` already does the announcing
+half of this for the Pi's own address. The oven needs the same thing.
+
+Three wrong explanations were published before this one. That the radio was
+dying — it was not, 45 000 polls, zero errors, connected throughout. That the
+network isolated wireless clients — it does not, the Pi and bench5 reach each
+other fine. And that the failure was mutual and unexplained — it is neither.
+The first two came from testing reachability only from the machine that cannot
+reach it. The third came from stopping at "it fails" instead of asking which
+layer failed; `tcpdump` and a hand-written ARP entry answered it in ten minutes.
+
+One loose end: the peer test recorded the oven failing to ping taeronpi, and
+that script addressed peers by name. It was never established whether the oven
+failed to resolve the name or failed to reach the host, so that half of the
+"mutual" claim rests on nothing. Redo it with a bare address.

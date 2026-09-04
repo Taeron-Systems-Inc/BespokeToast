@@ -86,3 +86,47 @@ problem.
   needs a size. Passing a `(host, port)` tuple straight to `connect` fails
   with `BrokenPipeError: Expected 01 but got 00`, which reads like a wiring
   fault and is not one.
+
+## Getting logs off the oven
+
+The oven serves its own page while idle. That is how a run log comes off it
+in normal operation: USB is power-only behind a panel, and the network the
+oven sits on does not reach the machine that builds its firmware.
+
+    index page          200, 1565 bytes, 0.49 s
+    a 26601-byte run    200,             2.74 s
+
+Serving is about twenty times faster than pushing the same file out, which
+takes 47 s. If both directions are ever available, prefer being fetched.
+
+The page cannot start a run. Remote start was excluded when these features
+were agreed, and a test walks the routes to check none of them resolves to
+starting or aborting one. A run begins with a person pressing START at the
+oven, having looked inside it.
+
+### One machine cannot reach the oven
+
+taeronpi — the Pi that programs it — cannot reach the oven at all, and the
+oven cannot reach the Pi. Everything else works:
+
+| the oven pings | result |
+|---|---|
+| the gateway | ok |
+| eridani, wired | ok |
+| bench5, wireless | ok |
+| taeronpi, wireless | fails, every attempt |
+
+`arping` from the Pi to the oven gets 0 responses from 3 broadcasts, while
+bench5 answers 2 of 2, and every ARP sysctl on the Pi is at its default.
+The failure is mutual and specific to that pair. It is unexplained.
+
+It is a development nuisance rather than a product problem — an operator's
+phone or laptop behaves like bench5 — but it means **anything the oven
+serves has to be tested from eridani**, not from the Pi sitting next to it.
+
+Two wrong explanations were published before that was found: that the radio
+was dying (it was not — 45 000 polls, zero errors, connected throughout),
+and that the network isolated wireless clients (it does not — the Pi and
+bench5 reach each other fine). Both came from testing reachability only
+from the one machine that cannot reach it. The test that settled it was to
+ask the oven which peers *it* could reach, which took two minutes.

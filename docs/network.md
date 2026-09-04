@@ -104,66 +104,111 @@ were agreed, and a test walks the routes to check none of them resolves to
 starting or aborting one. A run begins with a person pressing START at the
 oven, having looked inside it.
 
-### The oven does not answer a broadcast ARP
+### Nothing on this access point receives a broadcast
 
-A host that has never spoken to the oven cannot reach it at all. A host that
-already knows its MAC address reaches it perfectly. That is the whole fault.
+Two devices with nothing in common -- a Raspberry Pi with a Broadcom radio
+and the oven's Espressif co-processor -- receive no group-addressed frames
+at all on the Voxelis network. Unicast is perfect in both directions. That
+one fact accounts for every symptom.
 
-From taeronpi, with the ARP cache empty:
+Measured on taeronpi, `tcpdump` on wlan0:
 
-    ping 10.20.10.242        3 sent, 0 received, entry goes to FAILED
-    arping -c3               0 responses from 3 broadcasts
-    tcpdump                  4 requests leave the radio, nothing comes back,
-                             0 packets dropped by the kernel
+    180 s, promiscuous and not, every broadcast and multicast frame
+    not sent by this host                                   0 frames
 
-Hand the same host the MAC address and everything works:
+Not one ARP, DHCP, mDNS or SSDP frame from any other station in three
+minutes. Everything it did receive was unicast, chiefly the gateway
+polling it every ten seconds.
 
-    ip neigh replace 10.20.10.242 lladdr 34:ab:95:49:c9:bc dev wlan0 nud stale
+Measured on the oven, a UDP listener on the co-processor:
 
-    ping        8 of 8, 49-140 ms          index page   200, 1565 B, 0.44 s
+    4 datagrams to 10.20.10.255           nothing arrived
+    4 datagrams to 10.20.10.242           arrived
 
-The kernel then refreshes that entry with a *unicast* ARP probe, and the entry
-reaches REACHABLE — so the oven does answer ARP. It answers a request addressed
-to it and ignores one addressed to the broadcast address. Deleting the entry
-brings the fault straight back, every time.
+Repeated on a second socket and a second port with the same result. The
+control is the point: the same host, the same instant, the same size of
+datagram, differing only in the destination address.
 
-This is almost certainly the ESP32 asleep between DTIM beacons: a station in
-power save is signalled about buffered unicast individually, while
-group-addressed frames go out after the beacon whether it is listening or not.
-The 40-1084 ms ping spread is the same radio napping.
+A device that cannot receive a broadcast cannot answer a broadcast ARP.
+So neither of these two can be found by anything that does not already
+know its MAC address, and neither can find the other:
 
-Why only this one machine, then:
+    ping 10.20.10.242 with an empty cache       0 of 3, entry FAILED
+    ip neigh replace ... lladdr 34:ab:95:...    8 of 8, 49-140 ms
+    delete the entry again                      0 of 3, entry FAILED
 
-| host | how it got the MAC |
-|---|---|
-| eridani | the oven opened the upload connection to it first |
-| bench5 | the oven pinged it during the peer test |
-| taeronpi | never — nothing on the oven has ever addressed it |
+Once either side holds the other's address everything works and keeps
+working -- 20 of 20 pings, the index page in 0.44 s, and the oven pinging
+the Pi in 20 ms where minutes earlier it had timed out.
 
-Every host that works was handed the address by the oven talking first. The Pi
-is not special; it is just the only one that had to ask.
+Both are associated to the same BSSID, 76:16:c1:0a:6d:54, on channel 11,
+at -35 and -47 dBm. Neither is the odd one out.
 
-**The fix belongs in the firmware, not on the Pi.** An operator's phone on the
-Taeron network will be in exactly the Pi's position — a cold cache and nothing
-to fill it — so the oven should announce itself unprompted, either with a
-gratuitous ARP every half minute or by advertising over mDNS, which does the
-same job and gives it a name. Until then, a static entry on the host is the
-workaround:
+**This is the access point, and it is not something the firmware can fix.**
+The oven cannot answer a request it never receives. Worth looking at on the
+AP: multicast-to-unicast conversion, broadcast and multicast rate limiting,
+IGMP or ARP snooping, proxy ARP, and any "multicast enhancement" setting.
+
+Until then, a host reaches the oven by being told its address once:
 
     sudo ip neigh replace 10.20.10.242 lladdr 34:ab:95:49:c9:bc dev wlan0 nud permanent
 
-Note that `arp-announce.service` under `tools/host/` already does the announcing
-half of this for the Pi's own address. The oven needs the same thing.
+#### What this costs the product
 
-Three wrong explanations were published before this one. That the radio was
-dying — it was not, 45 000 polls, zero errors, connected throughout. That the
-network isolated wireless clients — it does not, the Pi and bench5 reach each
-other fine. And that the failure was mutual and unexplained — it is neither.
-The first two came from testing reachability only from the machine that cannot
-reach it. The third came from stopping at "it fails" instead of asking which
-layer failed; `tcpdump` and a hand-written ARP entry answered it in ten minutes.
+An operator arriving with a phone has an empty ARP cache and no way to
+fill it. On this network they cannot open the oven's page at all. The
+browser plan is sound and the server works; it is the network underneath
+it that does not carry the first packet.
 
-One loose end: the peer test recorded the oven failing to ping taeronpi, and
-that script addressed peers by name. It was never established whether the oven
-failed to resolve the name or failed to reach the host, so that half of the
-"mutual" claim rests on nothing. Redo it with a bare address.
+**The oven runs on Taeron in production, not on Voxelis, and this has not
+been tested there.** That test is worth doing before any more is built on
+top of the web service, because it decides whether the whole approach
+survives. It needs nothing but a phone, the oven, and the Taeron network.
+
+#### Two theories tested and discarded
+
+*ESP32 power saving.* The co-processor idles in WIFI_PS_MIN_MODEM, waking
+on each DTIM to collect what the AP buffered, and the documented weak spot
+of that mode is group-addressed traffic. NINA implements the Arduino
+`setPowerMode` command at 0x17; sending it a zero byte selects
+WIFI_PS_NONE. It was accepted -- the co-processor replied `01` -- and
+changed nothing: three more rounds of broadcast ARP, still unanswered.
+A firmware change was written for this, and reverted when it did not work.
+
+Its one measurable effect, 20 pings each way over a warm entry, was not a
+clean win either:
+
+    WIFI_PS_NONE        min 8.3   mean 34.6   max 346.9   mdev 75.4 ms
+    WIFI_PS_MIN_MODEM   min 20.9  mean 80.9   max 126.0   mdev 33.0 ms
+
+Lower mean, worse tail, one sample of each. Not enough to keep.
+
+*The Pi.* Its stack was audited and is clean: no rules in nftables,
+iptables, arptables or ebtables; `arp_ignore`, `arp_announce` and
+`arp_filter` all zero; power save off; associated for two days without a
+deauth; `tcpdump` shows its requests leaving the radio and the kernel
+dropping nothing. It is a victim of this, not a cause -- but so is the
+oven, and neither is special.
+
+#### A measurement error worth recording
+
+For most of this investigation the "wireless host that works" was
+10.20.10.162, which is **eridani, on the wire**. bench5 is 10.20.10.145.
+Every conclusion drawn from "a wireless client can reach the oven" was
+drawn from a wired one, and the mistake survived because the address was
+never checked against the name.
+
+It matters because it is what made the fault look like it singled out one
+pair of machines, which sent the search after differences between those two
+machines -- their drivers, their radios, their power saving -- when the
+common factor was in front of it the whole time. The question that broke it
+open was not about either device: it was whether *anything* broadcast ever
+arrives, which took one `tcpdump` and had been available from the start.
+
+Three explanations were published before this one -- a dying radio, client
+isolation, and an unexplained mutual failure -- and a fourth, power saving,
+was built into firmware before being tested. Test the mechanism before
+writing the fix.
+
+Note that `arp-announce.service` under `tools/host/` was added as a hedge
+for a symptom of this same fault, before the fault was understood.

@@ -172,6 +172,44 @@ class LogStore(object):
             self._warn("cannot read run log %s (%r)" % (name, e))
             return None
 
+    def header(self, name):
+        """The `# key,value` preamble of a run log, as a dict.
+
+        Read back off the file rather than kept in an index, because the
+        filesystem is the index: there is no database, and a run that
+        survived a power cut still carries its own profile name and start
+        time. 256 bytes reaches every field begin() writes, and costs
+        nothing beside a 26 kB file -- which matters, because the runs page
+        does this once per run every time it is loaded.
+        """
+        out = {}
+        try:
+            handle = self.fs.open("%s/%s" % (self.root, name), "r")
+        except Exception as e:
+            self._warn("cannot read the header of %s (%r)" % (name, e))
+            return out
+        try:
+            head = handle.read(256)
+        except Exception as e:
+            self._warn("cannot read the header of %s (%r)" % (name, e))
+            head = ""
+        finally:
+            try:
+                handle.close()
+            except Exception:
+                self._warn("run log %s would not close after reading its "
+                           "header; the runs page may fail to load" % name)
+        for line in head.split("\n"):
+            if not line.startswith("#"):
+                if out:
+                    break       # past the preamble, into the samples
+                continue
+            body = line[1:].strip()
+            if "," in body:
+                key, value = body.split(",", 1)
+                out[key.strip()] = value.strip()
+        return out
+
     def size(self, name):
         """Bytes on disk, for a Content-Length without reading the file."""
         try:

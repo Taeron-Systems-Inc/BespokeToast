@@ -8,36 +8,115 @@ network, which is why what it cannot do matters as much as what it can.
 
 import pytest
 
-from oven.webapp import (MAX_PROFILE_BYTES, index_page, route, safe_log_name)
+from oven.webapp import (MAX_PROFILE_BYTES, display_name, human_size,
+                         index_page, route, safe_log_name,
+                         split_started_at)
 
 
-def test_the_index_lists_runs_with_download_links():
-    page = index_page("idle, 24 C", [("0001-a.csv", 26601)], [("SAC305", True)])
-    assert "0001-a.csv" in page
-    assert "/logs/0001-a.csv" in page
-    assert "26601" in page
-    assert "SAC305" in page
+RUN = ("0003-SAC305-this-oven.csv.sent", 35730,
+       "2026-09-03T01-19-09Z", "SAC305 (this oven)")
+
+
+def test_a_run_is_listed_by_when_it_happened_and_what_it_ran():
+    """The four things someone came to the page for. The filename is not
+    one of them -- it is an implementation detail of the log store."""
+    page = index_page([RUN], ["SAC305 (this oven)"])
+    assert "2026-09-03" in page
+    assert "01:19:09" in page
+    assert "SAC305 (this oven)" in page
+    assert "34.9 kB" in page
+    assert "/logs/0003-SAC305-this-oven.csv.sent" in page
+
+
+def test_the_uploader_suffix_never_reaches_the_reader():
+    """.sent records that this oven handed the run to an archive. That is
+    housekeeping, and means nothing to whoever is fetching it."""
+    page = index_page([RUN], [])
+    assert ">0003-SAC305-this-oven.csv.sent<" not in page
+    assert display_name("0001-a.csv.sent") == "0001-a.csv"
+    assert display_name("0001-a.csv") == "0001-a.csv"
+
+
+def test_the_page_does_not_report_a_state_that_is_always_the_same():
+    """The web service only ever serves while the oven is idle, so saying
+    so told nobody anything; and the selected profile cannot be changed or
+    started from here. Both were on the page and both were removed."""
+    page = index_page([RUN], ["SAC305 (this oven)"])
+    assert "idle" not in page.lower()
+    assert "selected" not in page.lower()
+
+
+def test_the_page_is_named_for_the_machine_it_is():
+    page = index_page([], [])
+    assert "<title>Taeron Reflow Oven</title>" in page
+    assert "BespokeToast" not in page
+
+
+def test_a_run_written_before_the_clock_was_set_is_still_listed():
+    """Not a hypothetical. The clock comes off the network, so the first
+    run after a power cut has "monotonic+40" where its date should be, and
+    it must not vanish from the page for it."""
+    page = index_page([("0007-NC191-datasheet.csv", 812,
+                        "monotonic+40", "NC191LTA10 (datasheet)")], [])
+    assert "/logs/0007-NC191-datasheet.csv" in page
+    assert "run 0007" in page
+    assert "NC191LTA10 (datasheet)" in page
+    assert "812 B" in page
+    assert "monotonic" not in page
+
+
+def test_a_run_with_no_header_at_all_still_offers_its_file():
+    page = index_page([("0009-mystery.csv", 30, None, None)], [])
+    assert "/logs/0009-mystery.csv" in page
+    assert "run 0009" in page
+
+
+def test_an_unset_clock_is_said_plainly_because_it_makes_dates_lies():
+    page = index_page([RUN], [], warning="This oven's clock is not set")
+    assert "clock is not set" in page
+    assert "clock is not set" not in index_page([RUN], [])
+
+
+def test_timestamps_survive_being_filename_safe():
+    """Stored with dashes where a time has colons, because it is also a
+    filename on FAT."""
+    assert split_started_at("2026-09-03T01-19-09Z") == ("2026-09-03", "01:19:09")
+    assert split_started_at(None) == ("", "")
+    assert split_started_at("nonsense") == ("", "")
+
+
+def test_sizes_are_readable_at_a_glance():
+    assert human_size(35730) == "34.9 kB"
+    assert human_size(812) == "812 B"
+    assert human_size(None) == ""
 
 
 def test_an_oven_with_no_runs_says_so_rather_than_showing_nothing():
-    page = index_page("idle", [], [("SAC305", True)])
-    assert "no runs recorded yet" in page
+    assert "no runs recorded yet" in index_page([], ["SAC305"])
 
 
 def test_the_page_says_it_cannot_start_a_run():
     """Stated on the page because someone will look for the button."""
-    page = index_page("idle", [], [])
-    assert "cannot start" in page.lower()
+    assert "cannot start" in index_page([], []).lower()
 
 
 def test_a_hostile_profile_name_cannot_inject_markup():
-    page = index_page("idle", [], [("<script>alert(1)</script>", False)])
-    assert "<script>" not in page
+    page = index_page([], ["<script>alert(1)</script>"])
+    assert "<script>alert" not in page
     assert "&lt;script&gt;" in page
 
 
 def test_a_hostile_run_name_cannot_inject_markup():
-    page = index_page("idle", [("<img src=x onerror=y>", 1)], [])
+    page = index_page([("<img src=x onerror=y>", 1, None, None)], [])
+    assert "<img" not in page
+    assert "&lt;img" in page
+
+
+def test_a_hostile_profile_name_inside_a_run_cannot_inject_markup():
+    """The profile column comes out of the log file's own header, which is
+    a file this page will happily read from a volume anyone can write."""
+    page = index_page([("0001-a.csv", 1, "2026-01-01T00-00-00Z",
+                        "<img src=x onerror=y>")], [])
     assert "<img" not in page
     assert "&lt;img" in page
 

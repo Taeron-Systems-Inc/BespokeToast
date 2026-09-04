@@ -210,11 +210,22 @@ class WebService(object):
         if kind == "index":
             runs = []
             if self.logs:
-                for name in self.logs.runs():
-                    runs.append((name, self.logs.size(name)))
-            profiles = [(r.name, r is self.profiles_ref[0])
-                        for r in self.profiles_ref[1]]
-            page = webapp.index_page(self.status_fn(), runs, profiles)
+                # Newest first: whoever loads this page has almost always
+                # just finished a run and wants that one.
+                for name in reversed(self.logs.runs()):
+                    head = self.logs.header(name)
+                    runs.append((name, self.logs.size(name),
+                                 head.get("started_at"),
+                                 head.get("profile")))
+            profiles = [r.name for r in self.profiles_ref[1]]
+            # The only thing worth saying at the top of the page, and only
+            # when it is true: an unset clock means every date below was
+            # written by a board that did not know the date.
+            warning = None
+            if not clock_is_set():
+                warning = ("This oven's clock is not set, so the dates "
+                           "below are not to be trusted.")
+            page = webapp.index_page(runs, profiles, warning=warning)
             start_response("200 OK", [("Content-Type", "text/html")])
             return [page.encode("utf-8")]
 

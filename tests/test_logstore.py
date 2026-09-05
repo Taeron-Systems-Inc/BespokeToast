@@ -233,20 +233,21 @@ def test_reading_a_missing_run_reports_rather_than_raises():
     assert warnings
 
 
-def test_marking_sent_renames_and_removes_it_from_pending():
-    from oven.uploader import pending, sent_name
+def test_marking_sent_removes_it_from_pending_without_touching_the_file():
+    from oven.uploader import pending
     store, fs, _ = make()
     path = store.begin("p", "v", "t")
     store.write(0.0, 1.0, 1.0, False, 1.0, 1.0)
     store.end()
     name = path.rsplit("/", 1)[-1]
-    assert pending(store.runs()) == [name]
+    assert pending(store.runs(), store.sent()) == [name]
     assert store.mark_sent(name) is True
-    assert pending(store.runs()) == []
-    assert sent_name(name) in store.runs()
+    assert pending(store.runs(), store.sent()) == []
+    assert name in store.runs(), "the file itself must not be renamed"
+    assert store.sent() == set([name])
 
 
-def test_a_failed_rename_leaves_the_log_pending():
+def test_an_index_that_cannot_be_written_leaves_the_log_pending():
     """Better uploaded twice than marked sent and later evicted."""
     from oven.uploader import pending
     store, fs, warnings = make()
@@ -256,33 +257,34 @@ def test_a_failed_rename_leaves_the_log_pending():
     name = path.rsplit("/", 1)[-1]
     fs.readonly = True
     assert store.mark_sent(name) is False
-    assert pending(store.runs()) == [name]
+    assert pending(store.runs(), store.sent()) == [name]
     assert warnings
 
 
 
-def test_uploaded_runs_are_evicted_before_unsent_ones():
-    """A run that has not been handed over may be the only copy there is."""
-    from oven.uploader import SENT_SUFFIX
+def test_eviction_is_oldest_first_and_nothing_cleverer():
+    """Preferring already-uploaded runs coupled the store to the uploader
+    for a preference that only differs when the disk is full AND an
+    archive exists AND the oldest run is the unsent one."""
     fs = FakeFS(free=1000)
     store, fs, warnings = make(fs=fs, reserve_bytes=5000)
-    fs.files["/logs/0001-old.csv"] = "x" * 2000          # never uploaded
-    fs.files["/logs/0002-old.csv" + SENT_SUFFIX] = "x" * 2000
-    fs.files["/logs/0003-old.csv" + SENT_SUFFIX] = "x" * 2000
+    fs.files["/logs/0001-old.csv"] = "x" * 2000
+    fs.files["/logs/0002-old.csv"] = "x" * 2000
+    fs.files["/logs/0003-old.csv"] = "x" * 2000
     store.begin("new", "v", "t")
-    assert fs.removed[0].endswith(SENT_SUFFIX), (
-        "evicted %s first, which had not been uploaded" % fs.removed[0])
-    assert "/logs/0001-old.csv" not in fs.removed, (
-        "deleted the only copy of a run that was never sent")
+    assert fs.removed[0] == "/logs/0001-old.csv", (
+        "evicted %s, which is not the oldest" % fs.removed[0])
 
 
-def test_sent_runs_are_still_visible_for_eviction():
-    """They must not become invisible, or they fill the flash forever."""
-    from oven.uploader import sent_name
+def test_the_sent_index_is_not_mistaken_for_a_run():
+    """It lives in the same directory, so runs() has to step over it."""
+    from oven.logstore import SENT_INDEX
     store, fs, _ = make()
     fs.files["/logs/0001-a.csv"] = "x"
-    fs.files["/logs/" + sent_name("0002-b.csv")] = "x"
-    assert len(store.runs()) == 2
+    fs.files["/logs/0002-b.csv"] = "x"
+    fs.files["/logs/" + SENT_INDEX] = "0002-b.csv\n"
+    assert store.runs() == ["0001-a.csv", "0002-b.csv"]
+    assert store.sent() == set(["0002-b.csv"])
 
 
 def test_events_are_recorded_in_line_with_the_samples():

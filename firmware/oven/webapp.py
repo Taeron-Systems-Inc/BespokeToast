@@ -28,70 +28,58 @@ def _html_escape(text):
     return out
 
 
-SENT = ".sent"
+from oven import pacific
+
+UNKNOWN = "?"
 
 
-def display_name(name):
-    """The filename with the uploader's bookkeeping taken off.
+def run_id(name):
+    """The leading sequence number, which is what a run is called.
 
-    A log that has been handed to an archive is renamed to end .sent so
-    that the eviction order can prefer it. That is a fact about this
-    oven's housekeeping and means nothing to whoever is fetching the run,
-    so it does not belong on the page. The link still points at the real
-    name.
-    """
-    return name[:-len(SENT)] if name.endswith(SENT) else name
-
-
-def split_started_at(started_at):
-    """(date, time) from an ISO stamp, or ("", "") if there is not one.
-
-    The stored form uses dashes where a time would have colons, because it
-    also has to be a filename on FAT. Undo that for reading.
-    """
-    if not started_at or "T" not in started_at:
-        return ("", "")
-    day, _, rest = started_at.partition("T")
-    rest = rest.rstrip("Z")
-    return (day, rest.replace("-", ":"))
-
-
-def human_size(size):
-    """Bytes as something a person reads at a glance."""
-    if size is None:
-        return ""
-    if size < 1024:
-        return "%d B" % size
-    return "%.1f kB" % (size / 1024.0)
-
-
-def run_label(name):
-    """What to call a run whose start time cannot be read.
-
-    Happens for real, not just to old files: the clock comes from the
-    network, so the first run after a power cut is written by a board that
-    does not yet know the date, and begin() records "monotonic+40" rather
-    than inventing one. The sequence number is then the only honest handle
-    on it, and it is still what the file is called.
+    Short, unique, and already how the log store names its files, so it
+    is what the page uses as the handle rather than a filename nobody
+    needs to read.
     """
     digits = ""
     for ch in name:
         if not ch.isdigit():
             break
         digits += ch
-    return ("run " + digits) if digits else display_name(name)
+    return digits or name
+
+
+def when(started_at):
+    """(date, time) in Pacific, or ("?", "?").
+
+    A question mark rather than a blank or a guess: a run written before
+    the oven had been told the date carries "monotonic+40" in its header,
+    which happens to the first run after every power cut, and pretending
+    to know is worse than saying it does not.
+    """
+    got = pacific.local(started_at)
+    if got is None:
+        return (UNKNOWN, UNKNOWN)
+    return (got[0], got[1])
+
+
+def human_size(size):
+    """Bytes as something a person reads at a glance."""
+    if size is None:
+        return UNKNOWN
+    if size < 1024:
+        return "%d B" % size
+    return "%.1f kB" % (size / 1024.0)
 
 
 def _row(run):
     """One run. *run* is (name, size, started_at, profile)."""
     name, size, started_at, profile = run
-    day, clock = split_started_at(started_at)
-    return ("<tr><td><a href='/logs/%s'>%s</a></td><td>%s</td>"
+    day, clock = when(started_at)
+    return ("<tr><td><a href='/logs/%s'>%s</a></td><td>%s</td><td>%s</td>"
             "<td>%s</td><td class='n'>%s</td></tr>"
-            % (_html_escape(display_name(name)),
-               _html_escape(day or run_label(name)),
-               _html_escape(clock),
-               _html_escape(profile or ""),
+            % (_html_escape(name), _html_escape(run_id(name)),
+               _html_escape(day), _html_escape(clock),
+               _html_escape(profile or UNKNOWN),
                _html_escape(human_size(size))))
 
 
@@ -107,7 +95,7 @@ def index_page(runs, profiles, warning=None):
     full of per-cent signs and every one of them is a formatting trap.
     """
     rows = "".join(_row(r) for r in runs) or \
-        "<tr><td colspan=4 class='q'>no runs recorded yet</td></tr>"
+        "<tr><td colspan=5 class='q'>no runs recorded yet</td></tr>"
     opts = "".join("<li>" + _html_escape(p) + "</li>" for p in profiles) \
         or "<li>none</li>"
     style = (
@@ -134,7 +122,7 @@ def index_page(runs, profiles, warning=None):
             + ("<div class=w>" + _html_escape(warning) + "</div>"
                if warning else "")
             + "<h2>Runs</h2><table>"
-            "<tr><th>Date</th><th>Time</th><th>Profile</th>"
+            "<tr><th>Run</th><th>Date</th><th>Time (PT)</th><th>Profile</th>"
             "<th class=n>Size</th></tr>" + rows + "</table>"
             "<h2>Profiles</h2><ul>" + opts + "</ul>"
             "<h2>Note</h2><div class=s>A run is started at the oven, by "
@@ -163,17 +151,10 @@ def route(method, path):
 
 
 def safe_log_name(name, known):
-    """The stored file a request is for, or None.
+    """A name is only served if the store already lists it.
 
-    Requests arrive under the name the page offered, which is the storage
-    name with the uploader's .sent bookkeeping taken off, so this has to
-    map back. Still matching against the real listing rather than
-    sanitising a string: the set of legitimate names is known, so there is
-    no reason to guess at what an attacker might have meant.
+    Matching against the real listing rather than sanitising a string: the
+    set of legitimate names is known, so there is no reason to guess at
+    what an attacker might have meant.
     """
-    if name in known:
-        return name
-    for stored in known:
-        if display_name(stored) == name:
-            return stored
-    return None
+    return name if name in known else None

@@ -205,8 +205,7 @@ class WebService(object):
             # nothing, and will not open in the thing they open CSVs with.
             start_response("200 OK", [
                 ("Content-Type", "text/csv"),
-                ("Content-Disposition", 'attachment; filename="%s"'
-                 % webapp.display_name(name))])
+                ("Content-Disposition", 'attachment; filename="%s"' % name)])
             # Streamed off the filesystem: a run log is tens of kilobytes
             # and must never exist in memory as one object.
             return self.logs.chunks(name, webapp.CHUNK)
@@ -245,7 +244,7 @@ def uploader_pending(logs):
     """How many runs are waiting, without importing the radio."""
     try:
         from oven import uploader
-        return uploader.pending(logs.runs())
+        return uploader.pending(logs.runs(), logs.sent())
     except Exception as e:
         print("# archive: cannot list pending runs (%r)" % e)
         return []
@@ -277,7 +276,7 @@ def upload_finished_runs(logs, state, heating):
         return 0
     if not netconfig.may_connect(state, heating):
         return 0
-    waiting = uploader.pending(logs.runs())
+    waiting = uploader.pending(logs.runs(), logs.sent())
     if not waiting:
         return 0
 

@@ -8,12 +8,11 @@ network, which is why what it cannot do matters as much as what it can.
 
 import pytest
 
-from oven.webapp import (MAX_PROFILE_BYTES, display_name, human_size,
-                         index_page, route, safe_log_name,
-                         split_started_at)
+from oven.webapp import (MAX_PROFILE_BYTES, human_size, index_page, route,
+                         run_id, safe_log_name, when)
 
 
-RUN = ("0003-SAC305-this-oven.csv.sent", 35730,
+RUN = ("0003-SAC305-this-oven.csv", 35730,
        "2026-09-03T01-19-09Z", "SAC305 (this oven)")
 
 
@@ -21,20 +20,12 @@ def test_a_run_is_listed_by_when_it_happened_and_what_it_ran():
     """The four things someone came to the page for. The filename is not
     one of them -- it is an implementation detail of the log store."""
     page = index_page([RUN], ["SAC305 (this oven)"])
-    assert "2026-09-03" in page
-    assert "01:19:09" in page
+    assert "0003" in page
+    assert "2026-09-02" in page      # UTC 01:19 is the previous evening here
+    assert "18:19:09" in page
     assert "SAC305 (this oven)" in page
     assert "34.9 kB" in page
     assert "/logs/0003-SAC305-this-oven.csv'" in page
-
-
-def test_the_uploader_suffix_never_reaches_the_reader():
-    """.sent records that this oven handed the run to an archive. That is
-    housekeeping, and means nothing to whoever is fetching it."""
-    page = index_page([RUN], [])
-    assert ">0003-SAC305-this-oven.csv.sent<" not in page
-    assert display_name("0001-a.csv.sent") == "0001-a.csv"
-    assert display_name("0001-a.csv") == "0001-a.csv"
 
 
 def test_the_page_does_not_report_a_state_that_is_always_the_same():
@@ -59,7 +50,8 @@ def test_a_run_written_before_the_clock_was_set_is_still_listed():
     page = index_page([("0007-NC191-datasheet.csv", 812,
                         "monotonic+40", "NC191LTA10 (datasheet)")], [])
     assert "/logs/0007-NC191-datasheet.csv" in page
-    assert "run 0007" in page
+    assert ">0007<" in page
+    assert ">?<" in page
     assert "NC191LTA10 (datasheet)" in page
     assert "812 B" in page
     assert "monotonic" not in page
@@ -68,7 +60,7 @@ def test_a_run_written_before_the_clock_was_set_is_still_listed():
 def test_a_run_with_no_header_at_all_still_offers_its_file():
     page = index_page([("0009-mystery.csv", 30, None, None)], [])
     assert "/logs/0009-mystery.csv" in page
-    assert "run 0009" in page
+    assert ">0009<" in page
 
 
 def test_an_unset_clock_is_said_plainly_because_it_makes_dates_lies():
@@ -77,18 +69,10 @@ def test_an_unset_clock_is_said_plainly_because_it_makes_dates_lies():
     assert "clock is not set" not in index_page([RUN], [])
 
 
-def test_timestamps_survive_being_filename_safe():
-    """Stored with dashes where a time has colons, because it is also a
-    filename on FAT."""
-    assert split_started_at("2026-09-03T01-19-09Z") == ("2026-09-03", "01:19:09")
-    assert split_started_at(None) == ("", "")
-    assert split_started_at("nonsense") == ("", "")
-
-
 def test_sizes_are_readable_at_a_glance():
     assert human_size(35730) == "34.9 kB"
     assert human_size(812) == "812 B"
-    assert human_size(None) == ""
+    assert human_size(None) == "?"
 
 
 def test_an_oven_with_no_runs_says_so_rather_than_showing_nothing():
@@ -193,21 +177,7 @@ def test_an_uploaded_profile_has_a_size_limit():
     assert 0 < MAX_PROFILE_BYTES <= 64 * 1024
 
 
-STORED = ["0001-NC191-datasheet.csv.sent", "0002-DIAGNOSTIC-fast.csv"]
-
-
-def test_a_request_under_the_offered_name_finds_the_stored_file():
-    """The page offers 0001-NC191-datasheet.csv; flash holds
-    0001-NC191-datasheet.csv.sent. The link has to resolve."""
-    assert safe_log_name("0001-NC191-datasheet.csv",
-                         STORED) == "0001-NC191-datasheet.csv.sent"
-    assert safe_log_name("0002-DIAGNOSTIC-fast.csv",
-                         STORED) == "0002-DIAGNOSTIC-fast.csv"
-
-
-def test_the_stored_name_still_resolves_for_anything_holding_an_old_link():
-    assert safe_log_name("0001-NC191-datasheet.csv.sent",
-                         STORED) == "0001-NC191-datasheet.csv.sent"
+STORED = ["0001-NC191-datasheet.csv", "0002-DIAGNOSTIC-fast.csv"]
 
 
 def test_a_name_the_store_does_not_list_is_refused():
@@ -216,10 +186,29 @@ def test_a_name_the_store_does_not_list_is_refused():
         assert safe_log_name(hostile, STORED) is None
 
 
-def test_no_link_on_the_page_carries_the_uploader_suffix():
-    """The URL is the last place .sent could leak out, and it is what
-    ends up in a browser's download name."""
-    page = index_page([("0001-NC191-datasheet.csv.sent", 812,
-                        "2026-09-02T19-03-12Z", "NC191LTA10")], [])
-    assert "/logs/0001-NC191-datasheet.csv'" in page
-    assert ".sent" not in page
+
+def test_a_run_is_handled_by_its_number_not_its_filename():
+    """0003 is short, unique, and already how the store names files. The
+    filename is an implementation detail nobody needs to read."""
+    page = index_page([RUN], [])
+    assert ">0003</a>" in page
+    assert "SAC305-this-oven.csv" not in page.replace(
+        "/logs/0003-SAC305-this-oven.csv", "")
+    assert run_id("0012-anything.csv") == "0012"
+
+
+def test_times_are_shown_where_the_oven_is_not_where_it_thinks():
+    """Stored UTC, read in Pacific. 01:19 UTC on the 3rd is the evening of
+    the 2nd here, so this is a date change, not just an hour."""
+    assert when("2026-09-03T01-19-09Z") == ("2026-09-02", "18:19:09")
+    assert when("2026-01-15T12-00-00Z") == ("2026-01-15", "04:00:00")
+
+
+def test_an_unknown_time_is_a_question_mark_not_a_guess():
+    assert when("monotonic+40") == ("?", "?")
+    assert when(None) == ("?", "?")
+    assert when("") == ("?", "?")
+
+
+def test_the_column_says_which_clock_it_is():
+    assert "Time (PT)" in index_page([], [])

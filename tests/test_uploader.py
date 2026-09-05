@@ -8,8 +8,8 @@ it. So anything short of a 2xx must leave it pending.
 
 import pytest
 
-from oven.uploader import (MAX_ATTEMPTS, SENT_SUFFIX, pending, request,
-                           sent_name, status_of, succeeded)
+from oven.uploader import (MAX_ATTEMPTS, pending, request, status_of,
+                           succeeded)
 
 
 def test_pending_lists_unsent_logs_oldest_first():
@@ -18,19 +18,21 @@ def test_pending_lists_unsent_logs_oldest_first():
 
 
 def test_a_sent_log_is_not_offered_again():
-    names = ["0001-a.csv", "0002-b.csv" + SENT_SUFFIX]
-    assert pending(names) == ["0001-a.csv"]
+    names = ["0001-a.csv", "0002-b.csv"]
+    assert pending(names, sent=set(["0002-b.csv"])) == ["0001-a.csv"]
 
 
 def test_non_logs_are_ignored():
     assert pending(["boot_out.txt", "code.py", "0001-a.csv"]) == ["0001-a.csv"]
 
 
-def test_marking_is_a_rename_not_an_index():
-    """An index is a second thing to keep consistent with the directory,
-    and the thing that is wrong after a power cut mid-write."""
-    assert sent_name("0001-a.csv") == "0001-a.csv" + SENT_SUFFIX
-    assert pending([sent_name("0001-a.csv")]) == []
+def test_a_lost_index_offers_a_run_again_rather_than_losing_it():
+    """The failure the index can have is a torn write that drops names.
+    That direction is the cheap one -- a run gets uploaded twice. The
+    expensive mistake is marking a run sent when it was not, and nothing
+    here can do that."""
+    assert pending(["0001-a.csv"], sent=set()) == ["0001-a.csv"]
+    assert pending(["0001-a.csv"], sent=set(["0001-a.csv"])) == []
 
 
 def test_the_request_is_a_complete_http_post():

@@ -13,29 +13,36 @@ send. A run recorded while a host is attached is already on the host's
 screen.
 """
 
-SENT_SUFFIX = ".sent"
 MAX_ATTEMPTS = 3
 
 
-def pending(names):
+def pending(names, sent=()):
     """Logs that still need sending, oldest first.
 
-    A log is marked by renaming rather than by an index file: an index is a
-    second thing to keep consistent with the directory, and it is the thing
-    that will be wrong after a power cut halfway through a write.
+    Which ones are done is passed in rather than read off the filenames.
+    It used to be a .sent suffix on the file itself, and the argument for
+    that was sound as far as it went -- a rename is one atomic operation,
+    where an index is a second thing to keep consistent with the directory
+    and the thing that will be wrong after a power cut halfway through a
+    write.
+
+    What that argument missed is where the cost lands. The suffix followed
+    the file out to whoever downloaded it, arriving as
+    0003-SAC305-this-oven.csv.sent: a name that will not open in a
+    spreadsheet and that says nothing to the person holding it. The index
+    can only fail in one direction -- a torn write loses names, so a run
+    gets offered again -- and being uploaded twice is the cheap mistake.
+    Being marked sent when it was not is the expensive one, and neither
+    scheme does that.
     """
     out = []
     for name in names:
         if not name.endswith(".csv"):
             continue
-        if name.endswith(SENT_SUFFIX):
+        if name in sent:
             continue
         out.append(name)
     return sorted(out)
-
-
-def sent_name(name):
-    return name + SENT_SUFFIX
 
 
 def request_head(host, path, filename, length, port=80):

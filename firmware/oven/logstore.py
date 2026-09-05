@@ -32,6 +32,11 @@ INTERVAL_S = 1.0
 DEFAULT_RESERVE_BYTES = 1000000
 
 
+from oven import pacific
+
+SENT_INDEX = "sent-index"   # not *.csv on purpose: runs() must skip it
+
+
 class LogStore(object):
     def __init__(self, root="/logs", reserve_bytes=DEFAULT_RESERVE_BYTES,
                  fs=None, on_warning=None):
@@ -62,6 +67,13 @@ class LogStore(object):
             self._file.write("# firmware,%s\n" % version)
             self._file.write("# profile,%s\n" % profile_name)
             self._file.write("# started_at,%s\n" % started_at)
+            # Also in the timezone the oven is read in. The UTC stamp is
+            # the one that sorts and never repeats an hour, so it stays;
+            # this is here so that whoever opens the CSV does not have to
+            # do the arithmetic in their head.
+            here = pacific.local(started_at)
+            if here:
+                self._file.write("# started_at_local,%s %s %s\n" % here)
             if limits:
                 self._file.write("# limits,%s\n" % limits)
             self._file.write(",".join(HEADER_FIELDS) + "\n")
@@ -238,21 +250,34 @@ class LogStore(object):
                 self._warn("run log %s would not close after reading; the "
                            "next upload may fail to open it" % name)
 
-    def mark_sent(self, name):
-        """Rename a log to record that it has been handed over.
+    def sent(self):
+        """Names already handed to an archive.
 
-        A rename rather than an index: an index is a second thing to keep
-        consistent with the directory, and it is what will be wrong after a
-        power cut halfway through a write.
+        Kept in an index rather than by renaming the file. Renaming put
+        this oven's housekeeping into the name of a file someone
+        downloads, where it meant nothing to them and stopped it opening
+        as a CSV. The index is not called *.csv, so runs() steps over it.
         """
-        from oven.uploader import sent_name
         try:
-            self.fs.rename("%s/%s" % (self.root, name),
-                           "%s/%s" % (self.root, sent_name(name)))
+            with self.fs.open("%s/%s" % (self.root, SENT_INDEX), "r") as f:
+                return set(n.strip() for n in f.read().split("\n") if n.strip())
+        except Exception:
+            return set()
+
+    def mark_sent(self, name):
+        """Record that a run has been handed over. Returns True if noted."""
+        already = self.sent()
+        if name in already:
+            return True
+        handle = None
+        try:
+            handle = self.fs.open("%s/%s" % (self.root, SENT_INDEX), "w")
+            handle.write("\n".join(sorted(already | set([name]))) + "\n")
+            handle.close()
             return True
         except Exception as e:
-            self._warn("could not mark %s as sent (%r); it will be uploaded "
-                       "again" % (name, e))
+            self._warn("could not record that %s was sent (%r); it will be "
+                       "offered again next time" % (name, e))
             return False
 
     def free_bytes(self):
@@ -272,13 +297,11 @@ class LogStore(object):
         if free is None:
             return
         removed = []
-        # Already-uploaded runs first: they exist somewhere else, and one
-        # that has not been handed over may be the only copy there is.
-        # Oldest first within each group.
-        from oven.uploader import SENT_SUFFIX
-        ordered = ([n for n in self.runs() if n.endswith(SENT_SUFFIX)]
-                   + [n for n in self.runs() if not n.endswith(SENT_SUFFIX)])
-        for name in ordered:
+        # Oldest first, and nothing cleverer. Preferring already-uploaded
+        # runs was tried; it coupled the log store to the uploader for a
+        # preference that only differs when the disk is full AND an
+        # archive exists AND the oldest run happens to be the unsent one.
+        for name in self.runs():
             if free >= self.reserve_bytes:
                 break
             path = "%s/%s" % (self.root, name)

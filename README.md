@@ -17,7 +17,9 @@ firmware/    What ships to the device. Mirrors the CIRCUITPY volume.
   assets/    Fonts and logo.
 tests/       pytest, off-hardware. Includes a simulated oven built from
              this oven's own measured response.
-tools/       Host-side: deploy, model fitting.
+tools/       Host-side: deploy, release and rollback, model fitting,
+             screen rendering, profile formatting. tools/device/ runs
+             on the board over serial; tools/collector/ receives runs.
 data/        Measured characterisation and the raw step-test logs.
 docs/        Hardware reference and notes on the original firmware.
 ```

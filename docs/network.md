@@ -104,6 +104,21 @@ were agreed, and a test walks the routes to check none of them resolves to
 starting or aborting one. A run begins with a person pressing START at the
 oven, having looked inside it.
 
+It can take a profile. POST /profiles accepts a JSON profile under 2560
+bytes, validates it, and writes it where the catalogue can see it -- which
+reloads, so an uploaded profile appears without a restart. It still cannot
+select one: an upload has `default` and `diagnostic` stripped before it is
+kept, so it can neither make itself the selection nor hide from the list it
+just joined, and its filename comes from the profile's own name rather than
+from the request.
+
+That size limit is measured, not chosen. 2700 bytes is served in 1.5 s,
+3000 arrives truncated, and 3200 gets no reply at all and leaves the server
+holding a half-read request until the firmware restarts. Nothing in the
+application can prevent that, because the server reads the request before
+the application is called -- so the limit sits under the cliff and the form
+refuses to send more.
+
 ### Nothing on this access point receives a broadcast
 
 Two devices with nothing in common -- a Raspberry Pi with a Broadcom radio

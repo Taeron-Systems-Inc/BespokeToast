@@ -88,7 +88,8 @@ def test_only_two_are_kept(tmp_path):
     for n in "ABC":
         release.rotate_images(_img(tmp_path, n + ".uf2", n), images)
     assert open(release.rollback_image(images)).read() == "B"
-    assert sorted(os.listdir(images)) == ["current.uf2", "previous.uf2"]
+    assert sorted(n for n in os.listdir(images) if n.endswith(".uf2")) == [
+        "current.uf2", "previous.uf2"]
 
 
 def test_rolling_back_twice_returns_where_you_were(tmp_path):
@@ -107,3 +108,49 @@ def test_swapping_with_nothing_to_swap_says_so(tmp_path):
     assert release.swap_images(images) is False
     release.rotate_images(_img(tmp_path, "a.uf2", "A"), images)
     assert release.swap_images(images) is False
+
+
+def test_the_staged_image_is_the_one_being_rolled_back_to(tmp_path):
+    """The first version printed previous.uf2 and then swapped the two
+    files, so the path in the message held the image being rolled back
+    FROM by the time anyone read it. It flashed forward and looked like it
+    had worked. Only flashing a real board showed it."""
+    images = str(tmp_path / "images")
+    release.rotate_images(_img(tmp_path, "old.uf2", "OLD"), images)
+    release.rotate_images(_img(tmp_path, "new.uf2", "NEW"), images)
+    staged = release.stage_rollback(images)
+    assert open(staged).read() == "OLD", (
+        "staged %r, which is not the image being rolled back to"
+        % open(staged).read())
+
+
+def test_staging_leaves_the_pair_swapped_so_a_second_rollback_returns(tmp_path):
+    images = str(tmp_path / "images")
+    release.rotate_images(_img(tmp_path, "old.uf2", "OLD"), images)
+    release.rotate_images(_img(tmp_path, "new.uf2", "NEW"), images)
+    assert open(release.stage_rollback(images)).read() == "OLD"
+    assert open(release.stage_rollback(images)).read() == "NEW"
+
+
+def test_staging_with_nothing_behind_you_returns_nothing(tmp_path):
+    images = str(tmp_path / "images")
+    assert release.stage_rollback(images) is None
+    release.rotate_images(_img(tmp_path, "a.uf2", "A"), images)
+    assert release.stage_rollback(images) is None
+
+
+def test_rolling_back_carries_the_code_py_that_matches_the_image(tmp_path):
+    """code.py is not frozen, so it does not travel with the image. Rolling
+    the firmware back without it leaves code.py calling into a firmware
+    that no longer has what it calls: the board boots and the page is
+    dead. That is what happened on the real board."""
+    images = str(tmp_path / "images")
+    code = os.path.join(os.path.dirname(release.__file__), "..", "firmware",
+                        "code.py")
+    assert os.path.exists(code), "the archiver reads the real code.py"
+    release.rotate_images(_img(tmp_path, "old.uf2", "OLD"), images)
+    release.rotate_images(_img(tmp_path, "new.uf2", "NEW"), images)
+    release.stage_rollback(images)
+    staged_code = os.path.join(images, release.STAGED_CODE)
+    assert os.path.exists(staged_code), (
+        "rolled the image back and left the newer code.py in place")

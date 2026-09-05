@@ -31,6 +31,13 @@ TOOLCHAIN = "~/toolchains/arm-gnu-toolchain-13.2.Rel1-x86_64-arm-none-eabi/bin"
 IMAGES = os.path.expanduser("~/.bespoketoast/images")
 CURRENT = "current.uf2"
 PREVIOUS = "previous.uf2"
+# code.py is not frozen, so it does not travel with the image. Rolling the
+# firmware back without it leaves a code.py calling into a firmware that no
+# longer has what it calls: the board boots, and the page is dead. Found by
+# rolling a real board back and watching the page stop answering.
+CURRENT_CODE = "current-code.py"
+PREVIOUS_CODE = "previous-code.py"
+STAGED_CODE = "staged-rollback-code.py"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOCAL_OVEN = os.path.join(HERE, "..", "firmware", "oven")
@@ -175,7 +182,13 @@ def rotate_images(new_uf2, images=IMAGES):
     if os.path.exists(current):
         shutil.copy2(current, previous)
         kept = previous
+        old_code = os.path.join(images, CURRENT_CODE)
+        if os.path.exists(old_code):
+            shutil.copy2(old_code, os.path.join(images, PREVIOUS_CODE))
     shutil.copy2(new_uf2, current)
+    code = os.path.join(HERE, "..", "firmware", "code.py")
+    if os.path.exists(code):
+        shutil.copy2(code, os.path.join(images, CURRENT_CODE))
     return (current, kept)
 
 
@@ -183,6 +196,38 @@ def rollback_image(images=IMAGES):
     """The image to go back to, or None if nothing has been replaced yet."""
     previous = os.path.join(images, PREVIOUS)
     return previous if os.path.exists(previous) else None
+
+
+STAGED = "staged-rollback.uf2"
+
+
+def stage_rollback(images=IMAGES):
+    """Put the image to flash somewhere the swap cannot move it.
+
+    The first version printed the path of previous.uf2 and then swapped
+    the two files, so by the time anyone read the message that path held
+    the image they were rolling back FROM. It flashed forward and looked
+    like it had worked -- the exact no-op this was supposed to prevent,
+    and it took flashing a real board to see it.
+
+    So the image is copied to a third name that the rotation never
+    touches, and the swap happens straight afterwards. What is printed and
+    what is flashed cannot drift apart.
+    """
+    import shutil
+    previous = os.path.join(images, PREVIOUS)
+    if not os.path.exists(previous):
+        return None
+    staged = os.path.join(images, STAGED)
+    shutil.copy2(previous, staged)
+    code = os.path.join(images, PREVIOUS_CODE)
+    staged_code = os.path.join(images, STAGED_CODE)
+    if os.path.exists(code):
+        shutil.copy2(code, staged_code)
+    elif os.path.exists(staged_code):
+        os.remove(staged_code)
+    swap_images(images)
+    return staged
 
 
 def swap_images(images=IMAGES):
@@ -197,6 +242,12 @@ def swap_images(images=IMAGES):
     shutil.move(current, spare)
     shutil.move(previous, current)
     shutil.move(spare, previous)
+    a = os.path.join(images, CURRENT_CODE)
+    b = os.path.join(images, PREVIOUS_CODE)
+    if os.path.exists(a) and os.path.exists(b):
+        shutil.move(a, spare)
+        shutil.move(b, a)
+        shutil.move(spare, b)
     return True
 
 
@@ -224,11 +275,20 @@ def main(argv):
                   % BOOTLOADER_LABEL)
             print("   which means opening the panel.")
             return 1
-        swap_images()
+        staged = stage_rollback()
         print("bootloader is up; copy the image onto it and the board reboots:")
         print("  sudo mount /dev/disk/by-label/%s /mnt/portalboot"
               % BOOTLOADER_LABEL)
-        print("  sudo cp %s /mnt/portalboot/" % image)
+        print("  sudo cp %s /mnt/portalboot/" % staged)
+        staged_code = os.path.join(IMAGES, STAGED_CODE)
+        if os.path.exists(staged_code):
+            print("then put back the code.py that matches it, or the board")
+            print("boots and the page is dead:")
+            print("  sudo cp %s /mnt/circuitpy/code.py" % staged_code)
+        else:
+            print("!! no archived code.py for that image. If the page stops")
+            print("   answering after this, that is why: deploy the matching")
+            print("   revision from git.")
         print("(the two kept images have swapped, so running --rollback again")
         print(" returns to where you just were.)")
         return 0

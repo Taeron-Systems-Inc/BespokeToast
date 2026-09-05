@@ -1,86 +1,32 @@
 {
-  "name": "NC191LTA10",
   "alloy": "Sn42 Bi57 Ag1",
   "category": "reflow",
-  "liquidus_c": 137,
-  "tal_min_s": 60,
-  "tal_max_s": 90,
-  "max_ramp_up_c_per_s": 2.5,
   "cooling_assumes_open_door": true,
-  "reference": "Chip Quik NC191LTA10 datasheet, Recommended Profile chart (Sn42/Bi57/Ag1, mp 137 C)",
+  "liquidus_c": 137,
+  "max_ramp_up_c_per_s": 2.5,
+  "name": "NC191LTA10",
   "notes": "The manufacturer's own curve, digitised from the datasheet chart: 90 C at 90 s, 130 C at 180 s, liquidus 137 C at 210 s, peak 165 C at 240 s, back through 137 C at 270 s. Chip Quik call it a starting point for process optimisation, not a finished recipe. Time above liquidus comes out at 60 s, the bottom of the window, so any shortfall shows up as cold joints rather than as overheating. THE DOOR MUST BE OPENED AT PEAK: the descent from 165 C to 137 C in 30 s is -0.93 C/s and this oven manages about -0.13 C/s shut, so without the door the tail runs long and the joints spend far too long molten. Paste needs 4 hours out of the fridge to reach 20-25 C before use. Measured against this oven, the opening ramp is slightly beyond it: the curve asks 1.33 C/s between 25 and 45 C and this oven does about 1.00 C/s from cold, so expect a small lag over the first half minute which the soak absorbs. Everything above 90 C is within capability.",
+  "reference": "Chip Quik NC191LTA10 datasheet, Recommended Profile chart (Sn42/Bi57/Ag1, mp 137 C)",
+  "tal_max_s": 90,
+  "tal_min_s": 60,
   "points": [
-    [
-      0,
-      25
-    ],
-    [
-      15,
-      45
-    ],
-    [
-      30,
-      60
-    ],
-    [
-      45,
-      72
-    ],
-    [
-      60,
-      80
-    ],
-    [
-      75,
-      86
-    ],
-    [
-      90,
-      90
-    ],
-    [
-      120,
-      105
-    ],
-    [
-      150,
-      118
-    ],
-    [
-      180,
-      130
-    ],
-    [
-      195,
-      133
-    ],
-    [
-      210,
-      137
-    ],
-    [
-      225,
-      151
-    ],
-    [
-      240,
-      165
-    ],
-    [
-      255,
-      157
-    ],
-    [
-      270,
-      137
-    ],
-    [
-      285,
-      112
-    ],
-    [
-      300,
-      95
-    ]
+    [0, 25],
+    [15, 45],
+    [30, 60],
+    [45, 72],
+    [60, 80],
+    [75, 86],
+    [90, 90],
+    [120, 105],
+    [150, 118],
+    [180, 130],
+    [195, 133],
+    [210, 137],
+    [225, 151],
+    [240, 165],
+    [255, 157],
+    [270, 137],
+    [285, 112],
+    [300, 95]
   ]
 }

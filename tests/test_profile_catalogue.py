@@ -116,3 +116,31 @@ def test_every_shipped_profile_is_named_for_something_you_can_pick_up():
                      "TS391LT", "TS391SNL"], names
     for n in names:
         assert "this oven" not in n and "datasheet" not in n
+
+
+def test_every_profile_fits_back_through_the_ovens_own_upload():
+    """A profile too big to send is one that can only be changed over USB,
+    behind two screws. Measured ceiling is 2700 bytes; the limit is 2560."""
+    import glob
+    import os
+    from oven.webapp import MAX_PROFILE_BYTES
+    for path in sorted(glob.glob(os.path.join(PROFILES, "*.json"))):
+        size = os.path.getsize(path)
+        assert size < MAX_PROFILE_BYTES, (
+            "%s is %d bytes, over the %d the oven can take"
+            % (os.path.basename(path), size, MAX_PROFILE_BYTES))
+
+
+def test_the_profile_formatter_does_not_change_what_a_profile_says():
+    """It is only whitespace. json.dumps(indent=2) put every number of
+    every point on its own line, which was 1.8 kB of nothing on the
+    60-point curve."""
+    import glob
+    import json
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    import format_profile
+    for path in sorted(glob.glob(os.path.join(PROFILES, "*.json"))):
+        original = json.load(open(path))
+        assert json.loads(format_profile.dumps(original)) == original

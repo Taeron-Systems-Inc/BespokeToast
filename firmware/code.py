@@ -232,6 +232,85 @@ class WebService(object):
             start_response("200 OK", [("Content-Type", "text/html")])
             return [page.encode("utf-8")]
 
+        if kind == "put-profile":
+            body = None
+            try:
+                length = int(environ.get("CONTENT_LENGTH") or 0)
+            except ValueError:
+                print("# web: upload sent a Content-Length that is not a "
+                      "number (%r); treating it as empty"
+                      % environ.get("CONTENT_LENGTH"))
+                length = 0
+            if length > webapp.MAX_PROFILE_BYTES:
+                page = webapp.result_page(
+                    "Too big",
+                    "That is %d bytes and the limit is %d. The body is not "
+                    "read at all past the limit, so nothing was written."
+                    % (length, webapp.MAX_PROFILE_BYTES), ok=False)
+                start_response("413 Payload Too Large",
+                               [("Content-Type", "text/html")])
+                return [page.encode("utf-8")]
+            try:
+                stream = environ.get("wsgi.input")
+                body = stream.read(length) if stream and length else None
+                if isinstance(body, bytes):
+                    body = body.decode("utf-8")
+            except Exception as e:
+                body = None
+                print("# web: could not read the uploaded profile (%r)" % e)
+
+            filename, data, rest = webapp.accept_profile(body, Profile.from_dict)
+            if filename is None:
+                page = webapp.result_page("Not kept", rest, ok=False)
+                start_response("400 Bad Request",
+                               [("Content-Type", "text/html")])
+                return [page.encode("utf-8")]
+
+            # The device can only write to its own filesystem when it owns
+            # it, which is when no host is attached. Saying so beats an
+            # OSError 30 that reads like a broken oven.
+            if not storage_is_writable():
+                page = webapp.result_page(
+                    "Cannot write",
+                    "The oven does not own its filesystem right now, which "
+                    "happens while it is plugged into a computer. Unplug it "
+                    "and send this again.", ok=False)
+                start_response("409 Conflict",
+                               [("Content-Type", "text/html")])
+                return [page.encode("utf-8")]
+
+            path = "%s/%s" % (webapp.PROFILE_DIR, filename)
+            replaced = False
+            try:
+                import os as _os
+                replaced = filename in _os.listdir(webapp.PROFILE_DIR)
+                import json as _json
+                handle = open(path, "w")
+                handle.write(_json.dumps(data))
+                handle.close()
+            except Exception as e:
+                page = webapp.result_page(
+                    "Not kept", "could not write %s (%r)" % (filename, e),
+                    ok=False)
+                start_response("500 Internal Server Error",
+                               [("Content-Type", "text/html")])
+                return [page.encode("utf-8")]
+
+            # The catalogue is read at startup, so a profile written now is
+            # invisible until it is read again.
+            try:
+                self.profiles_ref[1][:] = scan_profiles(webapp.PROFILE_DIR)
+            except Exception as e:
+                print("# web: profile saved but the catalogue did not "
+                      "reload (%r)" % e)
+
+            page = webapp.result_page(
+                "Replaced" if replaced else "Added",
+                "%s is on the oven as %s. Select it at the oven to use it."
+                % (data.get("name", filename), filename), rest)
+            start_response("200 OK", [("Content-Type", "text/html")])
+            return [page.encode("utf-8")]
+
         if kind == "status":
             start_response("200 OK", [("Content-Type", "text/plain")])
             return [self.status_fn().encode("utf-8")]

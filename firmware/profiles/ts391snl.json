@@ -1,252 +1,74 @@
 {
-  "name": "TS391SNL",
   "alloy": "Sn96.5/Ag3.0/Cu0.5",
   "category": "reflow",
+  "default": true,
   "liquidus_c": 217,
   "max_ramp_up_c_per_s": 2.5,
+  "name": "TS391SNL",
+  "notes": "Built from this oven's measured capability, not from the datasheet chart, which asks for ramps this oven does not have. Peak 235 C against the datasheet's 249 C, which has never been demonstrated here. The cooling tail matches measured door-shut cooling, so it completes unattended; opening the door beats it and is preferable. Time above liquidus is judged against 60-150 s, J-STD-020's window for the Pb-free classification profile. See docs/profiles.md.",
   "reference": "Chip Quik TS391SNL datasheet rev 1.2 (Sn96.5/Ag3.0/Cu0.5, mp 217-220 C); curve derived from data/oven-characterisation.json",
-  "notes": "The paste's own recommended profile asks for ramps this oven does not have. Chip Quik's chart wants 175->217 C in 30 s (1.40 C/s) and 217->249 C in 30 s (1.07 C/s); measured full-power capability in those bands is about 0.90 and 0.70 C/s. Running the datasheet curve would miss both ramps and produce a joint nobody characterised, so this is built from measured capability instead. Rise segments are set to 80% of the measured full-power rate so the controller has headroom rather than saturating; the soak is deliberately slower. The peak is held briefly to buy time above liquidus, which the oven cannot earn on the way up. The cooling tail matches measured door-shut cooling, so it is achievable unattended; opening the door beats it and is preferable. Peak is 235 C against the datasheet's 249 C. 249 C has never been demonstrated on this oven -- the step tests reached 240 C -- so the peak sits inside measured ground rather than beyond it.",
+  "tal_max_s": 150,
+  "tal_min_s": 60,
   "points": [
-    [
-      0,
-      25
-    ],
-    [
-      28,
-      30.3
-    ],
-    [
-      37,
-      35.6
-    ],
-    [
-      43,
-      41.1
-    ],
-    [
-      48,
-      46.6
-    ],
-    [
-      53,
-      52.8
-    ],
-    [
-      57,
-      58.0
-    ],
-    [
-      61,
-      63.5
-    ],
-    [
-      65,
-      69.1
-    ],
-    [
-      69,
-      74.9
-    ],
-    [
-      73,
-      80.8
-    ],
-    [
-      77,
-      86.6
-    ],
-    [
-      81,
-      92.3
-    ],
-    [
-      85,
-      98.0
-    ],
-    [
-      89,
-      103.6
-    ],
-    [
-      93,
-      109.1
-    ],
-    [
-      97,
-      114.5
-    ],
-    [
-      101,
-      119.6
-    ],
-    [
-      105,
-      124.6
-    ],
-    [
-      110,
-      130.7
-    ],
-    [
-      115,
-      136.5
-    ],
-    [
-      120,
-      142.0
-    ],
-    [
-      125,
-      147.3
-    ],
-    [
-      128,
-      150
-    ],
-    [
-      148,
-      150
-    ],
-    [
-      160,
-      155.3
-    ],
-    [
-      172,
-      160.4
-    ],
-    [
-      185,
-      165.7
-    ],
-    [
-      198,
-      170.8
-    ],
-    [
-      212,
-      176.0
-    ],
-    [
-      224,
-      180
-    ],
-    [
-      231,
-      185.5
-    ],
-    [
-      238,
-      190.8
-    ],
-    [
-      245,
-      196.0
-    ],
-    [
-      252,
-      201.2
-    ],
-    [
-      260,
-      206.8
-    ],
-    [
-      268,
-      212.2
-    ],
-    [
-      276,
-      217.3
-    ],
-    [
-      285,
-      222.8
-    ],
-    [
-      294,
-      228.0
-    ],
-    [
-      303,
-      233.1
-    ],
-    [
-      307,
-      235
-    ],
-    [
-      339,
-      235
-    ],
-    [
-      346,
-      229.8
-    ],
-    [
-      353,
-      224.3
-    ],
-    [
-      360,
-      219.0
-    ],
-    [
-      367,
-      214.0
-    ],
-    [
-      375,
-      208.6
-    ],
-    [
-      384,
-      203.1
-    ],
-    [
-      393,
-      198.0
-    ],
-    [
-      403,
-      192.5
-    ],
-    [
-      411,
-      187.2
-    ],
-    [
-      419,
-      181.9
-    ],
-    [
-      427,
-      176.9
-    ],
-    [
-      436,
-      171.8
-    ],
-    [
-      446,
-      166.7
-    ],
-    [
-      458,
-      161.3
-    ],
-    [
-      471,
-      156.0
-    ],
-    [
-      485,
-      150.9
-    ],
-    [
-      488,
-      150
-    ]
-  ],
-  "default": true
+    [0, 25],
+    [28, 30.3],
+    [37, 35.6],
+    [43, 41.1],
+    [48, 46.6],
+    [53, 52.8],
+    [57, 58.0],
+    [61, 63.5],
+    [65, 69.1],
+    [69, 74.9],
+    [73, 80.8],
+    [77, 86.6],
+    [81, 92.3],
+    [85, 98.0],
+    [89, 103.6],
+    [93, 109.1],
+    [97, 114.5],
+    [101, 119.6],
+    [105, 124.6],
+    [110, 130.7],
+    [115, 136.5],
+    [120, 142.0],
+    [125, 147.3],
+    [128, 150],
+    [148, 150],
+    [160, 155.3],
+    [172, 160.4],
+    [185, 165.7],
+    [198, 170.8],
+    [212, 176.0],
+    [224, 180],
+    [231, 185.5],
+    [238, 190.8],
+    [245, 196.0],
+    [252, 201.2],
+    [260, 206.8],
+    [268, 212.2],
+    [276, 217.3],
+    [285, 222.8],
+    [294, 228.0],
+    [303, 233.1],
+    [307, 235],
+    [339, 235],
+    [346, 229.8],
+    [353, 224.3],
+    [360, 219.0],
+    [367, 214.0],
+    [375, 208.6],
+    [384, 203.1],
+    [393, 198.0],
+    [403, 192.5],
+    [411, 187.2],
+    [419, 181.9],
+    [427, 176.9],
+    [436, 171.8],
+    [446, 166.7],
+    [458, 161.3],
+    [471, 156.0],
+    [485, 150.9],
+    [488, 150]
+  ]
 }

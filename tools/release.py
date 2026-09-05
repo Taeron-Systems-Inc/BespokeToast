@@ -11,7 +11,7 @@ will be skipped and someone will wonder why their change did nothing.
     python3 tools/release.py --check     what would happen, touching nothing
     python3 tools/release.py --build     build on the build host only
     python3 tools/release.py --flash     build, then flash and verify
-    python3 tools/release.py --rollback  reflash the stock image
+    python3 tools/release.py --rollback  reflash the image before the last one
 
 See docs/frozen-build.md for how the build host was set up and why the
 -Werror patch is needed.
@@ -27,6 +27,10 @@ REMOTE_TOP = "~/build/circuitpython"
 REMOTE_FROZEN = REMOTE_TOP + "/frozen/BespokeToast/oven"
 REMOTE_UF2 = REMOTE_TOP + "/ports/atmel-samd/build-pyportal/firmware.uf2"
 TOOLCHAIN = "~/toolchains/arm-gnu-toolchain-13.2.Rel1-x86_64-arm-none-eabi/bin"
+
+IMAGES = os.path.expanduser("~/.bespoketoast/images")
+CURRENT = "current.uf2"
+PREVIOUS = "previous.uf2"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOCAL_OVEN = os.path.join(HERE, "..", "firmware", "oven")
@@ -151,11 +155,83 @@ def wait_for_bootloader(timeout=45):
     return False
 
 
+def rotate_images(new_uf2, images=IMAGES):
+    """Keep the image being replaced, so there is something to go back to.
+
+    Two deep and no deeper. A ring of old firmware is a museum; what is
+    actually wanted at two in the morning is the one that was working
+    twenty minutes ago.
+
+    This records flash order, not health -- it cannot know whether an
+    image booted. That is the honest limit of doing it here, and it is
+    still the difference between having the previous image and not.
+    """
+    import shutil
+    if not os.path.isdir(images):
+        os.makedirs(images)
+    current = os.path.join(images, CURRENT)
+    previous = os.path.join(images, PREVIOUS)
+    kept = None
+    if os.path.exists(current):
+        shutil.copy2(current, previous)
+        kept = previous
+    shutil.copy2(new_uf2, current)
+    return (current, kept)
+
+
+def rollback_image(images=IMAGES):
+    """The image to go back to, or None if nothing has been replaced yet."""
+    previous = os.path.join(images, PREVIOUS)
+    return previous if os.path.exists(previous) else None
+
+
+def swap_images(images=IMAGES):
+    """After a rollback the two have changed places, so rolling back again
+    returns to where you were rather than doing nothing."""
+    import shutil
+    current = os.path.join(images, CURRENT)
+    previous = os.path.join(images, PREVIOUS)
+    if not (os.path.exists(current) and os.path.exists(previous)):
+        return False
+    spare = os.path.join(images, "swap.tmp")
+    shutil.move(current, spare)
+    shutil.move(previous, current)
+    shutil.move(spare, previous)
+    return True
+
+
 def main(argv):
     mode = argv[1] if len(argv) > 1 else "--check"
     if mode not in ("--check", "--build", "--flash", "--rollback"):
         print(__doc__)
         return 2
+
+    if mode == "--rollback":
+        image = rollback_image()
+        if image is None:
+            print("!! nothing to roll back to. An image is kept only when it")
+            print("   is replaced, so the first flash after this change has")
+            print("   nothing behind it. %s" % IMAGES)
+            return 1
+        print("rolling back to the image this board ran before the last flash")
+        print("  %s (%d bytes)" % (image, os.path.getsize(image)))
+        problem = enter_bootloader()
+        if problem:
+            print("!! %s" % problem)
+            return 1
+        if not wait_for_bootloader():
+            print("!! %s did not appear. Double-tapping reset also gets there,"
+                  % BOOTLOADER_LABEL)
+            print("   which means opening the panel.")
+            return 1
+        swap_images()
+        print("bootloader is up; copy the image onto it and the board reboots:")
+        print("  sudo mount /dev/disk/by-label/%s /mnt/portalboot"
+              % BOOTLOADER_LABEL)
+        print("  sudo cp %s /mnt/portalboot/" % image)
+        print("(the two kept images have swapped, so running --rollback again")
+        print(" returns to where you just were.)")
+        return 0
 
     print("build host : %s" % HOST)
     if not reachable():
@@ -206,6 +282,11 @@ def main(argv):
         print("!! could not fetch the built image")
         return 1
     print("fetched %s (%d bytes)" % (local, os.path.getsize(local)))
+
+    current, kept = rotate_images(local)
+    print("kept       : %s%s" % (current,
+                                 "" if kept is None
+                                 else "\n             previous image at " + kept))
 
     print("asking the board to enter its bootloader")
     problem = enter_bootloader()

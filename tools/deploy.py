@@ -375,8 +375,7 @@ def main(argv):
               % skipped)
         print("   oven/. Changes to them need a rebuild and a reflash, not a")
         print("   deploy -- see docs/frozen-build.md.")
-        gaps = missing_on_board(frozen_imports(os.path.join(SRC, "code.py")),
-                                port)
+        gaps = missing_on_board(frozen_imports(os.path.join(SRC, "code.py")))
         if gaps:
             print("!! this code.py imports names the flashed firmware does "
                   "not have:")

@@ -34,7 +34,10 @@ def test_the_page_does_not_report_a_state_that_is_always_the_same():
     started from here. Both were on the page and both were removed."""
     page = index_page([RUN], ["SAC305 (this oven)"])
     assert "idle" not in page.lower()
-    assert "selected" not in page.lower()
+    # the marker, not the word: the upload copy says a profile sent over
+    # the network never becomes the selected one, which is worth saying
+    assert "&mdash; selected" not in page
+    assert "— selected" not in page
 
 
 def test_the_page_is_named_for_the_machine_it_is():
@@ -212,3 +215,109 @@ def test_an_unknown_time_is_a_question_mark_not_a_guess():
 
 def test_the_column_says_which_clock_it_is():
     assert "Time (PT)" in index_page([], [])
+
+
+# -- uploading a profile ----------------------------------------------------
+
+class FakeParsed(object):
+    def warnings(self):
+        return ["peak 300 C is above anything this oven has reached"]
+
+
+def loader_ok(d):
+    if "points" not in d:
+        raise ValueError("a profile needs points")
+    return FakeParsed()
+
+
+GOOD = '{"name": "TS391LT", "points": [[0, 25], [200, 165]], "liquidus_c": 138}'
+
+
+def test_an_uploaded_profile_is_named_from_its_own_contents():
+    """Never from the request. A name taken off the wire is a path, and a
+    path is somewhere else on the filesystem."""
+    from oven.webapp import accept_profile, profile_filename
+    name, data, warns = accept_profile(GOOD, loader_ok)
+    assert name == "ts391lt.json"
+    assert profile_filename("../../wifi") == "wifi.json"
+    assert profile_filename("/etc/passwd") == "etc-passwd.json"
+    assert "/" not in profile_filename("a/b/c")
+
+
+def test_an_upload_cannot_make_itself_the_selected_profile():
+    """Nobody at the oven asked for it. Selection is a decision made by
+    someone who has looked inside."""
+    from oven.webapp import accept_profile
+    body = '{"name": "X", "points": [[0, 25]], "default": true}'
+    _n, data, _w = accept_profile(body, loader_ok)
+    assert "default" not in data
+
+
+def test_an_upload_cannot_hide_itself_from_the_list_it_joins():
+    from oven.webapp import accept_profile
+    body = '{"name": "X", "points": [[0, 25]], "diagnostic": true}'
+    _n, data, _w = accept_profile(body, loader_ok)
+    assert "diagnostic" not in data
+
+
+def test_a_profile_the_loader_rejects_is_not_written():
+    from oven.webapp import accept_profile
+    name, data, why = accept_profile('{"name": "X"}', loader_ok)
+    assert name is None and data is None
+    assert "points" in why
+
+
+def test_junk_is_refused_by_shape_before_it_is_parsed():
+    from oven.webapp import accept_profile, MAX_PROFILE_BYTES
+    for body, expect in ((None, "no body"), ("", "no body"), ("   ", "no body"),
+                         ("not json", "JSON"), ("[1,2,3]", "JSON object"),
+                         ('"a string"', "JSON object")):
+        name, _d, why = accept_profile(body, loader_ok)
+        assert name is None, body
+        assert expect in why, (body, why)
+    name, _d, why = accept_profile("x" * (MAX_PROFILE_BYTES + 1), loader_ok)
+    assert name is None and "limit" in why
+
+
+def test_warnings_reach_whoever_sent_it():
+    from oven.webapp import accept_profile, result_page
+    _n, _d, warns = accept_profile(GOOD, loader_ok)
+    assert any("300 C" in w for w in warns)
+    page = result_page("Added", "kept it", warns)
+    assert "300 C" in page
+
+
+def test_a_failed_warning_check_is_not_reported_as_clean():
+    from oven.webapp import accept_profile
+
+    class Exploding(object):
+        def warnings(self):
+            raise RuntimeError("boom")
+
+    name, _d, warns = accept_profile(GOOD, lambda d: Exploding())
+    assert name == "ts391lt.json"
+    assert warns and "could not check" in warns[0]
+
+
+def test_the_page_offers_somewhere_to_send_one():
+    page = index_page([], ["TS391SNL"])
+    assert "Send to the oven" in page
+    assert "/profiles" in page
+
+
+def test_the_limit_is_below_what_the_radio_can_carry():
+    """Not a policy number. The co-processor's socket buffer is 4000 bytes
+    and the WSGI server reads the whole request before this code runs, so a
+    body past it stalls the server rather than being refused -- measured at
+    25 s of an unanswerable index for an 8.3 kB POST. The limit has to sit
+    under the buffer, and the largest profile that ships has to fit under
+    the limit."""
+    import glob
+    import os
+    from oven.webapp import MAX_PROFILE_BYTES
+    assert MAX_PROFILE_BYTES <= 4000
+    here = os.path.join(os.path.dirname(__file__), "..", "firmware", "profiles")
+    biggest = max(os.path.getsize(p) for p in glob.glob(here + "/*.json"))
+    assert biggest < MAX_PROFILE_BYTES, (
+        "the largest shipped profile is %d bytes and could not be uploaded "
+        "back to the oven it came from" % biggest)

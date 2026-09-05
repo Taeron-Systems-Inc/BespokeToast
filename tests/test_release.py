@@ -55,3 +55,55 @@ def test_quote_survives_a_hostile_path():
 
 def test_the_modes_are_the_documented_ones():
     assert release.main(["release.py", "--nonsense"]) == 2
+
+
+def _img(tmp_path, name, content):
+    p = tmp_path / name
+    p.write_text(content)
+    return str(p)
+
+
+def test_nothing_to_roll_back_to_until_an_image_has_been_replaced(tmp_path):
+    """--rollback was in the usage text as "reflash the stock image" and did
+    nothing but build and flash the current one, which is the opposite of a
+    rollback. It has to be honest about having nothing, too."""
+    images = str(tmp_path / "images")
+    assert release.rollback_image(images) is None
+    release.rotate_images(_img(tmp_path, "a.uf2", "A"), images)
+    assert release.rollback_image(images) is None, (
+        "the first image ever flashed has nothing behind it")
+
+
+def test_the_image_being_replaced_is_what_rollback_returns_to(tmp_path):
+    images = str(tmp_path / "images")
+    release.rotate_images(_img(tmp_path, "a.uf2", "A"), images)
+    release.rotate_images(_img(tmp_path, "b.uf2", "B"), images)
+    assert open(release.rollback_image(images)).read() == "A"
+
+
+def test_only_two_are_kept(tmp_path):
+    """A ring of old firmware is a museum. What is wanted is the one that
+    was working twenty minutes ago."""
+    images = str(tmp_path / "images")
+    for n in "ABC":
+        release.rotate_images(_img(tmp_path, n + ".uf2", n), images)
+    assert open(release.rollback_image(images)).read() == "B"
+    assert sorted(os.listdir(images)) == ["current.uf2", "previous.uf2"]
+
+
+def test_rolling_back_twice_returns_where_you_were(tmp_path):
+    """Otherwise the second --rollback is a no-op that looks like it did
+    something, which is worse than refusing."""
+    images = str(tmp_path / "images")
+    release.rotate_images(_img(tmp_path, "a.uf2", "A"), images)
+    release.rotate_images(_img(tmp_path, "b.uf2", "B"), images)
+    assert open(release.rollback_image(images)).read() == "A"
+    release.swap_images(images)
+    assert open(release.rollback_image(images)).read() == "B"
+
+
+def test_swapping_with_nothing_to_swap_says_so(tmp_path):
+    images = str(tmp_path / "images")
+    assert release.swap_images(images) is False
+    release.rotate_images(_img(tmp_path, "a.uf2", "A"), images)
+    assert release.swap_images(images) is False

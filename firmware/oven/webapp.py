@@ -213,37 +213,56 @@ def _row(run):
                _html_escape(human_size(size))))
 
 
-def index_page(runs, profiles, warning=None):
-    """The one page. Deliberately plain: it is read on a phone at a bench.
+def index_parts(runs, profiles, warning=None):
+    """The page in pieces, smallest allocation first.
+
+    Returned as a list rather than one string because one string is what
+    broke it: with the upload form the page reached 3.4 kB, and building
+    it asked the heap for a single 3304-byte block it could not always
+    find. The service caught the MemoryError, stopped, restarted, and the
+    page answered one request in four. The log download has streamed in
+    512-byte pieces since it hit the same wall; this is the same fix.
 
     No state and no selected profile at the top. Both were there and both
     were removed: this page only ever serves while the oven is idle, so
     "idle" told nobody anything, and the selected profile cannot be
     changed or started from here, so it was decoration.
-
-    Built by concatenation rather than a format string -- the stylesheet is
-    full of per-cent signs and every one of them is a formatting trap.
     """
-    rows = "".join(_row(r) for r in runs) or \
-        "<tr><td colspan=5 class='q'>no runs recorded yet</td></tr>"
-    opts = "".join("<li>" + _html_escape(p) + "</li>" for p in profiles) \
-        or "<li>none</li>"
-    return ("<!doctype html><meta charset=utf-8>"
-            "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            "<title>Taeron Reflow Oven</title><style>" + _STYLE + "</style>"
-            "<h1>Taeron Reflow Oven</h1>"
-            + ("<div class=w>" + _html_escape(warning) + "</div>"
-               if warning else "")
-            + "<h2>Runs</h2><table>"
-            "<tr><th>Run</th><th>Date</th><th>Time (PT)</th><th>Profile</th>"
-            "<th class=n>Size</th></tr>" + rows + "</table>"
-            "<h2>Profiles</h2><ul>" + opts + "</ul>"
-            + _UPLOAD
-            + "<h2>Note</h2><div class=s>A run is started at the oven, by "
-            "someone who has looked inside it. This page cannot start "
-            "one.</div>")
+    out = ["<!doctype html><meta charset=utf-8>"
+           "<meta name=viewport content='width=device-width,initial-scale=1'>"
+           "<title>Taeron Reflow Oven</title><style>", _STYLE,
+           "</style><h1>Taeron Reflow Oven</h1>"]
+    if warning:
+        out.append("<div class=w>" + _html_escape(warning) + "</div>")
+    out.append("<h2>Runs</h2><table>"
+               "<tr><th>Run</th><th>Date</th><th>Time (PT)</th>"
+               "<th>Profile</th><th class=n>Size</th></tr>")
+    if runs:
+        for r in runs:
+            out.append(_row(r))
+    else:
+        out.append("<tr><td colspan=5 class='q'>no runs recorded yet</td></tr>")
+    out.append("</table><h2>Profiles</h2><ul>")
+    for name in profiles:
+        out.append("<li>" + _html_escape(name) + "</li>")
+    if not profiles:
+        out.append("<li>none</li>")
+    out.append("</ul>")
+    out.extend(_UPLOAD)
+    out.append("<h2>Note</h2><div class=s>A run is started at the oven, by "
+               "someone who has looked inside it. This page cannot start "
+               "one.</div>")
+    return out
 
 
+def index_page(runs, profiles, warning=None):
+    """The whole page as one string. For tests and for anything with room."""
+    return "".join(index_parts(runs, profiles, warning))
+
+
+# Three pieces, not one literal: this is the biggest single thing on the
+# page, and one string of it is what the heap could not always find room
+# for.
 _UPLOAD = (
     "<h2>Add or replace a profile</h2>"
     "<div class=s>A JSON profile, under 2.5 kB. It is checked before it is "
@@ -254,13 +273,15 @@ _UPLOAD = (
     "<textarea id=t rows=6 placeholder='or paste the profile here'></textarea>"
     "<button id=b type=button>Send to the oven</button>"
     "<div id=m class=s></div>"
-    "</div>"
+    "</div>",
+
     "<script>"
     "var f=document.getElementById('f'),t=document.getElementById('t'),"
     "b=document.getElementById('b'),m=document.getElementById('m');"
     "f.addEventListener('change',function(){"
     "var r=new FileReader();r.onload=function(){t.value=r.result};"
-    "if(f.files[0])r.readAsText(f.files[0])});"
+    "if(f.files[0])r.readAsText(f.files[0])});",
+
     "b.addEventListener('click',function(){"
     "var body=t.value.trim();"
     "if(!body){m.textContent='Nothing to send yet.';return}"

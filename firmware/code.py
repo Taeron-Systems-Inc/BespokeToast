@@ -228,9 +228,12 @@ class WebService(object):
             if not clock_is_set():
                 warning = ("This oven's clock is not set, so the dates "
                            "below are not to be trusted.")
-            page = webapp.index_page(runs, profiles, warning=warning)
+            # Returned in pieces, never as one string: the whole page is
+            # 3 kB and asking the heap for that in one block is what made
+            # it answer one request in four.
+            parts = webapp.index_parts(runs, profiles, warning=warning)
             start_response("200 OK", [("Content-Type", "text/html")])
-            return [page.encode("utf-8")]
+            return [piece.encode("utf-8") for piece in parts]
 
         if kind == "put-profile":
             body = None

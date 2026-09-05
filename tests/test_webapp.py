@@ -321,3 +321,25 @@ def test_the_limit_is_below_what_the_radio_can_carry():
     assert biggest < MAX_PROFILE_BYTES, (
         "the largest shipped profile is %d bytes and could not be uploaded "
         "back to the oven it came from" % biggest)
+
+
+def test_the_page_is_built_in_pieces_small_enough_for_the_heap():
+    """One string was what broke it. With the upload form the page reached
+    3.4 kB and building it asked for a single 3304-byte block the heap
+    could not always find: the service caught the MemoryError, restarted,
+    and answered one request in four. Measured on the oven."""
+    from oven.webapp import index_parts
+    parts = index_parts(
+        [("0003-a.csv", 35730, "2026-09-03T01-19-09Z", "TS391SNL")],
+        ["TS391SNL", "TS391LT", "NC191LTA10", "Bake 125 °C"])
+    assert len(parts) > 5, "it is still being built as one lump"
+    biggest = max(len(p) for p in parts)
+    assert biggest < 1600, (
+        "largest piece is %d bytes; the heap's largest free block has been "
+        "measured as low as 5 kB and fragments from there" % biggest)
+
+
+def test_the_pieces_are_the_page():
+    from oven.webapp import index_parts, index_page
+    runs = [("0001-a.csv", 10, None, "X")]
+    assert "".join(index_parts(runs, ["A"])) == index_page(runs, ["A"])

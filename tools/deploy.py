@@ -44,6 +44,99 @@ def files():
             yield full, os.path.relpath(full, SRC)
 
 
+# Directories the repository owns completely, where a file the repository
+# does not have is a file that should not be on the board.
+#
+# profiles/ is the one that matters. Deploy copies and never removed, so
+# cutting the shipped set from ten profiles to five left all ten on the
+# board -- and a stale profile is not inert, it is offered to whoever is
+# choosing one. Sn63Pb37 for a paste nobody stocks, and Hold 150 C, which
+# sits above the liquidus of both low-temp pastes.
+def frozen_imports(path):
+    """(module, name) pairs code.py imports from oven/.
+
+    On a frozen board these names come out of the firmware image, not off
+    the volume, so a deploy cannot supply one that is missing. Adding a
+    function to oven/ and deploying only code.py leaves the board unable
+    to boot: it stops at "ImportError: cannot import name ..." before it
+    prints anything, which reads like a dead board rather than a mismatch.
+    That happened, and the reason it was not caught here is that every
+    check ran against the repository, which had the new name in it.
+    """
+    import ast
+    wanted = []
+    tree = ast.parse(open(path).read())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("oven"):
+            for a in node.names:
+                wanted.append((node.module, a.name))
+    return wanted
+
+
+def missing_on_board(pairs, port=None, settle_s=1.0):
+    """Names the board's own firmware cannot provide. Asks the board.
+
+    The board is the only thing that knows what was flashed into it. The
+    repository does not, and neither does anything else here.
+    """
+    try:
+        import serial
+    except ImportError:
+        return []
+    by_module = {}
+    for mod, name in pairs:
+        by_module.setdefault(mod, []).append(name)
+    try:
+        handle = serial.Serial(resolve_port(port), 115200, timeout=0.5)
+    except Exception:
+        return []
+    missing = []
+    try:
+        for _ in range(3):
+            handle.write(b"\x03")
+            time.sleep(0.3)
+        time.sleep(settle_s)
+        handle.read(4000)
+        for mod, names in sorted(by_module.items()):
+            line = "from %s import %s\r\n" % (mod, ", ".join(sorted(set(names))))
+            handle.write(line.encode())
+            handle.flush()
+            time.sleep(0.6)
+            reply = handle.read(4000).decode("utf-8", "replace")
+            if "Error" in reply:
+                said = [ln.strip() for ln in reply.split("\n")
+                        if "Error" in ln]
+                missing.append((mod, sorted(set(names)),
+                                said[-1] if said else reply.strip()))
+    except Exception:
+        return []
+    finally:
+        try:
+            handle.write(b"\x04")      # leave it running again
+            handle.close()
+        except Exception:
+            pass
+    return missing
+
+
+OWNED_DIRS = ("profiles",)
+
+
+def stale(dest):
+    """Files under an owned directory that the repository no longer has."""
+    gone = []
+    have = set(rel for _full, rel in files())
+    for owned in OWNED_DIRS:
+        there = os.path.join(dest, owned)
+        if not os.path.isdir(there):
+            continue
+        for n in sorted(os.listdir(there)):
+            rel = owned + "/" + n
+            if rel not in have and not n.startswith("."):
+                gone.append(rel)
+    return gone
+
+
 STATES = ("idle", "preheat", "running", "cooldown", "report", "fault")
 
 
@@ -282,6 +375,18 @@ def main(argv):
               % skipped)
         print("   oven/. Changes to them need a rebuild and a reflash, not a")
         print("   deploy -- see docs/frozen-build.md.")
+        gaps = missing_on_board(frozen_imports(os.path.join(SRC, "code.py")),
+                                port)
+        if gaps:
+            print("!! this code.py imports names the flashed firmware does "
+                  "not have:")
+            for mod, names, err in gaps:
+                print("   from %s import %s" % (mod, ", ".join(names)))
+                print("     board says: %s" % err)
+            print("   Deploying it would leave the board unable to boot.")
+            print("   Rebuild and reflash first: tools/release.py --flash")
+            return 1
+
     if os.path.exists(CHARACTERISATION):
         planned.append((CHARACTERISATION, "characterisation.json"))
 
@@ -291,15 +396,25 @@ def main(argv):
         if not os.path.exists(dst) or digest(src) != digest(dst):
             changed.append((src, rel))
 
+    orphans = stale(dest)
     print("  %d files, %d changed" % (len(planned), len(changed)))
     for _, rel in changed:
         print("    %s" % rel)
+    for rel in orphans:
+        print("    %s (no longer in the repository -- will be removed)" % rel)
     if dry:
         print("  (dry run, nothing written)")
         return 0
-    if not changed:
+    if not changed and not orphans:
         print("  nothing to do")
         return 0
+
+    for rel in orphans:
+        try:
+            os.remove(os.path.join(dest, rel))
+        except OSError as e:
+            print("!! could not remove %s (%r)" % (rel, e))
+            return 1
 
     for src, rel in changed:
         dst = os.path.join(dest, rel)

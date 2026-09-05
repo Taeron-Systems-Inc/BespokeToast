@@ -91,3 +91,55 @@ def test_deploy_resolves_the_port_by_id_not_by_number():
     import tools.deploy as d
     assert d.resolve_port("/dev/ttyS9") == "/dev/ttyS9"
     assert "by-id" in d.resolve_port() or d.resolve_port().startswith("/dev/tty")
+
+
+def test_a_profile_deleted_from_the_repository_is_removed_from_the_board(tmp_path):
+    """Deploy copies and used to never remove, so cutting the shipped set
+    from ten profiles to five left all ten on the board. A stale profile is
+    not inert -- it is offered to whoever is choosing one, and one of the
+    ten sat above the liquidus of both low-temp pastes."""
+    dest = tmp_path / "CIRCUITPY"
+    (dest / "profiles").mkdir(parents=True)
+    (dest / "profiles" / "hold-150c.json").write_text("{}")
+    (dest / "profiles" / "ts391snl.json").write_text("{}")
+    gone = deploy.stale(str(dest))
+    assert "profiles/hold-150c.json" in gone
+    assert "profiles/ts391snl.json" not in gone
+
+
+def test_pruning_only_touches_directories_the_repository_owns(tmp_path):
+    """wifi.json, the logs and boot_out.txt live on the board and must
+    survive a deploy that has never heard of them."""
+    dest = tmp_path / "CIRCUITPY"
+    (dest / "logs").mkdir(parents=True)
+    (dest / "logs" / "0001-a.csv").write_text("x")
+    (dest / "wifi.json").write_text("{}")
+    (dest / "boot_out.txt").write_text("x")
+    assert deploy.stale(str(dest)) == []
+
+
+def test_names_code_py_imports_from_frozen_modules_are_collected(tmp_path):
+    """The check that was missing. Adding a function to oven/ and
+    deploying only code.py leaves the board stopping at "ImportError:
+    cannot import name ..." before it prints anything, which reads like a
+    dead board rather than a mismatch. It happened."""
+    src = tmp_path / "code.py"
+    src.write_text(
+        "from oven.profile import Profile, for_operators\n"
+        "from oven.ui import layout as L\n"
+        "from oven.logstore import LogStore\n"
+        "import os\n"
+        "from collections import OrderedDict\n")
+    pairs = deploy.frozen_imports(str(src))
+    assert ("oven.profile", "for_operators") in pairs
+    assert ("oven.profile", "Profile") in pairs
+    assert ("oven.logstore", "LogStore") in pairs
+    assert not any(m == "collections" for m, _ in pairs), (
+        "only oven/ is frozen; other imports are not this check's business")
+
+
+def test_the_real_code_py_declares_the_name_that_broke_the_board():
+    pairs = deploy.frozen_imports(
+        os.path.join(os.path.dirname(deploy.__file__), "..", "firmware",
+                     "code.py"))
+    assert ("oven.profile", "for_operators") in pairs

@@ -63,21 +63,44 @@ def test_the_oven_is_weakest_exactly_where_reflow_needs_it_strongest():
     assert f.achievable_rate(200.0) < 1.0
 
 
-def test_door_shut_cooling_cannot_follow_any_reflow_profile():
+def test_every_shipped_reflow_profile_is_within_this_oven():
+    """The point of the profile review. Before it, the shipped set was
+    mostly datasheet curves this oven cannot follow -- TS391SNL's own chart
+    asks 1.40 C/s where the oven has 0.90. A profile that cannot be
+    followed still runs; it just misses its ramps and makes a joint nobody
+    characterised.
+
+    Checked above 90 C only. Below that the measured rates include the
+    oven's ~37 s of transport dead time and describe the delay rather than
+    the capability -- characterisation says so in as many words. The
+    opening ramp of the low-temp curves is nominally beyond the oven for
+    half a minute and the soak absorbs it.
+    """
+    f = ff()
+    for name in ("ts391snl", "ts391lt", "nc191lta10-datasheet"):
+        p = Profile.load(os.path.join(PROFILES, name + ".json"))
+        for (t0, c0), (t1, c1) in zip(p.points, p.points[1:]):
+            if t1 <= t0 or c1 <= c0 or c0 < 90.0:
+                continue
+            asked = (c1 - c0) / (t1 - t0)
+            have = f.achievable_rate((c0 + c1) / 2.0)
+            assert asked <= have, (
+                "%s asks %.2f C/s at %g C and this oven has %.2f"
+                % (p.name, asked, c0, have))
+
+
+def test_a_profile_that_outruns_door_shut_cooling_says_it_needs_the_door():
+    """Otherwise it needs a person and does not say so, which is how a run
+    ends up holding joints molten while everyone waits for it."""
     down = capability()["max_ramp_down"]
     assert down < 1.0
-    for name in ("4900p-as-run", "4900p-datasheet"):
+    for name in ("ts391snl", "ts391lt", "nc191lta10-datasheet"):
         p = Profile.load(os.path.join(PROFILES, name + ".json"))
-        assert -p.max_ramp_down > down, "profile %s would be achievable" % name
-
-
-@pytest.mark.parametrize("name", ["4900p-as-run", "4900p-datasheet"])
-def test_shipped_reflow_profiles_are_flagged_as_beyond_this_oven(name):
-    p = Profile.load(os.path.join(PROFILES, name + ".json"))
-    cap = capability()
-    w = " ".join(p.warnings(max_ramp_up=cap["max_ramp_up"],
-                            max_ramp_down=cap["max_ramp_down"]))
-    assert "this oven has managed" in w
+        needs_door = -p.max_ramp_down > down + 0.05
+        assert needs_door == p.cooling_assumes_open_door, (
+            "%s falls at %.2f C/s against %.2f shut, but declares "
+            "cooling_assumes_open_door=%s"
+            % (p.name, -p.max_ramp_down, down, p.cooling_assumes_open_door))
 
 
 # -- feed-forward inverts the plant ----------------------------------------
@@ -138,7 +161,7 @@ def test_predictive_cutoff_releases_during_a_hold_at_peak():
     time above liquidus came out ~40% short. Release is now simply 'the oven
     has fallen below what is being asked for'."""
     from oven.controller import Controller, PID
-    p = Profile.load(os.path.join(PROFILES, "sac305-this-oven.json"))
+    p = Profile.load(os.path.join(PROFILES, "ts391snl.json"))
     ctl = Controller(p, coast_tau_s=DATA["coast_tau_s"], feed_forward=ff(),
                      pid=PID(kp=0.03, ki=0.0015, kd=0.5))
     ctl.reset(0.0)
@@ -158,7 +181,7 @@ def test_predictive_cutoff_releases_during_a_hold_at_peak():
 def test_the_derived_profile_passes_every_check_on_this_oven():
     from oven.controller import Controller, PID
     from oven.metrics import RunMetrics, Limits
-    p = Profile.load(os.path.join(PROFILES, "sac305-this-oven.json"))
+    p = Profile.load(os.path.join(PROFILES, "ts391snl.json"))
     ctl = Controller(p, coast_tau_s=DATA["coast_tau_s"], feed_forward=ff(),
                      pid=PID(kp=0.03, ki=0.0015, kd=0.5))
     ctl.reset(0.0)
@@ -182,7 +205,7 @@ def test_the_shipped_gains_track_the_early_ramp():
     against the measured plant rather than guessed."""
     from oven.controller import Controller, PID
     from oven.metrics import RunMetrics
-    p = Profile.load(os.path.join(PROFILES, "sac305-this-oven.json"))
+    p = Profile.load(os.path.join(PROFILES, "ts391snl.json"))
     ctl = Controller(p, coast_tau_s=DATA["coast_tau_s"], feed_forward=ff(),
                      pid=PID(kp=0.22, ki=0.004, kd=0.5, i_max=0.6, i_min=-0.6))
     ctl.reset(0.0)
@@ -208,7 +231,7 @@ def test_the_shipped_gains_survive_plant_error(scale):
     on it being exactly right."""
     from oven.controller import Controller, PID
     from oven.metrics import RunMetrics
-    p = Profile.load(os.path.join(PROFILES, "sac305-this-oven.json"))
+    p = Profile.load(os.path.join(PROFILES, "ts391snl.json"))
     ctl = Controller(p, coast_tau_s=DATA["coast_tau_s"], feed_forward=ff(),
                      pid=PID(kp=0.22, ki=0.004, kd=0.5, i_max=0.6, i_min=-0.6))
     ctl.reset(0.0)

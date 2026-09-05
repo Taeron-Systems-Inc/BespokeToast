@@ -1,11 +1,11 @@
 {
-  "name": "SAC305 (this oven)",
-  "alloy": "SAC305",
+  "name": "TS391SNL",
+  "alloy": "Sn96.5/Ag3.0/Cu0.5",
   "category": "reflow",
   "liquidus_c": 217,
   "max_ramp_up_c_per_s": 2.5,
-  "reference": "derived from data/oven-characterisation.json; alloy and 2.5 C/s preheat limit from MG Chemicals 4900P TDS v4.0",
-  "notes": "Built from this oven's measured capability rather than from a datasheet curve it cannot follow. Rise segments are set to 80% of the measured full-power rate so the controller has headroom instead of saturating; the soak is deliberately slower. The peak is held briefly to buy time above liquidus, which neither previous profile had: the oven cannot spike fast enough to earn it on the way up. The cooling tail matches measured door-shut cooling, so it is achievable unattended; opening the door beats it and is preferable.",
+  "reference": "Chip Quik TS391SNL datasheet rev 1.2 (Sn96.5/Ag3.0/Cu0.5, mp 217-220 C); curve derived from data/oven-characterisation.json",
+  "notes": "The paste's own recommended profile asks for ramps this oven does not have. Chip Quik's chart wants 175->217 C in 30 s (1.40 C/s) and 217->249 C in 30 s (1.07 C/s); measured full-power capability in those bands is about 0.90 and 0.70 C/s. Running the datasheet curve would miss both ramps and produce a joint nobody characterised, so this is built from measured capability instead. Rise segments are set to 80% of the measured full-power rate so the controller has headroom rather than saturating; the soak is deliberately slower. The peak is held briefly to buy time above liquidus, which the oven cannot earn on the way up. The cooling tail matches measured door-shut cooling, so it is achievable unattended; opening the door beats it and is preferable. Peak is 235 C against the datasheet's 249 C. 249 C has never been demonstrated on this oven -- the step tests reached 240 C -- so the peak sits inside measured ground rather than beyond it.",
   "points": [
     [
       0,

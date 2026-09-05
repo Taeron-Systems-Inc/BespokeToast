@@ -21,7 +21,7 @@ from oven.controller import Controller, FeedForward, PID
 from oven.hardware import Hardware, cpu_temperature
 from oven.history import History
 from oven.metrics import Limits as MetricLimits
-from oven.profile import Profile, scan as scan_profiles
+from oven.profile import Profile, for_operators, scan as scan_profiles
 from oven.ui import layout as L
 from oven.ui import theme as T
 from oven.ui.display import Display, preload
@@ -220,7 +220,7 @@ class WebService(object):
                     runs.append((name, self.logs.size(name),
                                  head.get("started_at"),
                                  head.get("profile")))
-            profiles = [r.name for r in self.profiles_ref[1]]
+            profiles = [r.name for r in for_operators(self.profiles_ref[1])]
             # The only thing worth saying at the top of the page, and only
             # when it is true: an unset clock means every date below was
             # written by a board that did not know the date.
@@ -859,11 +859,12 @@ def main():
             elif action == "done":
                 app.state = STATE_IDLE
             elif action == "profiles" and profiles:
-                if selected_ref[0] in profiles:
-                    nxt = (profiles.index(selected_ref[0]) + 1) % len(profiles)
+                offered = for_operators(profiles) or profiles
+                if selected_ref[0] in offered:
+                    nxt = (offered.index(selected_ref[0]) + 1) % len(offered)
                 else:
                     nxt = 0
-                select(profiles[nxt])
+                select(offered[nxt])
 
         # Composing a screen allocates, and the heap late in a run has no
         # large holes left. A MemoryError here used to propagate out of

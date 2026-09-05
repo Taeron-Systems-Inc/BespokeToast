@@ -38,7 +38,7 @@ def test_exactly_one_profile_declares_itself_the_default():
     defaults = [r for r in refs if r.is_default]
     assert len(defaults) == 1, (
         "expected one default, found %s" % [r.name for r in defaults])
-    assert defaults[0].name == "SAC305 (this oven)"
+    assert defaults[0].name == "TS391SNL"
 
 
 def test_loading_a_ref_gives_the_whole_profile():
@@ -92,3 +92,27 @@ def test_scan_validates_now_rather_than_at_selection_time():
         refs = scan(d, on_warning=warnings.append)
         assert refs == [], "an invalid profile was listed as selectable"
         assert warnings
+
+
+def test_the_diagnostic_profile_is_not_offered_to_whoever_is_choosing():
+    """It melts nothing and exists to exercise the firmware. In the cycle
+    it is a profile someone steps past looking for their paste, and one
+    they could start by mistake on a real assembly."""
+    from oven.profile import for_operators
+    refs = scan(PROFILES)
+    assert any(r.diagnostic for r in refs), "the fixture itself is missing"
+    offered = for_operators(refs)
+    assert offered, "everything was filtered out"
+    assert not any(r.diagnostic for r in offered)
+    assert "DIAGNOSTIC fast" not in [r.name for r in offered]
+
+
+def test_every_shipped_profile_is_named_for_something_you_can_pick_up():
+    """One profile per paste, named the way the syringe is labelled. The
+    qualifiers went because they only existed to tell two curves for one
+    paste apart, and there are no longer two."""
+    names = sorted(r.name for r in scan(PROFILES))
+    assert names == ["Bake 125 °C", "DIAGNOSTIC fast", "NC191LTA10",
+                     "TS391LT", "TS391SNL"], names
+    for n in names:
+        assert "this oven" not in n and "datasheet" not in n

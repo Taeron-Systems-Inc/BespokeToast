@@ -1,0 +1,86 @@
+{
+  "name": "TS391LT",
+  "alloy": "Sn42/Bi57.6/Ag0.4",
+  "category": "reflow",
+  "liquidus_c": 138,
+  "tal_min_s": 60,
+  "tal_max_s": 90,
+  "max_ramp_up_c_per_s": 2.5,
+  "cooling_assumes_open_door": true,
+  "reference": "Chip Quik TS391LT datasheet rev 1.3, Recommended Profile chart (Sn42/Bi57.6/Ag0.4, mp 138 C)",
+  "notes": "The manufacturer's own curve, digitised from the datasheet chart at its gridlines: 90 C at 90 s, 130 C at 180 s, liquidus 138 C at 210 s, peak 165 C at 240 s, back through 138 C at 270 s. Chip Quik call it a starting point for process optimisation, not a finished recipe. Unlike the lead-free paste, this curve is within this oven: its steepest demand is 138->165 C in 30 s (0.90 C/s) where measured capability is about 1.31 C/s. Time above liquidus comes out at 60 s, the bottom of the window, so any shortfall shows up as cold joints rather than as overheating. THE DOOR MUST BE OPENED AT PEAK: the descent from 165 C to 138 C in 30 s is -0.90 C/s and this oven manages about -0.13 C/s shut, so without the door the tail runs long and the joints spend far too long molten. The datasheet also gives a maximum operating temperature of 96 C after assembly: a board built with this paste must not be baked or held above that afterwards.",
+  "points": [
+    [
+      0,
+      25
+    ],
+    [
+      15,
+      45
+    ],
+    [
+      30,
+      60
+    ],
+    [
+      45,
+      72
+    ],
+    [
+      60,
+      80
+    ],
+    [
+      75,
+      86
+    ],
+    [
+      90,
+      90
+    ],
+    [
+      120,
+      105
+    ],
+    [
+      150,
+      118
+    ],
+    [
+      180,
+      130
+    ],
+    [
+      195,
+      134
+    ],
+    [
+      210,
+      138
+    ],
+    [
+      225,
+      151
+    ],
+    [
+      240,
+      165
+    ],
+    [
+      255,
+      157
+    ],
+    [
+      270,
+      138
+    ],
+    [
+      285,
+      112
+    ],
+    [
+      300,
+      95
+    ]
+  ]
+}

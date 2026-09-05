@@ -218,7 +218,7 @@ def render(commands, name, outdir):
 
 def screens():
     profile = Profile.load(os.path.join(FIRMWARE, "profiles",
-                                        "sac305-this-oven.json"))
+                                        "ts391snl.json"))
     trace = []
     t = 0.0
     while t <= 300:

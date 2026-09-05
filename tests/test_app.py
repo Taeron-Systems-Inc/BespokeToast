@@ -66,7 +66,7 @@ def rig():
     rejects. Rate limiting has its own tests in test_safety.py; mixing the two
     concerns just means every state test has to simulate a plausible ramp.
     """
-    profile = Profile.load(os.path.join(PROFILES, "sac305-this-oven.json"))
+    profile = Profile.load(os.path.join(PROFILES, "ts391snl.json"))
     clock, relay, sensor = FakeClock(), FakeRelay(), FakeSensor()
     events = []
     app = App(relay, sensor, clock,

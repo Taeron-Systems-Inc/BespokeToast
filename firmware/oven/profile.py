@@ -105,6 +105,18 @@ def scan(directory, on_warning=None):
     return refs
 
 
+def for_operators(refs):
+    """The profiles a person choosing at the oven should be offered.
+
+    DIAGNOSTIC exists to exercise the firmware and melts nothing. Leaving
+    it in the cycle means the button someone presses to find their paste
+    steps through a profile that solders no boards, and -- worse -- one
+    that could be selected and run by mistake on a real assembly. It stays
+    reachable from the console, which is where it is used from.
+    """
+    return [r for r in refs if not r.diagnostic]
+
+
 class Profile(object):
     __slots__ = ("name", "alloy", "category", "liquidus_c", "reference",
                  "notes", "points", "max_ramp_up_c_per_s", "is_default",

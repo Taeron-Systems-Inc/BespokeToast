@@ -22,7 +22,7 @@ PROFILES = os.path.join(os.path.dirname(__file__), "..", "firmware", "profiles")
 
 @pytest.fixture
 def sac305():
-    return Profile.load(os.path.join(PROFILES, "sac305-this-oven.json"))
+    return Profile.load(os.path.join(PROFILES, "ts391snl.json"))
 
 
 def test_a_cold_oven_starts_at_the_beginning(sac305):

@@ -190,7 +190,7 @@ def main():
     display = Display(board.DISPLAY)
     preload((T.FONT_READOUT, T.FONT_LARGE, T.FONT_BODY, T.FONT_SMALL))
     display.reserve_chart(L.CHART[2], L.CHART[3])
-    profile = Profile.load("/profiles/sac305-this-oven.json")
+    profile = Profile.load("/profiles/ts391snl.json")
     gc.collect()
     print("FAULT begin free=%d largest=%d" % (gc.mem_free(), largest_free_block()))
 

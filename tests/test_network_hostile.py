@@ -53,7 +53,7 @@ class Sensor(object):
 
 
 def rig(supervisor=None):
-    profile = Profile.load(os.path.join(PROFILES, "sac305-this-oven.json"))
+    profile = Profile.load(os.path.join(PROFILES, "ts391snl.json"))
     clock, relay, sensor = Clock(), Relay(), Sensor()
     app = App(relay, sensor, clock,
               lambda p: Controller(p, coast_tau_s=1.2,

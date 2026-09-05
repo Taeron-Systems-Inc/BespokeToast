@@ -1,5 +1,5 @@
 {
-  "name": "Bake 125 C (MSL)",
+  "name": "Bake 125 \u00b0C",
   "category": "bake",
   "max_ramp_up_c_per_s": 2.0,
   "notes": "Drives absorbed moisture out of MSL 2a-5 parts before reflow. A part past its floor life -- MSL 3 is 168 hours at 30 C / 60% RH once the dry pack is open -- can flash that moisture to steam during reflow and crack internally. Four hours here; J-STD-033 gives the real figure per level and package thickness and it can run to days. Extend by running it more than once.",

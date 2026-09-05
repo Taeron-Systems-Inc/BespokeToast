@@ -21,7 +21,7 @@ from sim.runner import simulate
 from sim.thermal import Oven, family, describe
 
 PROFILES = os.path.join(os.path.dirname(__file__), "..", "firmware", "profiles")
-AS_RUN = Profile.load(os.path.join(PROFILES, "4900p-as-run.json"))
+REFLOW = Profile.load(os.path.join(PROFILES, "ts391snl.json"))
 
 
 # -- pieces -----------------------------------------------------------------
@@ -97,7 +97,7 @@ def test_predict_peak_grows_with_both_rate_and_lag():
 
 def test_controller_refuses_to_be_built_without_a_measured_coast():
     with pytest.raises(ValueError, match="must be measured"):
-        Controller(AS_RUN, coast_tau_s=None)
+        Controller(REFLOW, coast_tau_s=None)
 
 
 # -- across the whole family ------------------------------------------------
@@ -105,9 +105,9 @@ def test_controller_refuses_to_be_built_without_a_measured_coast():
 @pytest.mark.parametrize("params", family(), ids=describe)
 def test_supervisor_is_never_violated_on_any_plant(params):
     """Whatever the oven turns out to be, the absolute ceiling holds."""
-    r = simulate(AS_RUN,
+    r = simulate(REFLOW,
                  oven=Oven(dt=0.25, **params),
-                 controller=Controller(AS_RUN,
+                 controller=Controller(REFLOW,
                                        coast_tau_s=params["dead_time_s"]))
     if r.fault is not None:
         # tripping is an acceptable outcome; running past the limit is not
@@ -117,9 +117,9 @@ def test_supervisor_is_never_violated_on_any_plant(params):
 
 @pytest.mark.parametrize("params", family(), ids=describe)
 def test_relay_actuation_stays_modest_on_any_plant(params):
-    r = simulate(AS_RUN,
+    r = simulate(REFLOW,
                  oven=Oven(dt=0.25, **params),
-                 controller=Controller(AS_RUN,
+                 controller=Controller(REFLOW,
                                        coast_tau_s=params["dead_time_s"]))
     assert r.actuations < 120, "mechanical relay would wear quickly"
 
@@ -127,9 +127,9 @@ def test_relay_actuation_stays_modest_on_any_plant(params):
 @pytest.mark.parametrize("params", family(), ids=describe)
 def test_heat_is_never_requested_after_a_fault(params):
     sup = Supervisor()
-    r = simulate(AS_RUN,
+    r = simulate(REFLOW,
                  oven=Oven(dt=0.25, **params),
-                 controller=Controller(AS_RUN,
+                 controller=Controller(REFLOW,
                                        coast_tau_s=params["dead_time_s"]),
                  supervisor=sup)
     if r.fault is None:
@@ -149,16 +149,20 @@ def test_a_wrong_coast_constant_errs_towards_undershoot(assumed):
     estimate into a runaway, so the overshoot for an under-estimate is
     bounded here even on the worst plant in the family."""
     plant = {"gain_c": 450.0, "tau_s": 150.0, "dead_time_s": 60.0}
-    r = simulate(AS_RUN, oven=Oven(dt=0.25, **plant),
-                 controller=Controller(AS_RUN, coast_tau_s=assumed))
+    r = simulate(REFLOW, oven=Oven(dt=0.25, **plant),
+                 controller=Controller(REFLOW, coast_tau_s=assumed))
     assert r.metrics.peak_c < SafetyLimits().max_temp_c
 
 
 def test_the_cutoff_latches_so_heat_is_not_put_back_in_flight():
-    ctl = Controller(AS_RUN, coast_tau_s=30.0)
+    """Temperatures are above the profile's target here on purpose. A
+    runaway means the oven is hotter than it was asked for; feeding it
+    temperatures below target arms the cutoff and then releases it on the
+    same call, because falling behind target is what release is for."""
+    ctl = Controller(REFLOW, coast_tau_s=30.0)
     ctl.reset(0.0)
-    ctl.duty_for(250.0, 150.0, 250.0)
-    ctl.duty_for(251.0, 190.0, 251.0)          # 40 C/s: predicted way past peak
+    ctl.duty_for(250.0, 205.0, 250.0)
+    ctl.duty_for(251.0, 245.0, 251.0)          # 40 C/s: predicted way past peak
     assert ctl.coasting
-    d = ctl.duty_for(252.0, 191.0, 252.0)
+    d = ctl.duty_for(252.0, 246.0, 252.0)
     assert d == 0.0

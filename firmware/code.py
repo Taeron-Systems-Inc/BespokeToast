@@ -200,9 +200,13 @@ class WebService(object):
             if name is None:
                 start_response("404 Not Found", [("Content-Type", "text/plain")])
                 return [b"no such run"]
+            # Saved under the name the page offered, not the name on
+            # flash. A file called .sent tells whoever downloaded it
+            # nothing, and will not open in the thing they open CSVs with.
             start_response("200 OK", [
                 ("Content-Type", "text/csv"),
-                ("Content-Disposition", "attachment; filename=%s" % name)])
+                ("Content-Disposition", 'attachment; filename="%s"'
+                 % webapp.display_name(name))])
             # Streamed off the filesystem: a run log is tens of kilobytes
             # and must never exist in memory as one object.
             return self.logs.chunks(name, webapp.CHUNK)

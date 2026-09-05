@@ -88,7 +88,7 @@ def _row(run):
     day, clock = split_started_at(started_at)
     return ("<tr><td><a href='/logs/%s'>%s</a></td><td>%s</td>"
             "<td>%s</td><td class='n'>%s</td></tr>"
-            % (_html_escape(name),
+            % (_html_escape(display_name(name)),
                _html_escape(day or run_label(name)),
                _html_escape(clock),
                _html_escape(profile or ""),
@@ -163,10 +163,17 @@ def route(method, path):
 
 
 def safe_log_name(name, known):
-    """A name is only served if the store already lists it.
+    """The stored file a request is for, or None.
 
-    Matching against the real listing rather than sanitising a string: the
-    set of legitimate names is known, so there is no reason to guess at
-    what an attacker might have meant.
+    Requests arrive under the name the page offered, which is the storage
+    name with the uploader's .sent bookkeeping taken off, so this has to
+    map back. Still matching against the real listing rather than
+    sanitising a string: the set of legitimate names is known, so there is
+    no reason to guess at what an attacker might have meant.
     """
-    return name if name in known else None
+    if name in known:
+        return name
+    for stored in known:
+        if display_name(stored) == name:
+            return stored
+    return None

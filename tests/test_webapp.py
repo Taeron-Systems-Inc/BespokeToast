@@ -25,7 +25,7 @@ def test_a_run_is_listed_by_when_it_happened_and_what_it_ran():
     assert "01:19:09" in page
     assert "SAC305 (this oven)" in page
     assert "34.9 kB" in page
-    assert "/logs/0003-SAC305-this-oven.csv.sent" in page
+    assert "/logs/0003-SAC305-this-oven.csv'" in page
 
 
 def test_the_uploader_suffix_never_reaches_the_reader():
@@ -191,3 +191,35 @@ def test_there_is_no_route_that_starts_a_run():
 
 def test_an_uploaded_profile_has_a_size_limit():
     assert 0 < MAX_PROFILE_BYTES <= 64 * 1024
+
+
+STORED = ["0001-NC191-datasheet.csv.sent", "0002-DIAGNOSTIC-fast.csv"]
+
+
+def test_a_request_under_the_offered_name_finds_the_stored_file():
+    """The page offers 0001-NC191-datasheet.csv; flash holds
+    0001-NC191-datasheet.csv.sent. The link has to resolve."""
+    assert safe_log_name("0001-NC191-datasheet.csv",
+                         STORED) == "0001-NC191-datasheet.csv.sent"
+    assert safe_log_name("0002-DIAGNOSTIC-fast.csv",
+                         STORED) == "0002-DIAGNOSTIC-fast.csv"
+
+
+def test_the_stored_name_still_resolves_for_anything_holding_an_old_link():
+    assert safe_log_name("0001-NC191-datasheet.csv.sent",
+                         STORED) == "0001-NC191-datasheet.csv.sent"
+
+
+def test_a_name_the_store_does_not_list_is_refused():
+    for hostile in ("../wifi.json", "/etc/passwd", "0003-nope.csv",
+                    "0001-NC191-datasheet", "", ".sent"):
+        assert safe_log_name(hostile, STORED) is None
+
+
+def test_no_link_on_the_page_carries_the_uploader_suffix():
+    """The URL is the last place .sent could leak out, and it is what
+    ends up in a browser's download name."""
+    page = index_page([("0001-NC191-datasheet.csv.sent", 812,
+                        "2026-09-02T19-03-12Z", "NC191LTA10")], [])
+    assert "/logs/0001-NC191-datasheet.csv'" in page
+    assert ".sent" not in page

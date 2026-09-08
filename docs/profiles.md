@@ -66,3 +66,62 @@ Not offered to whoever is choosing. It melts nothing, peaks at 95 C, and
 exists to exercise preheat, soak, a liquidus crossing, peak, cooldown,
 report, every screen and the console in 84 seconds. `liquidus_c` is 80 C
 purely so the run crosses it; the number means nothing metallurgical.
+
+## What the door actually does, measured
+
+Run 0007, NC191LTA10, 8 September 2026. The first time this has been
+measured against a known door-open instant: the firmware asked at
+elapsed 281.7 s and the operator reports opening it inside a second, so
+the door was open by about 282.2.
+
+    281.7   158.00 C   -0.25 C/s    "now"
+    282.7   157.38     -0.62        first departure from baseline
+    283.9   155.88     -1.25        unambiguous
+    285.2   148.69     -5.53        full effect
+    286.2   140.38     -8.31        peak rate
+
+The ten seconds before it are flat at -0.44 C/s, so the departure is not
+in doubt.
+
+    onset          1-2 s
+    full effect    about 3 s
+    peak rate      -8.31 C/s at about 4 s
+    shut, same temperature   -0.44 C/s
+
+A nineteenfold change in cooling rate, showing at the probe inside two
+seconds. Uncertainty is about a second either way: the log samples at
+1 Hz and "inside a second" is the other half of it.
+
+The peak rate is well above the -5.2 C/s this project has been quoting.
+Both numbers are right about different things -- the rate decays as the
+gap to ambient closes, through -4.8 and -3.2 and -2.2, so the average
+over a whole descent lands near 5.
+
+That average is what `DOOR_COOLING_C_PER_S = 5.2` is used for, and this
+run is the first evidence for it:
+
+    predicted descent   4.0 s     (158 -> 137 C at 5.2 C/s)
+    actual              4.3 s
+
+which is why the countdown lands where it does. That run aimed at the
+middle of the profile's window, (60 + 90) / 2 = 75 s, and measured 75 s.
+
+Two earlier figures published for this were wrong -- a "slow operator"
+and a "60 s thermal lag" -- both from inferring the door time rather
+than knowing it. The difference here is that the oven timestamped the
+request and the operator reported against it.
+
+## STEP 250 C
+
+Not a soldering profile and not offered at the oven. Full power to
+250 C, a minute at the top, then free cooling with the door SHUT --
+the cooling curve is the measurement.
+
+It exists because the measured heating table stops at 235 C and the
+cooling table at 240, and every lead-free profile is built from both.
+TS391SNL's peak sits at 235 C for exactly that reason: the datasheet
+asks 249 and nothing here has ever been demonstrated above 240.
+
+Ten minutes: about 3.5 to reach 250 from cold, one at the top, and the
+rest falling. Simulated peak 248.4 C against a 260 C supervisor ceiling.
+Run it empty, and do not open the door until the run ends.

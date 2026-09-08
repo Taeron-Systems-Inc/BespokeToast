@@ -111,9 +111,13 @@ def test_every_shipped_profile_is_named_for_something_you_can_pick_up():
     """One profile per paste, named the way the syringe is labelled. The
     qualifiers went because they only existed to tell two curves for one
     paste apart, and there are no longer two."""
+    from oven.profile import for_operators
     names = sorted(r.name for r in scan(PROFILES))
     assert names == ["Bake 125 °C", "DIAGNOSTIC fast", "NC191LTA10",
-                     "TS391LT", "TS391SNL"], names
+                     "STEP 250 C", "TS391LT", "TS391SNL"], names
+    # the two that are not pastes are not offered at the oven either
+    offered = sorted(r.name for r in for_operators(scan(PROFILES)))
+    assert offered == ["Bake 125 °C", "NC191LTA10", "TS391LT", "TS391SNL"]
     for n in names:
         assert "this oven" not in n and "datasheet" not in n
 
@@ -144,3 +148,31 @@ def test_the_profile_formatter_does_not_change_what_a_profile_says():
     for path in sorted(glob.glob(os.path.join(PROFILES, "*.json"))):
         original = json.load(open(path))
         assert json.loads(format_profile.dumps(original)) == original
+
+
+def test_the_step_test_is_a_profile_not_a_tool_with_a_relay():
+    """It is the only thing that deliberately drives the oven past
+    anything measured, so it runs through the firmware -- where the 260 C
+    supervisor ceiling, the enclosure limit, ABORT and the run log all
+    apply -- rather than through a harness with its own idea of safety."""
+    from oven.profile import Profile, for_operators
+    import os
+    p = Profile.load(os.path.join(PROFILES, "step-250c.json"))
+    assert p.peak[1] == 250.0
+    assert p.diagnostic, "it would otherwise be offered to whoever is choosing"
+    assert p.liquidus_c is None, "nothing melts in it"
+    assert not p.cooling_assumes_open_door, (
+        "the cooling curve IS the measurement; opening the door destroys it")
+    assert "STEP 250 C" not in [r.name for r in for_operators(scan(PROFILES))]
+
+
+def test_the_step_test_stays_under_the_supervisor_ceiling():
+    """248.4 C simulated against a 260 C limit. If the peak is ever raised,
+    this is the check that says how much room is left."""
+    import os
+    from oven.profile import Profile
+    from oven.safety import Limits
+    p = Profile.load(os.path.join(PROFILES, "step-250c.json"))
+    assert p.peak[1] < Limits().max_temp_c - 5.0, (
+        "peak %g C leaves under 5 C to the %g C ceiling"
+        % (p.peak[1], Limits().max_temp_c))

@@ -65,3 +65,11 @@ def test_it_agrees_with_a_real_timezone_database():
         assert P.local(dt.strftime("%Y-%m-%dT%H-%M-%SZ")) == (
             truth.strftime("%Y-%m-%d"), truth.strftime("%H:%M:%S"),
             truth.tzname())
+
+
+def test_the_epoch_path_agrees_with_the_stamp_path():
+    """Log headers take the epoch route; everything else takes the string
+    route. They must not drift."""
+    for stamp in ("2026-09-08T19-48-13Z", "2026-01-15T12-00-00Z",
+                  "2026-03-08T10-00-00Z", "2026-11-01T08-59-59Z"):
+        assert P.local(stamp) == P.local_from_epoch(P.parse(stamp))

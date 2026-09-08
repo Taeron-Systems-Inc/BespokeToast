@@ -22,7 +22,7 @@ logging stop and say so once; it does not raise into the control loop.
 
 import os as _os
 
-HEADER_FIELDS = ("t", "target_c", "actual_c", "relay", "cold_c", "cpu_c")
+HEADER_FIELDS = ("elapsed_s", "target_c", "actual_c", "relay", "cold_c", "cpu_c")
 
 # 1 Hz. The control loop runs at 4 Hz, but a reflow profile has no feature
 # that moves faster than a second, and quartering the row count quadruples
@@ -52,7 +52,8 @@ class LogStore(object):
 
     # -- lifecycle ---------------------------------------------------------
 
-    def begin(self, profile_name, version, started_at, limits=None):
+    def begin(self, profile_name, version, started_at, limits=None,
+              entered_at_s=0.0, epoch=None):
         """Open a log for a run. Returns the path, or None if unavailable."""
         if self._disabled:
             return None
@@ -63,17 +64,34 @@ class LogStore(object):
             self._make_room()
             self._path = "%s/%s.csv" % (self.root, self._next_name(profile_name))
             self._file = self.fs.open(self._path, "w")
-            self._file.write("# bespoketoast run log\n")
+            self._file.write("# Taeron Reflow Oven run log\n")
             self._file.write("# firmware,%s\n" % version)
             self._file.write("# profile,%s\n" % profile_name)
-            self._file.write("# started_at,%s\n" % started_at)
-            # Also in the timezone the oven is read in. The UTC stamp is
-            # the one that sorts and never repeats an hour, so it stays;
-            # this is here so that whoever opens the CSV does not have to
-            # do the arithmetic in their head.
-            here = pacific.local(started_at)
+            # Both stamps are the instant elapsed_s is zero, which is not
+            # the instant START was pressed: a warm oven joins the curve
+            # part-way along, so the clock is wound back by that offset.
+            # The alternative was a header stamp that matched some row in
+            # the middle of the file and an arithmetic rule to find it.
+            #
+            # Epoch rather than an ISO stamp because nothing has to parse
+            # it, and there is no timezone or field order to get wrong. The
+            # local stamp beside it is for whoever opens the file and wants
+            # to know which afternoon this was.
+            here = None
+            if epoch is not None:
+                self._file.write("# started_at_epoch,%d\n" % epoch)
+                here = pacific.local_from_epoch(epoch)
             if here:
                 self._file.write("# started_at_local,%s %s %s\n" % here)
+            if epoch is None:
+                self._file.write("# started_at,%s\n" % started_at)
+            # Not needed for the arithmetic any more. Kept because it says
+            # the run joined the curve warm, and a large value means the
+            # oven was not given time to cool.
+            self._file.write("# entered_at_s,%.1f\n" % entered_at_s)
+            if epoch is not None:
+                self._file.write("# wall clock of a row = "
+                                 "started_at_epoch + elapsed_s\n")
             if limits:
                 self._file.write("# limits,%s\n" % limits)
             self._file.write(",".join(HEADER_FIELDS) + "\n")

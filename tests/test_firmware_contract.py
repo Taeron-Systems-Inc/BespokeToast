@@ -38,6 +38,11 @@ def _imported_from(tree, module):
     return wanted
 
 
+def _calls_named(node, name):
+    return any(isinstance(n, ast.Call) and getattr(n.func, "id", None) == name
+               for n in ast.walk(node))
+
+
 def test_code_py_only_imports_names_that_exist():
     code = _tree("code.py")
     for module, rel in (("oven.ui.display", "oven/ui/display.py"),
@@ -157,29 +162,42 @@ def test_the_control_step_is_not_swallowed():
 def test_both_ways_of_starting_a_run_record_it():
     """The touchscreen path is the one most likely to be unattended.
 
-    Logging was wired into the console START and not into the touch
+    Logging was once wired into the console START and not into the touch
     handler, so a run begun by pressing START on the oven -- the case the
-    log exists for -- would not have been recorded.
+    log exists for -- would not have been recorded. Two call sites was the
+    fix then.
+
+    It is one call site now, and deliberately: the log opens on the
+    run_started event, which the state machine emits however the run was
+    begun. That also fixed a second bug, because request_start enters
+    PREHEAT and the warm-start offset is not known until the transition
+    into RUNNING -- opening at the old sites recorded the offset as zero.
+
+    So the invariant is no longer "two calls". It is that the one call
+    hangs off the event, and that no start path opens the log itself.
     """
     import ast
     tree = _code_py_tree()
-    starts = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if getattr(node.func, "attr", None) != "request_start":
-            continue
-        starts.append(node)
+    starts = [n for n in ast.walk(tree)
+              if isinstance(n, ast.Call)
+              and getattr(n.func, "attr", None) == "request_start"]
     assert len(starts) >= 2, (
         "expected a console and a touchscreen start path, found %d"
         % len(starts))
 
-    calls = [getattr(c.func, "id", None) for c in ast.walk(tree)
-             if isinstance(c, ast.Call)]
-    assert calls.count("begin_log") >= 2, (
-        "begin_log is called %d time(s); every way of starting a run must "
-        "record it" % calls.count("begin_log"))
+    opens = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call) and getattr(n.func, "id", None)
+             == "begin_log"]
+    assert len(opens) == 1, (
+        "begin_log is called %d times; it belongs on the run_started event "
+        "so that every way of starting a run reaches it once" % len(opens))
 
+    announce = [n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == "announce"]
+    assert announce, "code.py no longer has an event handler called announce"
+    assert _calls_named(announce[0], "begin_log"), (
+        "begin_log is not reached from the event handler, so a run started "
+        "by touch may go unrecorded")
 
 def test_boot_puts_the_relay_down_before_anything_that_can_raise():
     """boot.py has one job that outranks the other.

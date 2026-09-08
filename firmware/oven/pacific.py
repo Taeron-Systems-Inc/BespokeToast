@@ -75,6 +75,21 @@ def parse(stamp):
     return _days_from_civil(y, mo, d) * 86400 + h * 3600 + mi * 60 + sec
 
 
+def local_from_epoch(utc_seconds):
+    """(date, time, zone) in Pacific for a plain epoch second."""
+    if utc_seconds is None:
+        return None
+    year = _civil_from_days(utc_seconds // 86400)[0]
+    daylight = is_daylight(utc_seconds, year)
+    shifted = utc_seconds + (DAYLIGHT_OFFSET_H if daylight
+                             else STANDARD_OFFSET_H) * 3600
+    y, mo, d = _civil_from_days(shifted // 86400)
+    rem = shifted % 86400
+    return ("%04d-%02d-%02d" % (y, mo, d),
+            "%02d:%02d:%02d" % (rem // 3600, rem % 3600 // 60, rem % 60),
+            "PDT" if daylight else "PST")
+
+
 def local(stamp):
     """(date, time, zone) in Pacific, or None if there is no usable stamp.
 
@@ -82,14 +97,4 @@ def local(stamp):
     the date carries "monotonic+40", and inventing a date for it would be
     worse than admitting there is not one.
     """
-    utc = parse(stamp)
-    if utc is None:
-        return None
-    year = _civil_from_days(utc // 86400)[0]
-    daylight = is_daylight(utc, year)
-    shifted = utc + (DAYLIGHT_OFFSET_H if daylight else STANDARD_OFFSET_H) * 3600
-    y, mo, d = _civil_from_days(shifted // 86400)
-    rem = shifted % 86400
-    return ("%04d-%02d-%02d" % (y, mo, d),
-            "%02d:%02d:%02d" % (rem // 3600, rem % 3600 // 60, rem % 60),
-            "PDT" if daylight else "PST")
+    return local_from_epoch(parse(stamp))

@@ -143,3 +143,31 @@ def test_the_archive_path_defaults():
     from oven.netconfig import archive
     text = json.dumps({"networks": [], "archive": {"host": "h"}})
     assert archive(opener=opener_for(text)) == ("h", 80, "/runs")
+
+
+def test_the_example_config_is_valid_and_carries_no_password():
+    """wifi.json is the one file that cannot be in the repo, so the shape
+    of it has to be. Somebody rebuilding a wiped volume should not have to
+    read netconfig.py to learn what goes in it."""
+    import json
+    import os
+    here = os.path.join(os.path.dirname(__file__), "..", "docs",
+                        "wifi.example.json")
+    assert os.path.exists(here), "no example for the one uncommittable file"
+    data = json.load(open(here))
+    assert "networks" in data and data["networks"]
+    for net in data["networks"]:
+        assert "ssid" in net and "password" in net
+        assert net["password"] == "...", "a real password got committed"
+    assert "archive" not in data, (
+        "the example must not enable uploads by default")
+
+
+def test_the_example_is_not_deployed_to_the_board():
+    """It lives in docs/ for that reason: deploy copies everything under
+    firmware/, and an example config beside the real one is a trap."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+    import deploy
+    assert not any("wifi.example" in rel for _f, rel in deploy.files())

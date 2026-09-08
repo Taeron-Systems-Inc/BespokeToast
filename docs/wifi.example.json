@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy to wifi.json on CIRCUITPY and fill in. Never committed: it holds passwords. Networks are tried strongest-first among those the oven can see. The archive block is optional and currently absent on the real oven, which keeps its runs and serves them from its own page.",
+  "networks": [
+    {"ssid": "YourNetwork", "password": "..."},
+    {"ssid": "AnotherNetwork", "password": "..."}
+  ],
+  "_archive_disabled": {"host": "10.0.0.1", "port": 8788, "path": "/runs"}
+}

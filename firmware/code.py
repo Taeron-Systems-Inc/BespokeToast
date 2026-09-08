@@ -95,6 +95,22 @@ def set_rtc(epoch_seconds):
     return True
 
 
+def now_epoch():
+    """Seconds since 1970, or None if the clock has never been set.
+
+    Recorded beside the local stamp because it is the one form nothing has
+    to parse: no timezone, no format, no ambiguity about which of two
+    numbers in a date is the month.
+    """
+    if not clock_is_set():
+        return None
+    try:
+        return int(time.time())
+    except Exception as e:
+        print("# clock: cannot read the epoch (%r)" % e)
+        return None
+
+
 def now_iso():
     """The current UTC time as a sortable stamp, or None if unknown.
 
@@ -650,6 +666,7 @@ def main():
     last_log = [0.0]
     logging_run = [False]
     run_started_at = [0.0]
+    entered_at = [0.0]
 
     def _detail(payload):
         """A dict flattened to one readable field, without json."""
@@ -661,7 +678,21 @@ def main():
         if logs is None:
             return
         stamp = now_iso() or ("monotonic+%.0f" % hw.clock.monotonic())
-        path = logs.begin(profile.name, VERSION, stamp)
+        # A warm oven does not start at the beginning of the curve: the run
+        # clock is set to wherever the profile already matches the oven, so
+        # elapsed_s = 0 is a point that never happened. Recording the offset
+        # is what makes wall clock recoverable from any row.
+        entered_at[0] = app.elapsed
+        # Wound back to the instant elapsed_s would have been zero. A warm
+        # oven joins the curve part-way along, so the moment START was
+        # pressed is somewhere in the middle of the file; a header stamp
+        # that matches row one and nothing else is the more useful of the
+        # two, and it makes wall clock a plain addition.
+        epoch = now_epoch()
+        if epoch is not None:
+            epoch -= int(round(app.elapsed))
+        path = logs.begin(profile.name, VERSION, stamp,
+                          entered_at_s=app.elapsed, epoch=epoch)
         logging_run[0] = path is not None
         last_log[0] = 0.0
         run_started_at[0] = hw.clock.monotonic()
@@ -718,7 +749,13 @@ def main():
         # quarters what the flash has to hold.
         if logging_run[0] and row["t"] - last_log[0] >= LOG_INTERVAL_S:
             last_log[0] = row["t"]
-            logs.write(row["t"], row["target"], row["temp"], row["relay"],
+            # Profile time, not board uptime. The column used to hold
+            # monotonic seconds -- 8672.2 on a run that had been going for
+            # two -- while events on the very next line held run-relative
+            # seconds. Two clocks, one column heading, and nothing could be
+            # plotted against anything.
+            logs.write(row["t"] - run_started_at[0] + entered_at[0],
+                       row["target"], row["temp"], row["relay"],
                        row["cold"], cpu)
         print("%.2f,%s,%s,%s,%.3f,%d,%s,%s" % (
             row["t"], row["state"],
@@ -730,13 +767,26 @@ def main():
 
     def announce(name, payload):
         print("# event %s %s" % (name, payload))
+        # The log opens here, not when START is accepted. request_start
+        # enters PREHEAT; the warm-start offset is not applied until the
+        # transition into RUNNING, so opening earlier read the offset as
+        # zero and wound the header stamp back by nothing. A run whose
+        # header said entered_at_s,0.0 while its own first event said 1.1
+        # is what showed it.
+        #
+        # Nothing is lost by waiting: on the run that found this, zero
+        # sample rows preceded run_started.
+        if name == "run_started" and not logging_run[0] and app.profile:
+            begin_log(app.profile)
         # Into the run's own log as well. A log that stops without saying
         # why is indistinguishable from a power cut.
         if logging_run[0] and logs is not None:
             detail = payload if isinstance(payload, str) else _detail(payload)
-            logs.event(app.elapsed if app.state == STATE_RUNNING
-                       else hw.clock.monotonic() - run_started_at[0],
-                       name, detail)
+            # The same clock the samples use, in every state. This used
+            # a third origin once the run ended, so a fault during cooldown
+            # landed at a time no sample ever had.
+            logs.event(hw.clock.monotonic() - run_started_at[0]
+                       + entered_at[0], name, detail)
 
     app = App(hw.relay, hw.sensor, hw.clock, make_controller,
               on_event=announce, sample=emit)
@@ -833,7 +883,6 @@ def main():
                 print("# command START refused: %s" % problem.message)
             else:
                 print("# command START accepted: %s" % profile.name)
-                begin_log(profile)
         elif cmd == "ACK":
             app.acknowledge_fault()
             print("# command ACK, state=%s" % app.state)
@@ -861,9 +910,28 @@ def main():
                 print("# command PROFILE selected: %s" % match.name)
         elif cmd == "PROFILES":
             for pr in profiles:
-                print("# profile %s%s"
+                print("# profile %s%s%s"
                       % (pr.name,
-                         " (selected)" if pr is selected_ref[0] else ""))
+                         " (selected)" if pr is selected_ref[0] else "",
+                         " (not offered at the oven)" if pr.diagnostic else ""))
+        elif cmd.startswith("SELECT "):
+            # The console is the only way to reach DIAGNOSTIC, which is
+            # deliberately kept out of the cycle someone steps through at
+            # the oven looking for their paste. Hiding it without this left
+            # it unreachable, and a comment claiming otherwise.
+            wanted = cmd[len("SELECT "):].strip().upper()
+            found = None
+            for pr in profiles:
+                if pr.name.upper() == wanted:
+                    found = pr
+                    break
+            if found is None:
+                print("# no profile called %r -- PROFILES lists them" % wanted)
+            elif app.state != STATE_IDLE:
+                print("# not while the oven is %s" % app.state)
+            else:
+                select(found)
+                print("# selected %s" % found.name)
         elif cmd == "MEM":
             # No "import gc" here: gc is imported at module scope, and a
             # local import would make the name local to the whole of main(),
@@ -932,8 +1000,7 @@ def main():
                 problem = app.request_start(profile) if profile else None
                 if problem is not None:
                     print("# start refused: %s" % problem.message)
-                elif profile is not None:
-                    begin_log(profile)
+
             elif action == "abort":
                 app.abort()
             elif action == "acknowledge":

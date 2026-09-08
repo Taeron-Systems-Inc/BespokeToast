@@ -467,21 +467,22 @@ def test_the_running_screen_can_show_the_door_prompt():
     loud = L.running(150.0, 150.0, 150.0, 150.0, "reflow", 0.0, 137, 0.5,
                      True, open_the_door=True, **kw)
     texts = [c[3] for c in loud if c[0] == "text"]
-    assert any("OPEN THE DOOR" in str(t) for t in texts)
-    assert not any("OPEN THE DOOR" in str(c[3])
-                   for c in quiet if c[0] == "text"), \
-        "the prompt must only appear when it has been raised"
-    assert len(loud) > len(quiet)
-
+    assert "OPEN" in texts and "THE DOOR" in texts
+    assert "THE DOOR" not in [c[3] for c in quiet if c[0] == "text"]
+    # The banner replaces the chart rather than covering it, so the loud
+    # screen is the SHORTER of the two. It used to be the longer one, and
+    # on the real panel the axis labels came through the banner.
+    assert len(loud) < len(quiet)
+    assert not [c for c in loud if c[0] == "plot"]
+    assert [c for c in quiet if c[0] == "plot"]
 
 def test_the_door_prompt_is_drawn_in_the_alarm_colour():
-    kw = dict(history=[(0.0, 25.0)], profile_points=[[0, 25], [240, 165]],
-              duration_s=300.0)
-    loud = L.running(150.0, 150.0, 150.0, 150.0, "reflow", 0.0, 137, 0.5,
-                     True, open_the_door=True, **kw)
-    banner = [c for c in loud if c[0] == "text" and "OPEN THE DOOR" in str(c[3])]
-    assert banner and banner[0][4] == T.DANGER
-
+    banner = [c for c in L.open_the_door(160.0, -0.3, -0.9)
+              if c[0] == "text" and c[3] in ("OPEN", "THE DOOR")]
+    assert len(banner) == 2
+    assert all(c[4] == T.DANGER for c in banner), (
+        "the cooldown screen used to draw this in COOL blue while the "
+        "running screen drew it in red, which read as two requests")
 
 def test_the_idle_screen_says_where_to_point_a_browser():
     """The address is not knowable from anywhere else. It comes from
@@ -504,3 +505,61 @@ def test_the_address_is_written_out_for_someone_who_is_not_an_engineer():
     assert L.web_address("10.20.10.242") == "http://10.20.10.242"
     assert L.web_address(None) == "no network"
     assert L.web_address("") == "no network"
+
+
+def test_no_touch_target_reaches_the_bottom_of_the_panel():
+    """DONE sat at y=186 and reached 234 on a 240-pixel screen. It would
+    not take a press -- twice, from someone standing at the oven -- while
+    START at y=176 took every time. The bottom of this panel does not
+    read, so nothing may be put there."""
+    DEAD_BAND = 16
+    for name in SCREENS:
+        for cmd in SCREENS[name]():
+            if cmd[0] != "touch":
+                continue
+            bottom = cmd[2] + cmd[4]
+            assert bottom <= T.SCREEN_H - DEAD_BAND, (
+                "%s: %r reaches y=%d, inside the %d px at the bottom that "
+                "does not respond" % (name, cmd[5], bottom, DEAD_BAND))
+
+
+def test_the_door_banner_does_not_share_the_screen_with_the_chart():
+    """It used to be painted over the top of it. On the real screen the
+    axis labels and the trace came through, because the renderer adds
+    every label after every shape -- a background rect cannot cover text
+    however the command list is ordered. Photographed at the oven."""
+    door = L.running(156.0, 108.0, 288, -11, "cool", 77, 138, 0.0, False,
+                     history=[(i * 4.0, 25 + i * 2.0) for i in range(40)],
+                     profile_points=[(0, 25), (210, 138), (240, 165)],
+                     duration_s=300, open_the_door=True)
+    assert not [c for c in door if c[0] == "plot"], "chart still drawn"
+    labels = [c[3] for c in door if c[0] == "text"]
+    for axis in ("250", "150", "50", "liq"):
+        assert axis not in labels, "%s label survives behind the banner" % axis
+    assert "OPEN" in labels and "THE DOOR" in labels
+
+
+def test_the_door_is_asked_for_once_in_one_form():
+    """It was asked for twice, in two visual languages: a small red line on
+    the running screen, then a huge blue OPEN / THE DOOR nineteen seconds
+    later when the state changed. The operator read them as two separate
+    requests and acted on the louder, later one.
+
+    Measured cost on NC191LTA10: banner at 280.6 s, cooldown screen at
+    299.3 s, door opened around 306 s. Twenty-six seconds above liquidus at
+    -0.4 C/s -- the whole of a 97 s TAL against a 90 s ceiling.
+    """
+    running = L.running(160.0, 150.0, 280, 20, "cool", 60, 137, 0.0, False,
+                        history=[(0, 25)], profile_points=[(0, 25), (300, 95)],
+                        duration_s=300, open_the_door=True)
+    cooling = L.open_the_door(160.0, -0.3, -0.9)
+
+    def words(cmds):
+        return [(c[3], c[4], c[5]) for c in cmds
+                if c[0] == "text" and c[3] in ("OPEN", "THE DOOR")]
+
+    a, b = words(running), words(cooling)
+    assert a and b, "one of the two screens no longer asks"
+    assert a == b, ("the two screens ask differently: %r vs %r -- same "
+                    "words, same colour, same font, or it reads as two "
+                    "instructions" % (a, b))

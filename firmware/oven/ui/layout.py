@@ -206,13 +206,13 @@ def home(temp_c, profile_name, ready, reason=None, address=None):
         ("text", 6, 156, web_address(address), T.DIM, T.FONT_SMALL),
     ]
     if ready:
-        out += button(6, 176, 150, T.ABORT_TOUCH_PX, "START", T.BRAND,
-                      "start", T.FONT_LARGE)
+        out += button(6, BUTTON_ROW_Y, 150, T.ABORT_TOUCH_PX, "START",
+                      T.BRAND, "start", T.FONT_LARGE)
     else:
         out += [("text", 6, 176, reason or "not ready", T.CAUTION,
                  T.FONT_BODY)]
-    out += button(176, 176, 138, T.ABORT_TOUCH_PX, "PROFILES", T.TEXT,
-                  "profiles", T.FONT_LARGE)
+    out += button(176, BUTTON_ROW_Y, 138, T.ABORT_TOUCH_PX, "PROFILES",
+                  T.TEXT, "profiles", T.FONT_LARGE)
     return out
 
 
@@ -223,6 +223,10 @@ def home(temp_c, profile_name, ready, reason=None, address=None):
 # rendering rather than being poked into the bitmap.
 CHART = (36, 100, 278, 82)         # x, y, w, h
 CHART_Y_MAX = 250.0
+
+# Every touch button sits on this row. The bottom of the panel does not
+# read: DONE at y=186 was pressed twice at the oven and took neither.
+BUTTON_ROW_Y = 176
 
 ROW_READOUT = 36        # 64 px type, so it occupies y = 4..68
 ROW_INFO = 84           # clear of it: 16 px type occupies y = 76..92
@@ -259,37 +263,50 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
 
     cx, cy, cw, ch = CHART
     y_max = CHART_Y_MAX
-    series = []
-    if profile_points and duration_s:
-        series.append((T.DIM, list(profile_points)))
-    if history:
-        series.append((T.BRAND, list(history)))
-    out.append(("plot", cx, cy, cw, ch,
-                float(duration_s or 1.0), 0.0, float(y_max),
-                series, liquidus_c))
 
-    # Temperature scale. Three ticks is enough to read a curve against and
-    # few enough not to clutter 82 pixels of height.
-    for value in (250, 150, 50):
-        ty = cy + int((1.0 - value / y_max) * (ch - 1))
-        out.append(("text", 6, ty, str(value), T.DIM, T.FONT_SMALL))
-    if liquidus_c:
-        ly = cy + int((1.0 - liquidus_c / y_max) * (ch - 1))
-        out.append(("text", cx + cw - 26, ly - 8, "liq", T.DANGER,
-                    T.FONT_SMALL))
+    # The chart is not drawn at all while the door is being asked for. It
+    # used to be, with the banner painted over the top of it, and on the
+    # real screen the axis labels and the trace came through: the renderer
+    # adds every label after every shape, so a background rect cannot cover
+    # text no matter where it sits in this list. Photographed at the oven,
+    # "OPEN THE DOOR" sitting across 250, 150 and the curve.
+    #
+    # Suppressing it is not a workaround for that. At the one moment the
+    # operator has to do something, the instruction is the screen's whole
+    # job, and a graph they cannot act on is in the way.
+    if not open_the_door:
+        series = []
+        if profile_points and duration_s:
+            series.append((T.DIM, list(profile_points)))
+        if history:
+            series.append((T.BRAND, list(history)))
+        out.append(("plot", cx, cy, cw, ch,
+                    float(duration_s or 1.0), 0.0, float(y_max),
+                    series, liquidus_c))
 
-    # Time scale, in minutes, which is how a profile is actually discussed.
-    total = float(duration_s or 0.0)
-    if total > 0:
-        for frac in (0.0, 0.5, 1.0):
-            secs = total * frac
-            label = "%d:%02d" % (int(secs) // 60, int(secs) % 60)
-            lx = cx + int(frac * (cw - 1))
-            if frac == 1.0:
-                lx -= text_width(label, T.FONT_SMALL)
-            elif frac > 0:
-                lx -= text_width(label, T.FONT_SMALL) // 2
-            out.append(("text", lx, ROW_XAXIS, label, T.DIM, T.FONT_SMALL))
+        # Temperature scale. Three ticks is enough to read a curve against
+        # and few enough not to clutter 82 pixels of height.
+        for value in (250, 150, 50):
+            ty = cy + int((1.0 - value / y_max) * (ch - 1))
+            out.append(("text", 6, ty, str(value), T.DIM, T.FONT_SMALL))
+        if liquidus_c:
+            ly = cy + int((1.0 - liquidus_c / y_max) * (ch - 1))
+            out.append(("text", cx + cw - 26, ly - 8, "liq", T.DANGER,
+                        T.FONT_SMALL))
+
+        # Time scale, in minutes, which is how a profile is discussed.
+        total = float(duration_s or 0.0)
+        if total > 0:
+            for frac in (0.0, 0.5, 1.0):
+                secs = total * frac
+                label = "%d:%02d" % (int(secs) // 60, int(secs) % 60)
+                lx = cx + int(frac * (cw - 1))
+                if frac == 1.0:
+                    lx -= text_width(label, T.FONT_SMALL)
+                elif frac > 0:
+                    lx -= text_width(label, T.FONT_SMALL) // 2
+                out.append(("text", lx, ROW_XAXIS, label, T.DIM,
+                            T.FONT_SMALL))
 
     out += [
         ("text", 6, ROW_FOOT, "%02d:%02d" % (int(elapsed_s) // 60,
@@ -319,11 +336,33 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
         # -1.33 C/s after its peak and this oven does -0.35 C/s closed, so
         # this banner is the difference between a board in spec and one
         # held 45 s too long above liquidus.
-        out += [("rect", 0, 92, T.SCREEN_W, 56, T.BG, True)]
-        out += frame(0, 92, T.SCREEN_W, 56, T.DANGER, 3)
-        out.append(("text", 16, 120, "OPEN THE DOOR", T.DANGER, T.FONT_LARGE))
+        # The same words, the same size, the same colour and the same place
+        # as the cooldown screen that follows it. They used to be two
+        # different things -- a small red line here, a huge blue OPEN / THE
+        # DOOR nineteen seconds later -- and the operator quite reasonably
+        # read them as two separate requests and acted on the louder one.
+        #
+        # Measured cost of that, on NC191LTA10: this banner at 280.6 s, the
+        # cooldown screen at 299.3 s, the door actually opened around 306 s.
+        # Twenty-six seconds above liquidus at -0.4 C/s, which is the whole
+        # of a 97 s time above liquidus against a 90 s ceiling. Opening on
+        # this banner would have landed it near 75 s.
+        out += door_words(y=104)
 
     return out
+
+
+def door_words(y=30):
+    """OPEN / THE DOOR, in the one form it is ever shown.
+
+    Shared so the request cannot drift into two requests. Red rather than
+    the blue this used to be on the cooldown screen: it is time-critical
+    while the joints are still liquid, and blue reads as information.
+    """
+    return [
+        ("text", 6, y, "OPEN", T.DANGER, T.FONT_LARGE),
+        ("text", 6, y + 32, "THE DOOR", T.DANGER, T.FONT_LARGE),
+    ]
 
 
 def open_the_door(temp_c, cooling_rate=None, target_rate=None):
@@ -333,9 +372,7 @@ def open_the_door(temp_c, cooling_rate=None, target_rate=None):
     actually doing something: this oven cools at about -0.7 C/s shut and
     around -5 to -7 C/s open.
     """
-    out = [
-        ("text", 6, 30, "OPEN", T.COOL, T.FONT_LARGE),
-        ("text", 6, 62, "THE DOOR", T.COOL, T.FONT_LARGE),
+    out = door_words(y=30) + [
         ("text", 6, 132, _t(temp_c), T.TEXT, T.FONT_READOUT),
         ("text", 6, 186, _rate(cooling_rate) + " cooling", T.TEXT,
          T.FONT_LARGE),
@@ -363,8 +400,12 @@ def fault(message):
         y += 24
     out.append(("text", 12, 160, "heat is off until acknowledged",
                 T.DIM, T.FONT_BODY))
-    out += button(12, 180, 200, T.ABORT_TOUCH_PX, "ACKNOWLEDGE", T.DANGER,
-                  "acknowledge", T.FONT_LARGE)
+    # On the same row as every other button. This one reached y=228, four
+    # pixels further down than the DONE button that would not take a press
+    # at the oven -- on the one screen that has to work, because heat stays
+    # off until it is acknowledged.
+    out += button(12, BUTTON_ROW_Y, 200, T.ABORT_TOUCH_PX, "ACKNOWLEDGE",
+                  T.DANGER, "acknowledge", T.FONT_LARGE)
     return out
 
 
@@ -378,8 +419,17 @@ def report(checks, peak_c, tal_s):
         out.append(("text", 150, y, text[:30],
                     T.BRAND if ok else T.DANGER, T.FONT_SMALL))
         y += 22
-    out += button(6, 186, 140, T.ABORT_TOUCH_PX, "DONE", T.BRAND, "done",
-                  T.FONT_LARGE)
+    # Same box as START on the idle screen, and for a measured reason. At
+    # y=186 this reached to 234 on a 240-pixel panel and would not take a
+    # press -- twice, from someone standing at the oven, while START at
+    # y=176 took every time. The bottom of this panel does not read.
+    #
+    # There is no calibration to adjust here: the touchscreen is read
+    # through adafruit_touchscreen with the board's own limits. Keeping
+    # every button on one row is the fix that does not depend on knowing
+    # exactly where the dead band starts.
+    out += button(6, BUTTON_ROW_Y, 150, T.ABORT_TOUCH_PX, "DONE", T.BRAND,
+                  "done", T.FONT_LARGE)
     return out
 
 

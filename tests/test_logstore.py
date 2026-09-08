@@ -305,12 +305,14 @@ def test_events_are_recorded_in_line_with_the_samples():
 
 
 def test_an_event_is_a_comment_so_csv_readers_skip_it():
+    from oven.logstore import HEADER_FIELDS
     store, fs, _ = make()
     path = store.begin("p", "v", "t")
     store.event(1.0, "aborted", "")
     body = fs.files[path]
     data = [l for l in body.splitlines()
-            if l and not l.startswith("#") and not l.startswith("t,")]
+            if l and not l.startswith("#")
+            and not l.startswith(HEADER_FIELDS[0] + ",")]
     assert data == []
 
 
@@ -371,3 +373,44 @@ def test_the_streamed_length_matches_what_the_header_will_claim():
     assert streamed == length
     head = request_head("h", "/runs", name, length, 8788).decode()
     assert "Content-Length: %d\r\n" % streamed in head
+
+
+def test_the_header_says_what_the_time_column_means():
+    """The column used to hold board uptime -- 8672.2 on a run two seconds
+    old -- while the event on the next line held run-relative seconds. Two
+    clocks under one heading, and nothing plottable against anything."""
+    from oven.logstore import HEADER_FIELDS
+    assert HEADER_FIELDS[0] == "elapsed_s"
+    store, fs, _ = make()
+    path = store.begin("TS391LT", "v2.0", "2026-09-08T19-48-13Z",
+                       entered_at_s=2.4, epoch=1789234093)
+    text = fs.files[path]
+    assert text.startswith("# Taeron Reflow Oven run log")
+    assert "# started_at_epoch,1789234093" in text
+    # derived from the epoch, not from a second stamp that could disagree
+    from oven import pacific
+    day, clock, zone = pacific.local_from_epoch(1789234093)
+    assert "# started_at_local,%s %s %s" % (day, clock, zone) in text
+    assert "# entered_at_s,2.4" in text
+    assert "elapsed_s,target_c" in text
+
+
+def test_a_warm_start_is_recorded_because_row_zero_never_happened():
+    """A warm oven joins the curve part-way along. Without the offset in
+    the header, no row's wall clock can be recovered from the file."""
+    store, fs, _ = make()
+    path = store.begin("TS391LT", "v2.0", "2026-09-08T19-48-13Z",
+                       entered_at_s=41.7, epoch=1789234093)
+    assert "# entered_at_s,41.7" in fs.files[path]
+    assert "started_at_epoch + elapsed_s" in fs.files[path]
+    assert "- entered_at_s" not in fs.files[path]
+
+
+def test_a_run_with_no_clock_still_says_when_it_thinks_it_was():
+    """No RTC yet -- the first run after a power cut. It must not silently
+    lose the only timing information it has."""
+    store, fs, _ = make()
+    path = store.begin("TS391LT", "v2.0", "monotonic+40", entered_at_s=0.0)
+    text = fs.files[path]
+    assert "started_at_epoch" not in text
+    assert "monotonic+40" in text

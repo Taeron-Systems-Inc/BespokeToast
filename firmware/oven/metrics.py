@@ -137,10 +137,18 @@ class RunMetrics(object):
             and lim.peak_min_c <= self.peak_c <= lim.peak_max_c,
             "%d \u00b0C (want %.0f-%.0f)" % (round(self.peak_c or 0),
                                           lim.peak_min_c, lim.peak_max_c))
-        add("time above liquidus", self.time_above_liquidus,
-            lim.tal_min_s <= self.time_above_liquidus <= lim.tal_max_s,
-            "%.0f s (want %.0f-%.0f)" % (self.time_above_liquidus,
-                                         lim.tal_min_s, lim.tal_max_s))
+        # Only where there is a liquidus to be above. A profile that melts
+        # nothing -- the bake, the step test -- is constructed with 0.0 as
+        # its liquidus, so every sample counts and the report shows a red
+        # FAILED for a check the run could not pass or fail. STEP 250 C
+        # reported "time above liquidus FAILED 1033 s" on a run that was
+        # otherwise clean, and a report that cries wolf is one people stop
+        # reading.
+        if self.liquidus_c:
+            add("time above liquidus", self.time_above_liquidus,
+                lim.tal_min_s <= self.time_above_liquidus <= lim.tal_max_s,
+                "%.0f s (want %.0f-%.0f)" % (self.time_above_liquidus,
+                                             lim.tal_min_s, lim.tal_max_s))
         add("max ramp up", self.max_ramp_up,
             self.max_ramp_up <= lim.max_ramp_up_c_per_s,
             "%.2f \u00b0C/s (limit %.1f)" % (self.max_ramp_up,

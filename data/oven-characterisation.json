@@ -1,5 +1,5 @@
 {
-  "source": "two step tests, 2026-08-25, empty oven: 26->200 C and 53->240 C. Raw logs in data/.",
+  "source": "two step tests, 2026-08-25, empty oven: 26->200 C and 53->240 C. Raw logs in data/.  Extended 2026-09-08 by a third step test, 32->253 C, run as the STEP 250 C profile through the firmware.",
   "ambient_c": 26.3125,
   "note": "Measured directly. The oven is not first-order: the heating rate rises to a peak near 100 C instead of decaying from the start, and heating and cooling time constants differ by ~2.5x. A fitted FOPDT model predicted ~17 C of coast where 1.1 C was measured, so these curves are used instead of a parametric fit.",
   "coast_c": 1.06,
@@ -177,6 +177,18 @@
     [
       235.0,
       0.6855
+    ],
+    [
+      240.0,
+      0.625
+    ],
+    [
+      245.0,
+      0.634
+    ],
+    [
+      250.0,
+      0.556
     ]
   ],
   "cooling_rate_c_per_s": [
@@ -318,7 +330,11 @@
     ],
     [
       240.0,
-      -0.4736
+      -0.606
+    ],
+    [
+      250.0,
+      -0.56
     ]
   ],
   "enclosure_peak_cold_junction_c": 41.81,
@@ -416,5 +432,7 @@
     }
   },
   "heating_rate_correction": "Values at or below 85 C are NOT measurements; they are extrapolated from the clean region by the fit rate = 2.5359 -0.00818*T. The step test's first ~37 s are transport dead time, during which the oven is not yet responding, so the recorded rate there describes the delay rather than the capability -- it read 0.09 C/s at 25 C, rising to a peak at 80 C. Capability cannot rise with temperature: losses grow with the gap to ambient, so the true rate falls monotonically. The fit reproduces the clean region to within 0.03 C/s (1.84 vs 1.80 at 85 C, 1.31 vs 1.29 at 150, 0.74 vs 0.75 at 220), which is why it is trusted below it. The raw measurements are kept in heating_rate_measured_raw and the step-test logs are untouched.",
-  "heating_rate_note": "These are measured trajectory rates from a cold-start step test, and the entries below ~80 C include the oven's ~37 s of transport dead time -- the recorded 0.09 C/s at 25 C is the element not yet delivering heat, not the oven's steady-state capability there (extrapolating the clean region above 85 C, where a straight line fits to within 0.03 C/s, gives ~2.3 C/s). Both numbers are true about different questions. Keep the measured values: the simulator and feed-forward predict trajectories from a cold start, which is what these describe. Do NOT read the low end as capability when generating profiles -- a profile whose whole temperature band sits below 80 C will be given an unfollowably shallow ramp. Put the band above the dead-time region instead."
+  "heating_rate_note": "These are measured trajectory rates from a cold-start step test, and the entries below ~80 C include the oven's ~37 s of transport dead time -- the recorded 0.09 C/s at 25 C is the element not yet delivering heat, not the oven's steady-state capability there (extrapolating the clean region above 85 C, where a straight line fits to within 0.03 C/s, gives ~2.3 C/s). Both numbers are true about different questions. Keep the measured values: the simulator and feed-forward predict trajectories from a cold start, which is what these describe. Do NOT read the low end as capability when generating profiles -- a profile whose whole temperature band sits below 80 C will be given an unfollowably shallow ramp. Put the band above the dead-time region instead.",
+  "step_test_250c_note": "Heating above 235 C and cooling above 240 C are measured here for the first time; before this they were extrapolation, and the single cooling entry that did exist at 240 C (-0.4736) was an end-of-data artifact and is replaced. Peak 252.75 C, so 249 C is reachable -- but the datasheet RAMP is not: TS391SNL asks 1.07 C/s from 217 to 249 and this run managed 0.63.",
+  "cooling_depends_on_more_than_chamber_temperature": "This run cooled 25-30 percent slower than the 240 C step test across the whole band -- about -0.52 C/s at 229 against -0.79 in the table, and -0.54 at 215 against -0.70. Not noise: fitted over 25 s windows it is smooth and monotonic, and offset throughout. The oven body was much hotter, cold junction peaking at 53.4 C against 41.8, so there was less gradient to shed into. The existing entries are NOT replaced, because both are true of the runs that produced them. What this says is that a table indexed on chamber temperature alone is optimistic about cooling after a long hot run, and pessimistic is the safer direction for a door decision. Worth a second variable if cooling prediction ever needs to be better than about 30 percent."
 }

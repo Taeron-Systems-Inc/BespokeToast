@@ -563,3 +563,45 @@ def test_the_door_is_asked_for_once_in_one_form():
     assert a == b, ("the two screens ask differently: %r vs %r -- same "
                     "words, same colour, same font, or it reads as two "
                     "instructions" % (a, b))
+
+
+def test_the_door_gets_a_countdown_before_it_is_needed():
+    """Asking with no notice is what cost NC191LTA10 its window: the
+    request went up while the operator was across the room, and the 26 s
+    it took to reach the oven was the whole overrun."""
+    kw = dict(history=[(0, 25)], profile_points=[(0, 25), (300, 95)],
+              duration_s=300)
+    early = L.running(160.0, 150.0, 280, 20, "reflow", 40, 137, 0.0, False,
+                      door_in_s=18.0, **kw)
+    texts = [c[3] for c in early if c[0] == "text"]
+    assert "OPEN" in texts and "THE DOOR" in texts
+    assert "in 18 s" in texts
+
+
+def test_the_countdown_is_the_same_instruction_not_a_second_one():
+    """The words are up and unchanging from the countdown through to the
+    moment itself. Only the line underneath moves."""
+    kw = dict(history=[(0, 25)], profile_points=[(0, 25), (300, 95)],
+              duration_s=300)
+
+    def words(cmds):
+        return [(c[3], c[4], c[5]) for c in cmds
+                if c[0] == "text" and c[3] in ("OPEN", "THE DOOR")]
+
+    counting = L.running(160.0, 150.0, 280, 20, "reflow", 40, 137, 0.0, False,
+                         door_in_s=6.0, **kw)
+    now = L.running(160.0, 150.0, 280, 20, "reflow", 40, 137, 0.0, False,
+                    open_the_door=True, **kw)
+    assert words(counting) == words(now), "the instruction changes at zero"
+    assert "in 6 s" in [c[3] for c in counting if c[0] == "text"]
+    assert "now" in [c[3] for c in now if c[0] == "text"]
+
+
+def test_a_distant_door_does_not_take_over_the_screen():
+    """The chart is worth having until the door is nearly due."""
+    kw = dict(history=[(0, 25)], profile_points=[(0, 25), (300, 95)],
+              duration_s=300)
+    far = L.running(160.0, 150.0, 280, 20, "reflow", 40, 137, 0.0, False,
+                    door_in_s=90.0, **kw)
+    assert [c for c in far if c[0] == "plot"], "chart hidden far too early"
+    assert "THE DOOR" not in [c[3] for c in far if c[0] == "text"]

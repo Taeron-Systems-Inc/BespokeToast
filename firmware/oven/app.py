@@ -99,6 +99,7 @@ class App(object):
         self._run_started = None
         self._above = False
         self._door_prompted = False
+        self.door_in_s = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -115,6 +116,7 @@ class App(object):
         self.metrics = metrics.RunMetrics(profile.liquidus_c or 0.0)
         self._above = False
         self._door_prompted = False
+        self.door_in_s = None
         self._enter(STATE_PREHEAT)
         return None
 
@@ -231,6 +233,7 @@ class App(object):
         seconds and then pulls 5.2 C/s -- so it is the accumulated time,
         not the descent, that decides the outcome.
         """
+        self.door_in_s = None
         if self._door_prompted or self.profile is None or temp is None:
             return
         if not getattr(self.profile, "cooling_assumes_open_door", False):
@@ -244,7 +247,19 @@ class App(object):
         target = (floor + ceiling) / 2.0
         descent_s = max(0.0, (temp - self.profile.liquidus_c)
                         / DOOR_COOLING_C_PER_S)
-        if self.metrics.time_above_liquidus + descent_s < target:
+        # How long until it will be time. Time above liquidus grows at one
+        # second per second while the oven is above it, so the shortfall in
+        # seconds IS the countdown -- no prediction machinery, and it
+        # self-corrects every tick as the temperature moves.
+        #
+        # Worth having because the alternative was asking for the door with
+        # no notice at all. On NC191LTA10 the request went up while the
+        # operator was across the room, and the twenty-six seconds it took
+        # them to reach it was the whole of that run's overrun.
+        shortfall = target - (self.metrics.time_above_liquidus + descent_s)
+        if shortfall > 0:
+            if self.metrics.time_above_liquidus > 0.0:
+                self.door_in_s = shortfall
             return
         self._door_prompted = True
         self._emit(Event.OPEN_THE_DOOR,

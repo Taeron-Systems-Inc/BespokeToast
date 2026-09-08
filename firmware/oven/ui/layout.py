@@ -228,6 +228,11 @@ CHART_Y_MAX = 250.0
 # read: DONE at y=186 was pressed twice at the oven and took neither.
 BUTTON_ROW_Y = 176
 
+# How much warning the door gets. Long enough to walk to the oven,
+# short enough that nobody opens it early and undershoots the time
+# above liquidus, which is the opposite failure.
+DOOR_WARNING_S = 20.0
+
 ROW_READOUT = 36        # 64 px type, so it occupies y = 4..68
 ROW_INFO = 84           # clear of it: 16 px type occupies y = 76..92
 ROW_XAXIS = 194
@@ -236,7 +241,8 @@ ROW_FOOT = 220
 
 def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
             liquidus_c, duty, relay_on, history=None, profile_points=None,
-            duration_s=None, y_max=250.0, open_the_door=False):
+            duration_s=None, y_max=250.0, open_the_door=False,
+            door_in_s=None):
     """The screen that matters.
 
     A chart carries the run: the target curve, what the oven has actually
@@ -274,7 +280,9 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
     # Suppressing it is not a workaround for that. At the one moment the
     # operator has to do something, the instruction is the screen's whole
     # job, and a graph they cannot act on is in the way.
-    if not open_the_door:
+    counting = (door_in_s is not None and not open_the_door
+                and door_in_s <= DOOR_WARNING_S)
+    if not (open_the_door or counting):
         series = []
         if profile_points and duration_s:
             series.append((T.DIM, list(profile_points)))
@@ -348,6 +356,15 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
         # of a 97 s time above liquidus against a 90 s ceiling. Opening on
         # this banner would have landed it near 75 s.
         out += door_words(y=104)
+        out.append(("text", 6, 168, "now", T.DANGER, T.FONT_BODY))
+    elif counting:
+        # The same words, already in place, with a clock on them. Not a
+        # different screen appearing at zero: the instruction is up and
+        # unchanging, and only the line underneath it moves. Two screens
+        # that both mean "open the door" is the mistake this replaces.
+        out += door_words(y=104)
+        out.append(("text", 6, 168, "in %d s" % max(0, int(door_in_s + 0.5)),
+                    T.TEXT, T.FONT_BODY))
 
     return out
 

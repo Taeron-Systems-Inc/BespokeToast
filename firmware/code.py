@@ -1039,7 +1039,8 @@ def main():
                                    if app.profile else None,
                                    duration_s=app.profile.duration
                                    if app.profile else None,
-                                   open_the_door=app.door_prompted)
+                                   open_the_door=app.door_prompted,
+                                   door_in_s=app.door_in_s)
             elif app.state == STATE_COOLDOWN:
                 screen = L.open_the_door(app.temperature, cooling_rate())
             elif app.state == STATE_REPORT and app.metrics and app.profile:

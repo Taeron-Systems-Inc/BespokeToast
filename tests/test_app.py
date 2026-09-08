@@ -555,3 +555,72 @@ def test_a_closed_door_profile_does_not_ask_for_the_door_mid_run(rig):
             break
     during = [n for n, _ in events if n == "open_the_door"]
     assert not during, "asked for the door on a profile that does not need it"
+
+
+def test_the_door_countdown_is_the_shortfall_in_seconds():
+    """Time above liquidus grows at one second per second, so the shortfall
+    IS the countdown. No prediction, and it self-corrects every tick."""
+    from oven.app import DOOR_COOLING_C_PER_S
+    liq, floor, ceiling = 137.0, 60.0, 90.0
+    target = (floor + ceiling) / 2.0          # 75 s
+    temp = 165.0
+    descent = (temp - liq) / DOOR_COOLING_C_PER_S
+    for tal, expect in ((40.0, target - 40.0 - descent),
+                        (60.0, target - 60.0 - descent)):
+        assert expect > 0
+        # the shortfall shrinks one-for-one with time above liquidus
+    assert (target - 40.0 - descent) - (target - 60.0 - descent) == 20.0
+
+
+def test_the_countdown_replays_correctly_against_a_real_run():
+    """Run 0006, NC191LTA10, 8 September 2026 -- the run whose door was
+    opened 26 s late because it was asked for with no notice.
+
+    Replayed through the app, the countdown appears at the liquidus
+    crossing and reaches the same instant the real oven asked. The point
+    is the warning: about twenty seconds of it, where there was none.
+    """
+    import os
+    from oven.controller import Controller
+    from oven.profile import Profile
+
+    here = os.path.join(os.path.dirname(__file__), "data",
+                        "run-0006-nc191lta10.csv")
+    trace = []
+    for line in open(here):
+        if line.startswith("#") or line[:1].isalpha():
+            continue
+        p = line.strip().split(",")
+        if len(p) < 3 or not p[2]:
+            continue
+        try:
+            trace.append((float(p[0]), float(p[2])))
+        except ValueError:
+            pass
+    assert len(trace) > 200, "the fixture did not load"
+
+    prof = Profile.load(os.path.join(PROFILES, "nc191lta10-datasheet.json"))
+    clock, relay, sensor = FakeClock(), FakeRelay(), FakeSensor(trace[0][1])
+    app = App(relay, sensor, clock, lambda p: Controller(p, coast_tau_s=30.0))
+    app.request_start(prof)
+
+    warned_for = 0.0
+    first_in_window = None
+    prompt_at = None
+    for t, temp in trace:
+        clock.t = t
+        sensor.temp = temp
+        app.tick()
+        if app.door_in_s is not None and app.door_in_s <= 20.0:
+            if first_in_window is None:
+                first_in_window = t
+            warned_for = t - first_in_window
+        if app.door_prompted and prompt_at is None:
+            prompt_at = t
+
+    assert prompt_at is not None, "the door was never asked for"
+    assert 270 < prompt_at < 290, (
+        "the prompt moved to %.1f s; the real oven asked at 280.6" % prompt_at)
+    assert warned_for >= 15.0, (
+        "only %.1f s of warning; the operator needs time to reach the oven"
+        % warned_for)

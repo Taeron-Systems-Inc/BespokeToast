@@ -3,7 +3,7 @@
   "diagnostic": true,
   "max_ramp_up_c_per_s": 5.0,
   "name": "STEP 250 C",
-  "notes": "NOT A SOLDERING PROFILE. Full power to 250 C, hold, then free cooling with the door SHUT -- the cooling curve is the measurement, so do not open it until the run ends. Asks for ramps the oven cannot meet on purpose: the controller saturates and the result is a step response. Extends the measured heating table, which currently stops at 235 C, and the cooling table, which stops at 240. Every lead-free profile is built from those two. Supervisor limits still apply: 260 C hard ceiling, 70 C enclosure, and ABORT works throughout. Run it empty.",
+  "notes": "NOT A SOLDERING PROFILE. Full power to 250 C, hold, then free cooling with the door SHUT -- the cooling curve is the measurement, so do not open it until the run ends. Asks for ramps the oven cannot meet on purpose: the controller saturates and the result is a step response. Extends the measured heating table, which currently stops at 235 C, and the cooling table, which stops at 240. Every lead-free profile is built from those two. Supervisor limits still apply: 260 C hard ceiling, 70 C enclosure, and ABORT works throughout. Run it empty. NOTE FOR NEXT TIME: the one-minute hold at 250 C is what stopped this extending the cooling table -- the controller was still heating at 333 s when the oven was down to 232 C, so the highest free-cooling sample was 224 C, below where the table already reached. To extend cooling, drop the hold and let it fall straight from the peak.",
   "reference": "characterisation step test, extending data/oven-characterisation.json above 240 C",
   "points": [
     [0, 25],

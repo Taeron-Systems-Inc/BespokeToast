@@ -28,15 +28,22 @@ deviation to 0.83 ms.
 Two halves of one problem, run together every three minutes by
 `arp-announce.timer`. They are not symmetrical, because the fault is not.
 
-Measured from this Pi: a cold-cache ping of **wired** eridani resolves in one
-go, 3 of 3, with the entry deleted first. **Wireless** bench5 and the oven do
-not resolve at all. So a broadcast leaving this host reaches the wire and not
-the air, which decides what each half can do.
+Measured from this Pi on 2026-09-10, and **the second half of this was
+wrong** -- see the correction in `docs/network.md`. A cold-cache ping of
+wired eridani resolved 3 of 3 with the entry deleted first, and wireless
+bench5 and the oven appeared not to resolve at all. They do: five broadcast
+probes get five replies from both. The failing observations were one ping
+check and a single `arping` with a two second timeout, against a link that
+runs at 26 to 1115 ms.
+
+Both halves are still worth having, for a different reason than the one they
+were written for: the fault is intermittent and unexplained rather than a
+standing property of the access point, which is exactly the case where
+holding a mapping earns its keep.
 
 **`arp-announce`** says "this address is at this MAC" without being asked, so
-peers never have to ask. That reaches the wired segment -- it is what stopped
-eridani, the build host, losing the oven. It will not reach another wireless
-client, and is not pretending to.
+peers never have to ask -- on the wire and, on the evidence since, over the
+air too.
 
 It reads the address off the interface rather than having it written into the
 unit. The version that hardcoded `10.20.10.237` would have gone on announcing
@@ -78,8 +85,9 @@ so the peer list cannot make a host believe something untrue.
 
 ### What this does not fix
 
-The oven, and any other wireless client, is still unreachable from a machine
-with a cold cache -- a phone, a laptop that has just woken. That is the
-access point's to fix: proxy ARP, or whatever the vendor calls multicast
-enhancement or broadcast filtering. See `docs/network.md`. This keeps the two
-machines that do the work able to find each other; it is not a cure.
+Nothing on the access point, because there is nothing there to fix: it was
+audited on 2026-09-10 and is clean, and proxy ARP was requested and the
+request retracted. What remains unexplained is why two devices recorded no
+group frames at all on 2026-09-04. Until that is understood, these two units
+hold the mappings that matter rather than trusting resolution to work every
+time.

@@ -211,6 +211,13 @@ of wall clock.
 
 ### Nothing on this access point receives a broadcast
 
+**This section is superseded. Read the correction that follows it before
+acting on anything here.** It is kept because the measurements in it were
+real and because the reasoning that turned them into a wrong conclusion is
+worth being able to see.
+
+
+
 Two devices with nothing in common -- a Raspberry Pi with a Broadcom radio
 and the oven's Espressif co-processor -- receive no group-addressed frames
 at all on the Voxelis network. Unicast is perfect in both directions. That
@@ -382,3 +389,72 @@ writing the fix.
 
 Note that `arp-announce.service` under `tools/host/` was added as a hedge
 for a symptom of this same fault, before the fault was understood.
+
+## The correction: it is not the access point
+
+Written 2026-09-10, after the access point was audited by someone with
+access to it, and after re-testing here.
+
+**The fault above is not reproducible.** From this Pi, forcing every probe
+to be a broadcast rather than letting arping fall back to unicast:
+
+    arping -b -c 5      oven    10.20.10.242 (wireless)    5/5
+                      bench5    10.20.10.145 (wireless)    5/5
+                     eridani    10.20.10.162 (wired)       5/5
+                     gateway    10.20.10.1                 5/5
+
+Wireless client to wireless client, which is the exact path claimed broken.
+The audit found client isolation off on both interfaces, no broadcast or
+multicast filtering, multicast-to-unicast off, IGMP snooping off, Qualcomm
+Multicast Enhancement at 0, no ebtables, and intra-BSS forwarding enabled.
+A broadcast ARP from the router was answered by all twelve associated
+wireless clients on both bands, this Pi and the oven included.
+
+So the conclusion in the section above is withdrawn. Proxy ARP was
+requested and the request was retracted; nothing on the access point has
+been changed and nothing should be.
+
+### What was actually measured, and what was inferred
+
+The measurements on 2026-09-04 stand as measurements. What was wrong was
+the step from them to "the access point does not deliver broadcasts":
+
+* Two devices seeing no group frames is consistent with an access point
+  that does not send them, and equally consistent with an intermittent
+  fault, or with two clients that were individually unwell at the time.
+  Nothing was done to tell those apart -- no capture from a third device,
+  and no repeat on another day.
+* The oven is a genuinely marginal client: 26 to 1115 ms round trip, up to
+  a third of packets lost. That was known and was treated as a nuisance
+  rather than as a candidate explanation for the very thing being
+  investigated.
+* Today's own evidence for the fault turned out to be one ping check of
+  four packets and a single `arping` probe with a two second timeout. Both
+  were read as "cannot resolve". Five broadcast probes get five replies.
+
+The obvious alternative on this side was checked and does not explain it
+either: the Pi's WiFi power save was already off on 2026-09-04, disabled on
+09-02 and not rebooted since 08-24, so it was not asleep during the capture.
+
+The gap between 2026-09-04 and 2026-09-10 is unexplained. It may have been
+intermittent, and it may have been a mistake. Either way it is not a
+standing property of the network, and the earlier text asserted that it was.
+
+### What this changes about the firmware
+
+Nothing, which is the useful part. Everything built while the fault was
+believed is either correct anyway or independently worth having:
+
+* **The address on the idle screen** stays. It costs nothing and it is the
+  only channel that works when the network is misbehaving for any reason.
+* **`arp-pin` on the Pi** stays. Holding a neighbour entry for the two
+  wireless peers that matter is cheap insurance against an intermittent
+  fault whose cause is unknown, and it demotes rather than deletes, so it
+  cannot outlive its usefulness.
+* **No firmware change was ever made for this**, because none was possible.
+  The one that was attempted -- ESP32 power save -- was reverted the same
+  day when testing showed it did nothing.
+
+The standing lesson is the one already written at the end of this file and
+apparently not yet learned: *test the mechanism before writing the fix*, and
+one unrepeated observation is not a property of a network.

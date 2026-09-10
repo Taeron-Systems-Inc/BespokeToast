@@ -60,9 +60,10 @@ class RunMetrics(object):
     as 0.25 C/s out of nowhere.
     """
 
-    def __init__(self, liquidus_c, rate_window_s=5.0):
+    def __init__(self, liquidus_c, rate_window_s=5.0, min_window_s=3.0):
         self.liquidus_c = liquidus_c
         self.rate_window_s = rate_window_s
+        self.min_window_s = min_window_s
         self.samples = []
         self.peak_c = None
         self.peak_t = None
@@ -113,12 +114,24 @@ class RunMetrics(object):
             self.samples.pop(0)
 
     def _windowed_rate(self):
+        """The rise over the longest window up to rate_window_s, or nothing.
+
+        The upper bound was always here; the lower one was not, and for the
+        first few seconds of a run the buffer holds only a fraction of a
+        second. Run 0004 reported "max ramp up FAILED 3.20 C/s" against a
+        2.5 limit -- a rate 73% above anything this oven can produce, absent
+        from its own log, and not reproducible in simulation. Every other
+        run of the day reported 1.87 to 2.03, which is the plant. A degree
+        of thermocouple noise over a 0.3 s window is 3 C/s, and the report
+        then shows a red line for a run that did nothing wrong, which is how
+        operators learn to ignore reports.
+        """
         if len(self.samples) < 2:
             return None
         t1, c1 = self.samples[-1]
         for t0, c0 in self.samples:
             if t1 - t0 <= self.rate_window_s:
-                if t1 - t0 <= 0:
+                if t1 - t0 < self.min_window_s:
                     return None
                 return (c1 - c0) / (t1 - t0)
         return None

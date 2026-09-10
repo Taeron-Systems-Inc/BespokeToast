@@ -430,6 +430,13 @@ def clock_is_set():
     this oven is powered continuously -- USB carries 5 V from an internal
     converter even with no data host. So the clock survives soft resets and
     auto-reloads, and only a power cut clears it.
+
+    A microcontroller.reset() clears it too -- observed, three times in a
+    row, each hard reset coming back to "clock: not set" and re-syncing.
+    That costs a boot two radio bring-ups instead of one, about 50 s, and
+    it does not happen in service because nothing hard-resets the oven
+    there. It happens constantly while programming, which is the only
+    reason it is worth writing down.
     """
     try:
         import rtc

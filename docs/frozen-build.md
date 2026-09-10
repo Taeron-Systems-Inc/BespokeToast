@@ -126,6 +126,27 @@ If CircuitPython will not boot at all, the bootloader is in a protected
 region and survives; entering it then needs a physical double-tap on reset,
 which means opening the panel.
 
+## Who owns CIRCUITPY
+
+A deploy needs the host to own the volume; the oven needs to own it to record
+a run. Only one direction is automatic:
+
+    cable comes out          the oven takes it back, one boot later
+    cable goes in            nothing happens
+
+    python3 tools/deploy.py /mnt/circuitpy      take it, and keep it
+    python3 tools/deploy.py --standalone        hand it back, and keep it that way
+
+Attaching a cable used to take the volume by itself, which meant an oven with
+a programming cable left in could never record a run: every boot rewrote the
+mode back to HOST, so every following boot came up host-owned with logging
+off. It showed on the power-on screen as a red FAIL beside "run logging", on
+an oven that was working perfectly.
+
+Being locked out is a single command over the serial console, which is
+available exactly when a cable is attached, so making this explicit costs
+nothing and stops the oven quietly losing the one job only it can do.
+
 ## What changes about day-to-day work
 
 Editing anything under `firmware/oven/` no longer takes effect by deploying.

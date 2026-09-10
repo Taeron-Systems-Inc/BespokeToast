@@ -40,23 +40,37 @@ CHARACTERISATION = "/characterisation.json"
 
 
 def remember_boot_mode():
-    """Record, for the next boot, whether a host is attached.
+    """Record, for the next boot, that no host is attached.
 
     boot.py cannot tell -- usb_connected reads False there because
     CircuitPython starts USB afterwards. Here it is reliable, so the answer
     is written to non-volatile memory, which does not care who owns the
-    filesystem. The cost is a boot of lag after the cable changes; the
-    alternative was locking the host out of its own volume, which happened
-    twice before this existed.
+    filesystem. The cost is a boot of lag after the cable comes out.
+
+    Only that direction is automatic, and that is a change. This used to
+    write HOST whenever it saw a cable, which meant an oven with a
+    programming cable left in could never record a run: every boot rewrote
+    the mode back to HOST, so every subsequent boot came up with the volume
+    owned by the host and logging off. It showed on the power-on screen as
+    a red FAIL beside "run logging", on an oven that was working perfectly.
+
+    Taking the volume is now something a person asks for, once, and it
+    sticks: `python3 tools/deploy.py <mount>` claims it and
+    `--standalone` hands it back. That is safe in a way it was not when
+    this was written -- the reclaim goes over the serial console, which is
+    available exactly when a cable is attached, and it is now the ordinary
+    path rather than a rescue. Unset or corrupt nvm still reads as HOST, so
+    a fresh board is programmable without knowing any of this.
     """
     try:
         import microcontroller
-        from oven.bootmode import HOST, STANDALONE, decode, encode, name
-        seen = HOST if supervisor.runtime.usb_connected else STANDALONE
-        if decode(microcontroller.nvm) != seen:
-            microcontroller.nvm[0:2] = encode(seen)
+        from oven.bootmode import STANDALONE, decode, encode, name
+        if supervisor.runtime.usb_connected:
+            return
+        if decode(microcontroller.nvm) != STANDALONE:
+            microcontroller.nvm[0:2] = encode(STANDALONE)
             print("# boot mode recorded as %s; it takes effect on the next "
-                  "hard reset" % name(seen))
+                  "hard reset" % name(STANDALONE))
     except Exception as e:
         print("# WARNING could not record the boot mode (%r); the oven may "
               "not be able to log its next run" % e)
@@ -627,7 +641,9 @@ def main():
         ("relay safe state", not hw.relay.is_on()),
         ("profiles", bool(profiles)),
         ("characterisation", have_characterisation),
-        ("run logging", log_writable),
+        # Not a fault when it is off: it means a programming cable owns the
+        # filesystem, which is a choice somebody made with deploy.py.
+        ("run logging", True if log_writable else "HOST"),
     ]))
     if not log_writable:
         print("# run logging unavailable: CIRCUITPY is writable over USB, so "

@@ -21,10 +21,18 @@ runs seconds later, when USB is up and usb_connected is reliable, and
 records what it saw in microcontroller.nvm -- eight kilobytes of storage
 that does not care who owns the filesystem. boot.py reads that byte.
 
-The lag means the first boot after the cable changes uses the previous
+The lag means the first boot after the cable comes out uses the previous
 answer. Unset or corrupt reads as HOST, because being wrong that way costs
 one unrecorded run, and being wrong the other way costs a board nobody can
 program.
+
+Only one direction is automatic. Attaching a cable does NOT take the volume:
+it used to, and an oven with a programming cable left in could then never
+record a run, because every boot rewrote the mode back to HOST and every
+following boot came up with the volume owned by the host. It showed as a red
+FAIL beside "run logging" on the power-on screen of a healthy oven. Taking
+the volume is something a person asks for once, with tools/deploy.py, and it
+sticks until they hand it back.
 """
 
 # Deliberately not 0 or 255: both are what uninitialised or erased flash

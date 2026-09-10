@@ -521,3 +521,24 @@ def test_setting_the_clock_is_wired_to_the_bring_up():
     assert wired, "nothing assigns web.on_epoch, so the clock is never set"
     assert any(getattr(n.value, "id", None) == "set_rtc" for n in wired), (
         "web.on_epoch is assigned something other than set_rtc")
+
+
+def test_a_cable_left_in_does_not_cost_the_oven_its_logging():
+    """remember_boot_mode used to write HOST whenever it saw a cable.
+
+    An oven with a programming cable left in could then never record a run:
+    every boot rewrote the mode to HOST, so every following boot came up
+    with the volume owned by the host and logging off, showing as a red FAIL
+    on the power-on screen of a perfectly healthy oven. Taking the volume is
+    now something a person asks for once, with deploy.py, and it sticks.
+    """
+    import ast
+    tree = _code_py_tree()
+    fn = [n for n in ast.walk(tree)
+          if isinstance(n, ast.FunctionDef) and n.name == "remember_boot_mode"]
+    assert fn, "remember_boot_mode is gone"
+    names = {n.id for n in ast.walk(fn[0]) if isinstance(n, ast.Name)}
+    assert "STANDALONE" in names, "it no longer records standalone at all"
+    assert "HOST" not in names, (
+        "remember_boot_mode references HOST again; the only automatic "
+        "direction is towards the oven owning its own filesystem")

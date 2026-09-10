@@ -351,8 +351,8 @@ def hand_volume_back_to_the_oven(port=None):
         print("!! could not set the boot mode: %s" % problem)
         return 1
     print(".. the oven owns CIRCUITPY again and can record its next run.")
-    print("   The cable is still attached, so a further hard reset hands it")
-    print("   back to this host -- that is by design.")
+    print("   It stays that way across reboots, cable in or out, until a")
+    print("   deploy takes the volume back.")
     return 0
 
 

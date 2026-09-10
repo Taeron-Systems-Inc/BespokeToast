@@ -662,3 +662,21 @@ def test_the_chart_does_not_copy_its_series_every_frame():
         "the profile curve is copied on every frame"
     assert any(pts is history for _, pts in series), \
         "the measured trace is copied on every frame"
+
+
+def test_a_switched_off_feature_is_not_painted_as_a_failure():
+    """Run logging is off whenever a programming cable owns the filesystem.
+    That is a choice somebody made, not a fault, and a red FAIL beside it on
+    a healthy oven is how a power-on screen teaches people to ignore it."""
+    screen = L.self_test([("thermocouple", True),
+                          ("run logging", "HOST"),
+                          ("profiles", False)])
+    labels = {}
+    for c in screen:
+        if c[0] == "text":
+            labels[c[3]] = c[4]
+    assert labels["OK"] == T.BRAND
+    assert labels["FAIL"] == T.DANGER
+    assert "HOST" in labels
+    assert labels["HOST"] == T.CAUTION
+    assert labels["HOST"] not in (T.DANGER, T.BRAND)

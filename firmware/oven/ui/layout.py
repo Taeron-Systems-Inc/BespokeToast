@@ -166,13 +166,24 @@ def splash(version):
 
 def self_test(results):
     """Power-on self test, shown while it runs. Not decoration: a failure
-    stops here rather than at 200 C."""
+    stops here rather than at 200 C.
+
+    A result may be True, False, or a short string. The string is for the
+    case that is neither: something switched off on purpose, which is not a
+    fault and must not be painted like one. Run logging is off whenever a
+    programming cable owns the filesystem, and showing that as a red FAIL
+    on a healthy oven is how a screen teaches people to ignore it.
+    """
     out = [("bitmap", 0, 8, T.LOGO_LARGE)]
     y = 70
     for name, ok in results:
+        if isinstance(ok, str):
+            label, colour = ok, T.CAUTION
+        else:
+            label, colour = ("OK" if ok else "FAIL"), \
+                            (T.BRAND if ok else T.DANGER)
         out.append(("text", 20, y, name, T.TEXT, T.FONT_BODY))
-        out.append(("text", 250, y, "OK" if ok else "FAIL",
-                    T.BRAND if ok else T.DANGER, T.FONT_BODY))
+        out.append(("text", 250, y, label, colour, T.FONT_BODY))
         y += 26
     return out
 

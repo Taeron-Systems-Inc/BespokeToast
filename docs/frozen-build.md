@@ -19,6 +19,29 @@ matters as much as the total: every render failure in this project was a
 few hundred bytes failing against a heap with plenty free and no hole big
 enough.
 
+## Why the largest free block is the number to watch
+
+Free memory has never been what failed on this board. Every render failure
+in this project has been a few hundred to a couple of thousand bytes failing
+against a heap with tens of kB free and no hole big enough, because
+MicroPython's collector does not compact.
+
+The clearest case: run 0009, a four-hour bake, logged "composing a screen
+ran out of memory 3256 times" while reporting 50 kB free, and finished with
+a largest free block of 1776 bytes. Measured on the board, one compose of
+the running screen holds 2896 bytes -- but as forty small tuples plus, at
+the time, two copied point lists:
+
+    list(history), 150 points      1056 bytes
+    list(profile_points), 25        160
+
+A fragmented heap can satisfy forty small requests. It cannot satisfy one
+kilobyte in one piece. Removing those two copies removed the largest single
+request the screen makes, and nothing else about the compose changed.
+
+The lesson generalises: when something fails for memory here, ask what the
+biggest single allocation is, not how much is free.
+
 ## The rule that makes it work, and breaks it
 
 **A file on CIRCUITPY shadows the frozen copy of the same module.** That is

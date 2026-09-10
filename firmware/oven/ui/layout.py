@@ -293,13 +293,23 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
     counting = (door_in_s is not None and not open_the_door
                 and door_in_s <= DOOR_WARNING_S)
     if not (open_the_door or counting):
-        # By reference, not copied. These two lists were rebuilt on every
-        # compose -- four times a second, for the whole of a run -- and the
-        # history one is up to 150 points, so it is the largest single
-        # allocation the running screen makes and it is made 60,000 times in
-        # a four-hour bake. That is the churn behind "composing a screen ran
-        # out of memory 3256 times" on run 0009: a heap with plenty free and
-        # no hole left the right size.
+        # By reference, not copied. Measured on the board, one compose of
+        # this screen holds 2896 bytes, of which the two copies were:
+        #
+        #     list(history), 150 points      1056 bytes
+        #     list(profile_points), 25       160
+        #                                   ----
+        #                                   1216, 42% of the compose
+        #
+        # Both rebuilt four times a second for the whole of a run. What
+        # matters is not the total -- 60,000 frames of it in a four-hour
+        # bake -- but that the 1056-byte one was the LARGEST single request
+        # the compose made, against a heap measured at 1776 bytes largest
+        # free block by the end of run 0009. The rest of a compose is forty
+        # small tuples, which a fragmented heap can still satisfy; one
+        # kilobyte in one piece is what it cannot. That is "composing a
+        # screen ran out of memory 3256 times" on a device reporting 50 kB
+        # free.
         #
         # Safe because nothing downstream writes to them. display._plot
         # takes their lengths and iterates; the renderer keeps the counts,

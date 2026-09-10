@@ -80,7 +80,50 @@ Simulated against the measured plant, before and after:
     mean error  2.63 C ->    1.86 C
 
 Recorded on the old curve, run 0003: peak 236.4 C, TAL 96 s, mean
-tracking error 4.02 C. **The new curve has not been run.**
+tracking error 4.02 C.
+
+### Run 0011, 2026-09-10: the new curve, on hardware
+
+    peak                    246.69 C   (asked 245, simulated 246.2)
+    time above liquidus        97.7 s  (window 60-150)
+    max ramp up                2.00 C/s (limit 2.5)
+    time to peak                305 s  (limit 480)
+    cold junction max         48.06 C  (fault at 70)
+
+Every check passed. The peak sits 29.7 C above liquidus, inside the 20-40
+the alloy wants; run 0003 on the old curve sat 19.4 above, below it.
+
+It was also the first **warm start** on hardware -- the oven was at 34.1 C
+and the run entered the profile 33.9 s in -- and that turned up the one
+blemish.
+
+#### A warm start enters past the oven's own dead time
+
+The generated opening encodes this oven's cold-start transport lag: the
+curve barely moves for its first thirty seconds, because the measured rates
+below 85 C describe an element that has not woken up yet. Entering at 33.9 s
+skips that, and asks the oven to be already accelerating while its element
+is stone cold:
+
+    elapsed   target   actual     lag
+       40       39.4     34.0     -5.4      the probe has not moved at all
+       60       64.1     41.5    -22.6
+       70       78.4     54.4    -24.0      worst
+       90      106.8     90.3    -16.5
+      110      131.9    124.8     -7.1
+      130      151.4    153.0     +1.6      ahead, and level from here
+
+Twenty-four degrees, closed by elapsed 130 s and gone before the soak. The
+run passed every check and the joint would not know. But it is a real
+interaction between two features that were each tested alone: the profile
+generator shapes an opening around measured dead time, and entry_time_for
+credits the oven for time it has not thermally done.
+
+It is recorded rather than fixed. The run is good, back-to-back runs from
+~50 C have met their windows before, and a change to warm-start entry at
+this stage would be an untested fix to something that is currently working.
+The obvious shape of a fix, if it is ever wanted, is to stop entry_time_for
+skipping past the part of a curve that is dead time rather than ramp.
 
 ## TS391LT -- Sn42/Bi57.6/Ag0.4, mp 138 C
 

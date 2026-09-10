@@ -293,11 +293,24 @@ def running(temp_c, target_c, elapsed_s, remaining_s, stage, tal_s,
     counting = (door_in_s is not None and not open_the_door
                 and door_in_s <= DOOR_WARNING_S)
     if not (open_the_door or counting):
+        # By reference, not copied. These two lists were rebuilt on every
+        # compose -- four times a second, for the whole of a run -- and the
+        # history one is up to 150 points, so it is the largest single
+        # allocation the running screen makes and it is made 60,000 times in
+        # a four-hour bake. That is the churn behind "composing a screen ran
+        # out of memory 3256 times" on run 0009: a heap with plenty free and
+        # no hole left the right size.
+        #
+        # Safe because nothing downstream writes to them. display._plot
+        # takes their lengths and iterates; the renderer keeps the counts,
+        # not the lists. History.points already says it hands out the live
+        # list, so the copy was buying nothing that was not already given
+        # away.
         series = []
         if profile_points and duration_s:
-            series.append((T.DIM, list(profile_points)))
+            series.append((T.DIM, profile_points))
         if history:
-            series.append((T.BRAND, list(history)))
+            series.append((T.BRAND, history))
         out.append(("plot", cx, cy, cw, ch,
                     float(duration_s or 1.0), 0.0, float(y_max),
                     series, liquidus_c))

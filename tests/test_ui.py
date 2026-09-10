@@ -639,3 +639,26 @@ def test_the_idle_screen_still_takes_a_start_press_during_a_bring_up():
     screen = L.home(24.0, "TS391SNL", True, address=None,
                     net_status="joining Voxelis")
     assert L.hit(screen, 40, L.BUTTON_ROW_Y + 10) == "start"
+
+
+def test_the_chart_does_not_copy_its_series_every_frame():
+    """The running screen is composed four times a second for the whole of
+    a run. Copying the history list each time -- up to 150 points, the
+    largest single allocation the screen makes -- is 60,000 allocations in
+    a four-hour bake, and run 0009 logged 3256 MemoryErrors composing a
+    screen on a heap that had plenty free and no hole the right size.
+
+    Identity, not equality: equality would pass on a copy.
+    """
+    history = [(0.0, 25.0), (10.0, 60.0), (20.0, 120.0)]
+    points = [[0, 25], [100, 200], [200, 150]]
+    screen = L.running(120.0, 118.0, 20.0, 180.0, "soak", 0.0, 217.0,
+                       0.5, True, history=history, profile_points=points,
+                       duration_s=200.0)
+    plots = [c for c in screen if c[0] == "plot"]
+    assert plots, "the running screen has no chart"
+    series = plots[0][8]
+    assert any(pts is points for _, pts in series), \
+        "the profile curve is copied on every frame"
+    assert any(pts is history for _, pts in series), \
+        "the measured trace is copied on every frame"

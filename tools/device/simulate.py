@@ -223,7 +223,7 @@ def run_profile(display, rig, profile, label):
             "events": list(rig.events)}
 
 
-def main():
+def main(max_duration_s=3000):
     display = Display(board.DISPLAY)
     preload((T.FONT_READOUT, T.FONT_LARGE, T.FONT_BODY, T.FONT_SMALL))
     display.reserve_chart(L.CHART[2], L.CHART[3])
@@ -243,8 +243,16 @@ def main():
             print("SIM %s rejected: %r" % (name, e))
             bad += 1
             continue
-        if profile.duration > 3000:
-            print("SIM %-22s skipped (%.0f s: a bake, not a reflow)"
+        if max_duration_s and profile.duration > max_duration_s:
+            # Skipped by default because it is slow, and that is exactly how
+            # it hid: the tool built to catch heap failures that only appear
+            # late in a long run skipped the only profile long enough to
+            # produce them. Run 0009 logged 3256 MemoryErrors composing a
+            # screen over four hours; nothing here had ever composed one
+            # more than a few hundred times.
+            #
+            #     simulate.main(0)     run everything, however long
+            print("SIM %-22s skipped (%.0f s; simulate.main(0) to run it)"
                   % (profile.name, profile.duration))
             continue
         result = run_profile(display, rig, profile, profile.name[:22])

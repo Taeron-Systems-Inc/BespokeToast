@@ -119,6 +119,39 @@ application can prevent that, because the server reads the request before
 the application is called -- so the limit sits under the cliff and the form
 refuses to send more.
 
+### The radio stays up; only the polling stops
+
+The server is up only while the oven is idle, but the *radio* now stays
+associated through a run, and the listening socket stays bound. What must
+not happen during a run is `update_poll()` -- that is the call that costs
+up to 227 ms against a 250 ms control deadline -- and the guard on the poll
+is what prevents it. Associating costs nothing per loop, because the driver
+touches SPI only when it is called.
+
+Closing both and reopening them afterwards was measured at **24.22 s of
+frozen main loop**: no telemetry, no touch, no console, and the previous
+screen still up because the render never got a turn. It happened on exactly
+one transition -- back to idle -- which is the DONE button at the end of
+every run, and it is what "the DONE button doesn't work" was.
+
+    telemetry, 4 Hz, across a boot
+    85419.25  last row before web.start()
+    85443.47  first row after            24.22 s
+
+Staying up costs 1472 bytes, measured on the board: 1200 to associate and
+272 more for the listening socket. The imports are another 5792 and are not
+returned by closing anyway, because CircuitPython keeps them in
+`sys.modules`. Against a screen that freezes for 24 s after every run, that
+is not a difficult trade.
+
+Two consequences worth knowing. A browser that hits the oven mid-run
+connects and waits, rather than being refused, and is answered when the run
+ends; the backlog is 1, so a second attempt is refused rather than queued.
+And `web.start()` now runs after the frame is drawn, not before, so a cold
+boot puts the screen up first and brings the radio up behind it -- ahead of
+the render it meant a fresh boot showed nothing at all for as long as the
+network took.
+
 ### Nothing on this access point receives a broadcast
 
 Two devices with nothing in common -- a Raspberry Pi with a Broadcom radio

@@ -141,11 +141,16 @@ class WebService(object):
     the machine that builds its firmware. So a browser pointed at the oven
     is how anyone gets a run log off it.
 
-    Up only while idle, and torn down the moment a run starts. Not a
-    preference: an SPI call to the co-processor can block for 227 ms
-    against a 250 ms control deadline, so polling a socket during a
-    profile would put network latency inside the loop that decides when
-    the heater switches off.
+    Served only while idle. Not a preference: an SPI call to the
+    co-processor can block for 227 ms against a 250 ms control deadline, so
+    polling a socket during a profile would put network latency inside the
+    loop that decides when the heater switches off.
+
+    The radio itself is NOT brought down for a run. It used to be, and
+    bringing it back up cost a measured 24.22 s of frozen main loop on the
+    one transition that does it -- back to idle, which is the DONE button
+    at the end of every run. Staying associated costs 1472 bytes and no
+    loop time, because the driver touches SPI only when it is called.
     """
 
     def __init__(self, logs, profiles_ref, status_fn):
@@ -851,12 +856,27 @@ def main():
                                      STATE_COOLDOWN) and \
                     app.state in (STATE_REPORT, STATE_FAULT, STATE_IDLE):
                 end_log()
-            if app.state != STATE_IDLE and web.server is not None:
-                # A run is starting. The radio comes down before anything
-                # else happens: polling a socket costs up to 227 ms and the
-                # control loop has 250.
-                print("# web: stopping for the run")
-                web.stop()
+            if app.state in (STATE_PREHEAT, STATE_RUNNING) and \
+                    web.server is not None:
+                # A run is starting. What must not happen during it is
+                # polling the socket -- that is the call that costs up to
+                # 227 ms against a 250 ms control deadline -- and the guard
+                # on the poll below is what prevents it. The radio itself
+                # stays associated and the listening socket stays bound.
+                #
+                # This used to close both, and bringing them back up when
+                # the run ended took a measured 24.2 s of frozen main loop:
+                # no telemetry, no touch, no console, and the report screen
+                # still up because the render never got a turn. That is the
+                # lag between pressing DONE and the home screen appearing,
+                # and it happened after every single run.
+                #
+                # Staying up costs 1472 bytes, measured on the board:
+                # associated 1200, listening socket a further 272. The
+                # imports are 5792 more and are not returned by closing
+                # anyway -- CircuitPython keeps them in sys.modules.
+                print("# web: not polled until this run ends "
+                      "(the radio stays associated)")
             if app.state == STATE_IDLE and previous_state[0] != STATE_IDLE:
                 # Back to idle with nothing on the line: the one moment the
                 # radio is allowed up.
@@ -981,13 +1001,6 @@ def main():
         elif app.state in (STATE_IDLE, STATE_PREHEAT) and len(history):
             history.clear()
 
-        # The web page, only while idle and only between control steps.
-        if app.state == STATE_IDLE and not hw.relay.is_on():
-            if web.server is None and web_wanted[0]:
-                web_wanted[0] = web.start()
-            else:
-                web.poll()
-
         # Touch is polled outside the control step: a press must not be able
         # to delay a control step, and a missed press is merely annoying.
         point = hw.touch.press()
@@ -1069,6 +1082,18 @@ def main():
             except MemoryError:
                 gc.collect()
                 note_memory_failure("drawing the screen")
+
+        # The web page, only while idle and only between control steps --
+        # and after the frame, never before it. Bringing the radio up is
+        # the one call in this loop that blocks for tens of seconds, and
+        # ahead of the render it meant a cold boot showed nothing at all
+        # until the network was ready. The screen is what tells someone the
+        # oven is alive; it goes first.
+        if app.state == STATE_IDLE and not hw.relay.is_on():
+            if web.server is None and web_wanted[0]:
+                web_wanted[0] = web.start()
+            else:
+                web.poll()
 
 
 try:

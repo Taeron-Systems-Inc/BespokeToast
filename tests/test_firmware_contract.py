@@ -318,25 +318,79 @@ def test_the_parsed_characterisation_is_released_after_use():
         "rate tables then cost memory instead of saving it")
 
 
-def test_the_web_service_is_torn_down_when_a_run_starts():
-    """Polling a socket costs up to 227 ms; the control loop has 250.
+def test_a_run_does_not_bring_the_radio_down():
+    """Closing the radio for a run costs 24.2 s of frozen loop to undo.
 
-    The teardown must be driven by the state leaving idle, not by anything
-    the web code decides for itself.
+    Measured on the board: after a run returned the oven to idle, the main
+    loop stopped for 24.22 s inside web.start() -- scan plus associate --
+    with no telemetry, no touch and no render. That is the lag between
+    pressing DONE and the home screen appearing, and it happened after
+    every run.
+
+    What actually has to be true during a run is that nobody polls the
+    socket, which is what test_the_web_service_only_polls_while_idle
+    checks. Staying associated costs 1472 bytes and no loop time at all,
+    because the driver touches SPI only when it is called.
+
+    An earlier version of this test asserted the opposite -- that
+    "web.stop()" appears in code.py -- and so enforced the defect.
     """
     import ast
-    source = open(os.path.join(os.path.dirname(__file__), "..", "firmware",
-                               "code.py")).read()
-    assert "web.stop()" in source, "nothing ever stops the web service"
-    tree = ast.parse(source)
-    stops = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.If):
-            continue
-        body = ast.dump(node)
-        if "web" in body and "stop" in body and "STATE_IDLE" in body:
-            stops.append(node.lineno)
-    assert stops, "the teardown is not guarded by the run state"
+    tree = _code_py_tree()
+
+    def stops_the_web(node):
+        for inner in ast.walk(node):
+            if (isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "stop"
+                    and getattr(inner.func.value, "id", None) == "web"):
+                return True
+        return False
+
+    def mentions_a_running_state(node):
+        wanted = ("STATE_RUNNING", "STATE_PREHEAT", "STATE_IDLE",
+                  "STATE_COOLDOWN")
+        return any(isinstance(inner, ast.Name) and inner.id in wanted
+                   for inner in ast.walk(node.test))
+
+    offenders = [n.lineno for n in ast.walk(tree)
+                 if isinstance(n, ast.If) and mentions_a_running_state(n)
+                 and stops_the_web(n)]
+    assert not offenders, (
+        "code.py closes the radio on a state change (line %s). Bringing it "
+        "back up blocks the main loop for ~24 s, which is what the DONE "
+        "button lag was." % offenders)
+
+
+def test_the_frame_is_drawn_before_the_radio_is_touched():
+    """The screen is what says the oven is alive; it goes first.
+
+    web.start() blocks for tens of seconds. Ahead of the render in the
+    loop, that meant a cold boot showed nothing until the network was up.
+    """
+    import ast
+    tree = _code_py_tree()
+    main = [n for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == "main"]
+    assert main, "code.py has no main()"
+
+    def line_of(pred):
+        found = [n.lineno for n in ast.walk(main[0]) if pred(n)]
+        return max(found) if found else None
+
+    render = line_of(lambda n: isinstance(n, ast.Call)
+                     and isinstance(n.func, ast.Attribute)
+                     and n.func.attr == "render")
+    start = line_of(lambda n: isinstance(n, ast.Call)
+                    and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "start"
+                    and getattr(n.func.value, "id", None) == "web")
+    assert render is not None, "the loop never renders"
+    assert start is not None, "the loop never starts the web service"
+    assert start > render, (
+        "web.start() (line %d) runs before display.render() (line %d) in "
+        "the loop, so a cold boot shows nothing for as long as the radio "
+        "takes" % (start, render))
 
 
 def test_the_web_service_only_polls_while_idle():

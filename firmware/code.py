@@ -708,8 +708,9 @@ def main():
         if logging_run[0] and logs is not None:
             summary = None
             if app.metrics:
-                summary = "peak=%.1f tal=%.0f" % (app.metrics.peak_c,
-                                                  app.metrics.time_above_liquidus)
+                summary = "peak=%.1f" % app.metrics.peak_c
+                if app.metrics.liquidus_c:
+                    summary += " tal=%.0f" % app.metrics.time_above_liquidus
                 # The verdict too, so the log answers "was this run good?"
                 # without needing the profile file alongside it.
                 if app.profile is not None:

@@ -77,7 +77,11 @@ class RunMetrics(object):
             self.peak_c = temp_c
             self.peak_t = t
 
-        above = temp_c >= self.liquidus_c
+        # A bake has no liquidus, and "temp_c >= 0" is true from the
+        # first sample: run 0009 reported tal=15302 s on a 15201 s bake,
+        # a number larger than the run that produced it. Nothing above a
+        # liquidus that does not exist.
+        above = bool(self.liquidus_c) and temp_c >= self.liquidus_c
         if self._last_t is not None:
             dt = t - self._last_t
             if above and self._last_above:

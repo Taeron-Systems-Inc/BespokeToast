@@ -1,0 +1,10 @@
+# Peers this host must be able to reach but cannot resolve by asking.
+#
+# One address per line; everything after # is a comment. No MAC addresses
+# here -- arp-pin only ever holds one the kernel has already learned, so
+# this file cannot make the host believe something untrue.
+#
+# Copy to /etc/toaster/arp-peers and edit. Wireless peers only: anything on
+# the wire resolves normally from here and does not belong in this file.
+
+10.20.10.242      # the oven

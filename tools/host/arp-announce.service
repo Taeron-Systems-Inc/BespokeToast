@@ -1,16 +1,20 @@
 [Unit]
-Description=Announce this host's MAC to the LAN (gratuitous ARP)
+Description=Keep this host and its peers findable despite the access point
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Three unsolicited ARP replies saying "10.20.10.237 is at b8:27:eb:...".
-# Peers cache that without having to ask, which is the point: when this
-# host became unreachable, the failure was eridani's ARP request going
-# unanswered while this machine was up, associated and healthy. Announcing
-# keeps neighbours' caches warm regardless of why a request might be missed.
-ExecStart=/usr/bin/arping -U -c 3 -I wlan0 -s 10.20.10.237 10.20.10.237
-# arping exits non-zero when nothing replies to an unsolicited announce,
-# which is the normal case. The announce still went out.
-SuccessExitStatus=0 1 2
+# Two halves of the same problem, and they are not symmetrical.
+#
+# arp-announce says "this address is at this MAC" without being asked, so
+# peers never have to ask. Measured on this network, that reaches the wired
+# segment and not other wireless clients -- a cold-cache ping from here to
+# wired eridani resolves 3 of 3, while the oven's broadcasts to this Pi were
+# never received at all.
+#
+# arp-pin covers what announcing cannot: wireless peers this host must be
+# able to reach, held from addresses the kernel already learned, verified
+# each pass and released if they stop answering.
+ExecStart=/usr/local/sbin/arp-announce
+ExecStart=/usr/local/sbin/arp-pin

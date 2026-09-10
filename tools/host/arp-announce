@@ -1,0 +1,43 @@
+#!/bin/sh
+# Announce this host's address to the LAN, unprompted.
+#
+# ARP is normally a question: a machine that wants to reach you broadcasts
+# "who has this address?" and waits. If the reply never arrives the asker
+# concludes there is no route, and this host becomes unreachable while it is
+# up, associated and perfectly healthy. That has happened to the oven, to
+# eridani and to this Pi.
+#
+# An unsolicited ARP reply is the answer without the question. Peers cache it
+# and never have to ask.
+#
+# The address is read from the interface rather than written into a unit
+# file. The version of this that hardcoded 10.20.10.237 would have gone on
+# announcing that address after any DHCP change -- announcing the WRONG
+# mapping is worse than announcing none, because peers cache that too.
+set -eu
+
+IFACE="${1:-}"
+if [ -z "$IFACE" ]; then
+    IFACE=$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')
+fi
+if [ -z "$IFACE" ]; then
+    echo "arp-announce: no default route, nothing to announce" >&2
+    exit 0
+fi
+
+ADDR=$(ip -4 -o addr show dev "$IFACE" scope global 2>/dev/null \
+       | awk '{print $4}' | cut -d/ -f1 | head -n 1)
+if [ -z "$ADDR" ]; then
+    echo "arp-announce: $IFACE has no address yet" >&2
+    exit 0
+fi
+
+MAC=$(cat "/sys/class/net/$IFACE/address" 2>/dev/null || echo "?")
+
+# -U is the unsolicited (gratuitous) form: sender and target are both this
+# host, so every listener updates its cache and nobody is expected to reply.
+# arping exits non-zero when nothing does, which is the normal case here, so
+# the exit status is discarded deliberately.
+arping -U -c 3 -I "$IFACE" -s "$ADDR" "$ADDR" >/dev/null 2>&1 || true
+echo "arp-announce: $ADDR is at $MAC on $IFACE"
+exit 0

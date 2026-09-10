@@ -1,0 +1,134 @@
+#!/bin/sh
+# Hold static ARP entries for peers this host cannot resolve by asking.
+#
+# Announcing (arp-announce) fixes the other direction and only for peers that
+# hear a broadcast. On this access point that means the wired segment: from
+# this Pi, a cold-cache ping of wired eridani resolves in one go, 3 of 3,
+# while wireless bench5 and the oven do not resolve at all. So for wireless
+# peers the mapping has to be held rather than discovered.
+#
+# Two rules keep that from becoming a lie the host tells itself:
+#
+#   1. It never invents a MAC. A peer is pinned only from an address the
+#      kernel already learned, or from one an announce brings in. An unknown
+#      peer is left alone and retried next time.
+#   2. It verifies, and it is slow to act on a bad verification, and it
+#      never throws the mapping away.
+#
+# Rule 2 was learned twice in five minutes. The first version released after
+# ONE failed check of two pings, and the first thing it did in production was
+# drop the oven -- whose wireless link had already been measured at 95 to
+# 1115 ms with a third of packets lost. The second version was slower to
+# release but still released by DELETING the entry, and on this network that
+# is a one-way door: a wireless peer that has been forgotten cannot be
+# resolved again, because resolving is exactly what does not work here. The
+# oven went from pinned to permanently unreachable in one pass.
+#
+# So a release now means demoting the entry to STALE rather than deleting
+# it. The mapping stays usable -- the kernel sends to a stale entry
+# immediately -- but it is no longer PERMANENT, so the kernel is free to
+# replace it the moment the peer says anything, which is how a machine that
+# changes its NIC recovers. The MAC is also remembered on disk, so a peer
+# that goes quiet over a reboot can be pinned again from what was last
+# known rather than from nothing.
+#
+# Peers are listed one per line in /etc/toaster/arp-peers, address only:
+#
+#   10.20.10.242     # the oven
+#
+# See tools/host/arp-peers.example.
+set -eu
+
+PEERS="${TOASTER_ARP_PEERS:-/etc/toaster/arp-peers}"
+# Misses are per-boot and belong in /run. What was learned is worth keeping
+# across one, and belongs in /var/lib.
+STATE="${TOASTER_ARP_STATE:-/run/toaster/arp-pin}"
+KNOWN="${TOASTER_ARP_KNOWN:-/var/lib/toaster/arp-known}"
+# Three consecutive failures at the timer's three-minute cadence is most of
+# ten minutes of a peer not answering at all.
+RELEASE_AFTER=3
+
+IFACE="${1:-}"
+if [ -z "$IFACE" ]; then
+    IFACE=$(ip -4 route show default 2>/dev/null | awk '{print $5; exit}')
+fi
+[ -n "$IFACE" ] || { echo "arp-pin: no default route" >&2; exit 0; }
+[ -r "$PEERS" ] || { echo "arp-pin: no peer list at $PEERS" >&2; exit 0; }
+mkdir -p "$STATE" "$(dirname "$KNOWN")"
+touch "$KNOWN"
+
+remembered() {
+    awk -v a="$1" '$1 == a {print $2; exit}' "$KNOWN" 2>/dev/null
+}
+
+remember() {
+    tmp="$KNOWN.$$"
+    awk -v a="$1" '$1 != a' "$KNOWN" > "$tmp" 2>/dev/null || true
+    printf '%s %s\n' "$1" "$2" >> "$tmp"
+    mv "$tmp" "$KNOWN"
+}
+
+lladdr_for() {
+    ip neigh show "$1" dev "$IFACE" 2>/dev/null \
+        | awk '/lladdr/ {for (i=1;i<NF;i++) if ($i=="lladdr") {print $(i+1); exit}}'
+}
+
+# Generous on purpose: this runs every three minutes and is allowed to be
+# slow. What it must not be is trigger-happy.
+answers() {
+    ping -c 4 -W 3 -I "$IFACE" "$1" >/dev/null 2>&1
+}
+
+while read -r line; do
+    addr=${line%%#*}
+    addr=$(printf '%s' "$addr" | tr -d '[:space:]')
+    [ -n "$addr" ] || continue
+    misses_file="$STATE/$(printf '%s' "$addr" | tr -c 'a-zA-Z0-9' '_')"
+
+    # The kernel's answer wins when it has one: it is the only source here
+    # that can notice a peer changing its NIC.
+    mac=$(lladdr_for "$addr")
+    if [ -z "$mac" ]; then
+        # Ask once -- on a network that answers, this is all that was ever
+        # needed; on this one it fails and costs two seconds.
+        arping -c 1 -w 2 -I "$IFACE" "$addr" >/dev/null 2>&1 || true
+        mac=$(lladdr_for "$addr")
+    fi
+    if [ -n "$mac" ]; then
+        [ "$(remembered "$addr")" = "$mac" ] || remember "$addr" "$mac"
+    else
+        mac=$(remembered "$addr")
+        [ -n "$mac" ] && echo "arp-pin: $addr not resolvable; using remembered $mac"
+    fi
+    if [ -z "$mac" ]; then
+        echo "arp-pin: $addr unknown, left for normal resolution"
+        continue
+    fi
+
+    if answers "$addr"; then
+        rm -f "$misses_file"
+        ip neigh replace "$addr" lladdr "$mac" dev "$IFACE" nud permanent
+        echo "arp-pin: $addr held at $mac"
+        continue
+    fi
+
+    misses=0
+    [ -r "$misses_file" ] && misses=$(cat "$misses_file" 2>/dev/null || echo 0)
+    misses=$((misses + 1))
+    printf '%s' "$misses" > "$misses_file"
+
+    if [ "$misses" -lt "$RELEASE_AFTER" ]; then
+        # Keep whatever entry exists. A peer that is asleep, busy or on a
+        # bad patch of a wireless link is the common case, and the pin is
+        # what will let it be reached the moment it comes back.
+        echo "arp-pin: $addr did not answer ($misses/$RELEASE_AFTER); holding $mac"
+        continue
+    fi
+
+    # Demoted, not deleted: still usable, but no longer immune to being
+    # corrected by anything the peer says.
+    ip neigh replace "$addr" lladdr "$mac" dev "$IFACE" nud stale
+    rm -f "$misses_file"
+    echo "arp-pin: $addr silent for $misses checks; $mac demoted to stale"
+done < "$PEERS"
+exit 0

@@ -266,9 +266,25 @@ to fix: the climb is now at 40% of capability and the last ten degrees at
 0.15 C/s, reaching 125 C at 259 s instead of 239 s. Twenty seconds, on a
 four-hour run.
 
-The overshoot improves as a side effect -- simulated 127.4 C to 126.7 --
-which is worth having as margin for a bake started on a warm oven, but is
-not the reason.
+The overshoot improves as a side effect, and by far more than simulated.
+Run 0015, 2026-09-10, started from 30.3 C and aborted once it had settled:
+
+    peak                 125.44 C     overshoot 0.44
+    run 0009, old curve  127.19 C     overshoot 2.19
+    simulated            126.70 C     overshoot 1.70
+
+Five times less overshoot, where the model promised less than two. J-STD-033
+allows plus or minus five, so the old curve was never failing -- but 0.44 C
+of it leaves the whole allowance for a bake started on a warm oven, which is
+the case this has to survive and the one nobody has run.
+
+It reached 125 C at 256 s against the old curve's 239. Seventeen seconds,
+for that, on a four-hour run.
+
+The run was aborted deliberately at the setpoint rather than held: the
+four-hour hold is what run 0009 validated, at 125.0 C mean with a band of
++/-1.0, and nothing about this change touches it. What changed is the
+approach, and the approach is over by 260 s.
 
 Enclosure cold junction reached 48.3 C at t=11539 s and was still rising
 slowly when the run ended, against a 70 C fault. Four hours is the longest

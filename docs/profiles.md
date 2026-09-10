@@ -119,11 +119,33 @@ interaction between two features that were each tested alone: the profile
 generator shapes an opening around measured dead time, and entry_time_for
 credits the oven for time it has not thermally done.
 
-It is recorded rather than fixed. The run is good, back-to-back runs from
-~50 C have met their windows before, and a change to warm-start entry at
-this stage would be an untested fix to something that is currently working.
-The obvious shape of a fix, if it is ever wanted, is to stop entry_time_for
-skipping past the part of a curve that is dead time rather than ramp.
+#### And it does not need fixing, which was measured rather than argued
+
+The warmest start the supervisor allows is 60 C. Run 0013 took it: oven at
+59.4 C, entered 56.9 s in, where the curve is 55% steeper than at run 0011's
+entry. That is the worst case this oven can produce, and the two runs put
+the whole range on record:
+
+    start      entry     worst lag     peak       TAL
+    34.1 C     33.9 s      -24.3 C    246.69 C    97.7 s
+    59.4 C     56.9 s      -32.2 C    246.75 C    99.5 s
+    cold        0.0 s        -5 C     (simulated) --
+
+Eight more degrees of transient for twenty-five more degrees of start
+temperature, and the outcome does not move: the peaks are 0.06 C apart and
+the time above liquidus 1.8 s apart. The joint sees the same process.
+
+The lag is also self-limiting for a reason worth writing down. A warmer
+oven enters at a steeper part of the curve, which should make the lag worse
+-- but a warmer oven has just come off a run, so its element is warmer too
+and the transport lag is shorter. The two effects push opposite ways.
+
+So it stays. It is a transient in the display, below 90 C, gone before the
+soak, and the alternatives all make things worse: entering earlier puts the
+target below the oven and stops the controller driving at exactly the moment
+the element needs waking, and the real remedy -- pre-charging the element
+before the run clock starts -- is a controller feature, not a profile tweak,
+and would be an untested change to something that passes every check.
 
 ## TS391LT -- Sn42/Bi57.6/Ag0.4, mp 138 C
 
@@ -261,6 +283,23 @@ number actually measures on this fixture is how long the room takes to
 cool the oven back through 80 C after the run ends, which is not a
 property of the profile, and 187 s of it was already most of the old
 ceiling.
+
+Run 0012, 2026-09-10, on the gentler curve: **peak 102.5 C**, inside the
+85-105 window and barely better than the 103.5 C the old curve produced.
+Dropping the climb to 55% of capability was worth one degree. The fixture is
+84 s long and simply does not run long enough for the oven to settle before
+it ends -- its overshoot happens in cooldown, coasting on stored element
+heat, and the ramp is not what puts the heat there.
+
+Worth recording against the simulator rather than the profile: the host
+harness predicted 96.8 C, out by 5.7. It reproduces every reflow profile to
+within 1-3 C and the bake to 0.05, and it is worst on the one profile that
+is shortest and the only one with a preheat. Trust it for a curve the oven
+has time to follow; do not trust it for this fixture.
+
+It does exercise preheat, which is the point: run 0012 held 45.00 C at half
+power from a 26 C start before the run clock began, which no other profile
+does.
 
 ## What the door actually does, measured
 

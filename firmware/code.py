@@ -15,6 +15,7 @@ import time
 import board
 import supervisor
 
+from oven import bringup as bringup_mod
 from oven.app import App, STATE_IDLE, STATE_RUNNING, STATE_PREHEAT, \
     STATE_COOLDOWN, STATE_REPORT, STATE_FAULT
 from oven.controller import Controller, FeedForward, PID
@@ -62,20 +63,26 @@ def remember_boot_mode():
 
 
 def set_rtc(epoch_seconds):
-    """Put the network's answer into the board's own clock, then start over.
+    """Put the network's answer into the board's own clock.
 
-    The reload is the point. Importing the WiFi stack costs 7280 bytes
-    measured, and sys.modules holds that for the life of the program even
-    after the connection is dropped -- 22% of a heap that then has to build
-    a run screen. It showed immediately: on the boot that first synced the
+    This used to restart the program afterwards, and the reason was real at
+    the time: importing the WiFi stack cost 7280 bytes measured, sys.modules
+    held them for the life of the program even after the connection was
+    dropped, and that was 22% of a heap which then had to build a run
+    screen. It showed immediately -- on the boot that first synced the
     clock, the font metrics failed to load and every button label fell back
-    to being centred by estimate.
+    to being centred by estimate. Deleting the modules by hand made it
+    worse, 25392 free becoming 11472.
 
-    Deleting the modules by hand did not give it back; it made things
-    worse, 25392 free becoming 11472. So instead the clock is written to
-    the RTC and the program restarts. The next pass sees a clock that is
-    already set, never imports the radio at all, and runs with the full
-    heap. It costs one extra boot per power cycle, and nothing per run.
+    The reason has expired twice over. The radio now stays associated for
+    the whole session, so the modules are resident whatever happens here and
+    the restart freed memory that was re-spent seconds later by the page.
+    And the frozen build moved the numbers: measured on the board with the
+    server up, 60368 free with a largest block of 8624.
+
+    What the restart cost was a second cold boot on every power cycle, with
+    the self-test panel frozen on screen for the whole of the first one.
+    That is what "it boots up twice and looks hung" was.
     """
     try:
         import rtc
@@ -85,13 +92,7 @@ def set_rtc(epoch_seconds):
         print("# clock: could not set the RTC (%r); the time will not "
               "survive this restart" % e)
         return False
-    print("# clock: set; restarting so the run gets its memory back")
-    try:
-        supervisor.reload()
-    except Exception as e:
-        print("# clock: could not restart (%r); continuing with the radio "
-              "still resident" % e)
-        return False
+    print("# clock: %s UTC" % now_iso())
     return True
 
 
@@ -114,11 +115,12 @@ def now_epoch():
 def now_iso():
     """The current UTC time as a sortable stamp, or None if unknown.
 
-    Reads the RTC rather than anything sync_clock returned. sync_clock
-    returns None in the ordinary case -- when the clock is already set and
-    the radio is deliberately not touched -- so relying on its return value
-    put "monotonic+" in the header of every log except the first after a
-    power cut, which is exactly backwards.
+    Reads the RTC rather than anything the network handed back. The
+    bring-up reports a time only on the boot that actually fetched one --
+    never when the clock was already set and the radio was deliberately not
+    asked -- so relying on that value put "monotonic+" in the header of
+    every log except the first after a power cut, which is exactly
+    backwards.
     """
     try:
         import rtc
@@ -160,14 +162,57 @@ class WebService(object):
         self.radio = None
         self.server = None
         self.address = None
+        self.bringup = None
+        self.on_epoch = None
+        self.status = None
 
-    def start(self):
+    def advance(self):
+        """One step towards being up, or one poll once it is.
+
+        Called from the loop, while idle, and it returns immediately. That
+        is the whole design: bringing the radio up used to be one blocking
+        call of a measured 24.22 s, done twice at boot -- once for the clock
+        and once for the page -- with a reload between them. The oven
+        answered nothing for the whole of it and looked hung, which is
+        exactly what it was reported as.
+
+        Returns False when there is no point calling again.
+        """
         if self.server is not None:
+            self.poll()
             return True
+        if self.bringup is None:
+            return self._begin()
+
+        state = self.bringup.step()
+        self.status = self.bringup.status_text()
+        if state == bringup_mod.FAILED:
+            print("# web: no network (%s)" % self.bringup.detail)
+            self.bringup = None
+            self.stop()
+            return False
+        if state != bringup_mod.READY:
+            return True
+
+        # Joined. The clock, if it was asked for and the network had one to
+        # give, then the page.
+        if self.bringup.epoch is not None:
+            if self.on_epoch is not None:
+                self.on_epoch(self.bringup.epoch)
+        elif self.bringup.want_clock:
+            # Only worth saying when a clock was actually wanted. Printing
+            # the bring-up's detail unconditionally reported "clock:
+            # starting" on every warm boot, which reads as a failure and is
+            # the clock already being set.
+            print("# clock: %s" % self.bringup.detail)
+        self.address = self.bringup.ip
+        self.bringup = None
+        return self._serve()
+
+    def _begin(self):
         try:
             from oven import netconfig
             from oven.radio import Radio
-            from adafruit_esp32spi import adafruit_esp32spi_wsgiserver as wsgi
         except Exception as e:
             print("# web: not available (%r)" % e)
             return False
@@ -175,18 +220,20 @@ class WebService(object):
         if not networks:
             return False
         self.radio = Radio()
-        chosen = netconfig.choose(networks, self.radio.scan())
-        if chosen is None or not self.radio.connect(chosen):
-            self.radio.close()
-            self.radio = None
-            return False
+        self.bringup = bringup_mod.Bringup(
+            networks, self.radio, want_clock=not clock_is_set())
+        self.status = self.bringup.status_text()
+        return True
+
+    def _serve(self):
         try:
+            from adafruit_esp32spi import adafruit_esp32spi_wsgiserver as wsgi
             wsgi.set_interface(self.radio._hardware())
             self.server = wsgi.WSGIServer(80, application=self._app)
             self.server.start()
-            self.address = self.radio.ip
             print("# web: http://%s/ -- runs and profiles, while idle"
                   % self.address)
+            self.status = self.address
             return True
         except Exception as e:
             print("# web: could not start (%r)" % e)
@@ -195,10 +242,12 @@ class WebService(object):
 
     def stop(self):
         self.server = None
+        self.bringup = None
         if self.radio is not None:
             self.radio.close()
             self.radio = None
         self.address = None
+        self.status = None
 
     def poll(self):
         if self.server is None:
@@ -353,7 +402,7 @@ def uploader_pending(logs):
         return []
 
 
-def upload_finished_runs(logs, state, heating):
+def upload_finished_runs(logs, state, heating, radio=None):
     """Send any runs the oven has kept but not yet handed over.
 
     Only when the oven is idle and not heating -- netconfig.may_connect
@@ -364,12 +413,21 @@ def upload_finished_runs(logs, state, heating):
     A log is marked sent only on a 2xx. Anything else leaves it pending,
     because marking it wrongly means the oven's copy is the only one and
     the next run's eviction may delete it.
+
+    *radio* is the one the web service already has associated, and it is
+    required. This used to construct its own, scan and join -- a second
+    independent bring-up, on the return to idle, which is the DONE press at
+    the end of every run. Two ESP_SPIcontrol objects on the same pins is
+    also how you get "ESP_CS in use" now that the first one never goes
+    away. Archiving is switched off on this oven, so that never fired; it
+    would have on the day somebody turned it on.
     """
     if logs is None:
         return 0
+    if radio is None:
+        return 0
     try:
         from oven import netconfig, uploader
-        from oven.radio import Radio
     except Exception as e:
         print("# archive: no networking available (%r)" % e)
         return 0
@@ -383,43 +441,32 @@ def upload_finished_runs(logs, state, heating):
     if not waiting:
         return 0
 
-    networks = netconfig.load()
-    if not networks:
-        return 0
-
     host, port, path = endpoint
-    radio = Radio()
     sent = 0
-    try:
-        chosen = netconfig.choose(networks, radio.scan())
-        if chosen is None or not radio.connect(chosen):
-            return 0
-        print("# archive: uploading %d run(s) to %s:%d%s"
-              % (len(waiting), host, port, path))
-        for name in waiting:
-            length = logs.size(name)
-            if length is None:
-                continue
-            ok = False
-            for _ in range(uploader.MAX_ATTEMPTS):
-                # A callable, not the bytes: the log is streamed off the
-                # filesystem straight into the socket and never exists as
-                # one object. Reading a 26 kB run whole failed with
-                # MemoryError with the radio up.
-                if uploader.succeeded(
-                        radio.post(host, port, path, name,
-                                   lambda n=name: logs.chunks(n),
-                                   length=length)):
-                    ok = True
-                    break
-            if not ok:
-                print("# archive: %s not accepted; keeping it" % name)
-                break          # a receiver that is refusing will refuse the rest
-            if logs.mark_sent(name):
-                sent += 1
-                print("# archive: sent %s" % name)
-    finally:
-        radio.close()
+    print("# archive: uploading %d run(s) to %s:%d%s"
+          % (len(waiting), host, port, path))
+    for name in waiting:
+        length = logs.size(name)
+        if length is None:
+            continue
+        ok = False
+        for _ in range(uploader.MAX_ATTEMPTS):
+            # A callable, not the bytes: the log is streamed off the
+            # filesystem straight into the socket and never exists as
+            # one object. Reading a 26 kB run whole failed with
+            # MemoryError with the radio up.
+            if uploader.succeeded(
+                    radio.post(host, port, path, name,
+                               lambda n=name: logs.chunks(n),
+                               length=length)):
+                ok = True
+                break
+        if not ok:
+            print("# archive: %s not accepted; keeping it" % name)
+            break          # a receiver that is refusing will refuse the rest
+        if logs.mark_sent(name):
+            sent += 1
+            print("# archive: sent %s" % name)
     return sent
 
 
@@ -448,57 +495,6 @@ def clock_is_set():
         # "no", and the caller will go and ask the network.
         print("# clock: not set (%r)" % e)
         return False
-
-
-def sync_clock():
-    """Ask the network what time it is, once, at boot.
-
-    The oven has no battery-backed clock, so every run it records is
-    otherwise stamped with seconds since boot -- enough to plot a run
-    against itself, useless for saying which run it was.
-
-    Only at boot, and only here: the radio needs about 18 kB and the oven
-    has roughly 16 kB free once a run is on screen, so it cannot come up
-    mid-run. Nothing about the run depends on this succeeding.
-
-    Returns the epoch seconds at boot, or None. Callers add uptime.
-    """
-    if clock_is_set():
-        return None            # already known; do not pay for the radio
-
-    try:
-        from oven import netconfig
-        from oven.radio import Radio
-    except Exception as e:
-        print("# clock: no networking available (%r)" % e)
-        return None
-
-    networks = netconfig.load()
-    if not networks:
-        return None
-    if not netconfig.may_connect("idle", heating=False):
-        return None
-
-    radio = Radio()
-    try:
-        chosen = netconfig.choose(networks, radio.scan())
-        if chosen is None:
-            print("# clock: none of the known networks are in range")
-            return None
-        if not radio.connect(chosen):
-            return None
-        print("# clock: joined %s as %s" % (chosen.ssid, radio.ip))
-        now = radio.utc_now()
-        if now is None:
-            return None
-        from oven import timesync
-        print("# clock: %s UTC" % timesync.iso(now))
-        set_rtc(now)
-        return now
-    finally:
-        # The connection goes away either way. Holding a socket open for
-        # the life of a run is exactly the memory this cannot spare.
-        radio.close()
 
 
 def storage_is_writable():
@@ -735,14 +731,14 @@ def main():
             logs.end(summary)
             logging_run[0] = False
 
-    sync_clock()          # sets the RTC if it is not already set
-
     # Anything left over from a run that finished while the network was
     # down, or before an archive was configured. Without this a log that
     # missed its upload waits for the NEXT run to end, which may be days,
     # and may be evicted first.
-    if logs is not None:
-        upload_finished_runs(logs, "idle", False)
+    # ...but not here. At boot the radio is not up yet -- it comes up over
+    # the first few seconds of the loop, behind a live screen -- so this
+    # waits for the moment it is.
+    caught_up = [logs is None]
 
     print("# t,state,temp_c,target_c,duty,relay,cold_c,cpu_c")
 
@@ -848,6 +844,10 @@ def main():
             selected_ref[0].name if selected_ref[0] else "none")
 
     web = WebService(logs, (selected_ref[0], profiles), status_line)
+    # The clock is set on the connection the page is already making, rather
+    # than on a second one of its own. Two bring-ups at boot was two scans,
+    # two joins and a restart between them.
+    web.on_epoch = set_rtc
     # One attempt. If the radio is not there, do not spend a scan every
     # time round the loop looking for it.
     web_wanted = [True]
@@ -889,7 +889,7 @@ def main():
                 # Back to idle with nothing on the line: the one moment the
                 # radio is allowed up.
                 upload_finished_runs(logs, app.state,
-                                     hw.relay.is_on())
+                                     hw.relay.is_on(), radio=web.radio)
             previous_state[0] = app.state
 
         cmd = poll_command()
@@ -982,7 +982,8 @@ def main():
                 waiting = len(uploader_pending(logs))
                 print("# command UPLOAD: %d run(s) waiting" % waiting)
                 sent = upload_finished_runs(logs, app.state,
-                                            hw.relay.is_on())
+                                            hw.relay.is_on(),
+                                            radio=web.radio)
                 print("# command UPLOAD done: %d sent" % sent)
         elif cmd == "STATUS":
             print("# status state=%s temp=%s target=%s relay=%d profile=%s"
@@ -1074,7 +1075,8 @@ def main():
                                 selected_ref[0].name if selected_ref[0] else None,
                                 ready and selected_ref[0] is not None,
                                 None if ready else "oven too hot to start",
-                                address=web.address)
+                                address=web.address,
+                                net_status=web.status)
         except MemoryError:
             gc.collect()
             note_memory_failure("composing a screen")
@@ -1092,16 +1094,22 @@ def main():
                 note_memory_failure("drawing the screen")
 
         # The web page, only while idle and only between control steps --
-        # and after the frame, never before it. Bringing the radio up is
-        # the one call in this loop that blocks for tens of seconds, and
-        # ahead of the render it meant a cold boot showed nothing at all
-        # until the network was ready. The screen is what tells someone the
-        # oven is alive; it goes first.
+        # and after the frame, never before it. One step per pass: the
+        # radio comes up over several seconds of loop time rather than in
+        # one call that stops the oven, and the screen says what it is
+        # doing while it happens.
         if app.state == STATE_IDLE and not hw.relay.is_on():
-            if web.server is None and web_wanted[0]:
-                web_wanted[0] = web.start()
-            else:
-                web.poll()
+            if web_wanted[0]:
+                web_wanted[0] = web.advance()
+            if not caught_up[0] and web.server is not None:
+                # The first moment the radio has ever been up this boot.
+                # Anything left over from a run that finished while the
+                # network was down goes now; without this it waits for the
+                # NEXT run to end, which may be days, and may be evicted
+                # first.
+                caught_up[0] = True
+                upload_finished_runs(logs, app.state, hw.relay.is_on(),
+                                     radio=web.radio)
 
 
 try:

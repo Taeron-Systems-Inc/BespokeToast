@@ -152,6 +152,63 @@ boot puts the screen up first and brings the radio up behind it -- ahead of
 the render it meant a fresh boot showed nothing at all for as long as the
 network took.
 
+### Boot: one bring-up, and nothing waits for it
+
+Bringing the radio up is now `oven/bringup.py`: a state machine that does at
+most **one command to the co-processor per call** and returns. The loop calls
+it once per pass while idle, so the screen renders, the touchscreen is read
+and the control cadence is kept throughout.
+
+Measured on the board, a cold boot with the clock unset:
+
+    t = 9.9 s    first telemetry row -- imports, fonts, hardware done
+    t = 11.4 s   3.00 s gap: the splash and the self-test panel, deliberate
+    t = 14.4 s   home screen up, oven usable, START works
+    t = 41.4 s   joined, clock set, page serving
+                 -- and not one gap in the telemetry between those two
+
+Before, boot did this:
+
+    splash, self-test, then 24.22 s of FROZEN LOOP for the clock's own
+    connection, then supervisor.reload(), then splash and self-test again,
+    then another 24.22 s of frozen loop for the page's connection
+
+About fifty seconds, most of it with the oven answering nothing at all --
+no telemetry, no touch, no console -- while the self-test panel sat on
+screen with every line reading OK. It was reported as a hang twice, and it
+was indistinguishable from one.
+
+Three things were wrong and all three are fixed:
+
+**The radio came up twice.** The clock made its own connection and the page
+made another: two co-processor resets, two scans, two joins.  The clock is
+now read on the connection the page is already making.
+
+**It restarted in between.** `set_rtc` called `supervisor.reload()` to give
+back the 7280 bytes the WiFi imports leave in `sys.modules`. That reason had
+expired twice over: the radio now stays associated for the whole session, so
+those modules are resident whatever happens, and the frozen build leaves
+60368 free with the server up. The restart freed memory that was re-spent
+seconds later, and charged a second cold boot for it.
+
+**It blocked.** The waiting was never one long call -- the library polls, a
+scan sleeping 2 s between tries, a join reading a status register, the clock
+asked once a second. The longest indivisible thing is one SPI transaction at
+227 ms. So the waiting could always have been somebody else's turn, and now
+it is.
+
+The idle screen says which stage it is in on the line that used to read
+either an address or "no network": *looking for a network*, *joining
+Voxelis*, *setting the clock*, then the address.
+
+There is no abort button. One was considered, and the reason to want it was
+the lock-out; there is no lock-out left to escape.
+
+If the network is not there, the bring-up gives up on deadlines -- 20 s for
+a scan that finds nothing, three join attempts of 10 s -- and the line reads
+"no network". The oven runs regardless, with logs stamped from boot instead
+of wall clock.
+
 ### Nothing on this access point receives a broadcast
 
 Two devices with nothing in common -- a Raspberry Pi with a Broadcom radio

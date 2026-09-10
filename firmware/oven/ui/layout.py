@@ -177,19 +177,28 @@ def self_test(results):
     return out
 
 
-def web_address(address):
-    """What to type into a browser, or why there is nothing to type.
+def web_address(address, status=None):
+    """What to type into a browser, or what the oven is doing about it.
 
     Written out in full rather than as a bare address: the people who use
     this are not required to know that a number with three dots in it goes
     in the bar at the top.
+
+    *status* is the radio coming up -- "looking for a network", "joining
+    Voxelis", "setting the clock". It exists because that used to happen
+    behind a frozen self-test panel for the best part of a minute, and the
+    only thing anyone could tell was that the oven had stopped. It is one
+    line, on a screen that is live and takes a START press throughout.
     """
-    if not address:
-        return "no network"
-    return "http://%s" % address
+    if address:
+        return "http://%s" % address
+    if status:
+        return status
+    return "no network"
 
 
-def home(temp_c, profile_name, ready, reason=None, address=None):
+def home(temp_c, profile_name, ready, reason=None, address=None,
+         net_status=None):
     """The idle screen. *address* is where the oven is answering, if it is.
 
     It is on the screen because the screen is the only channel that works
@@ -203,7 +212,8 @@ def home(temp_c, profile_name, ready, reason=None, address=None):
         ("bitmap", 6, 6, T.LOGO_SMALL),
         ("text", 6, 76, _t(temp_c), T.BRAND, T.FONT_READOUT),
         ("text", 6, 134, profile_name or "no profile", T.TEXT, T.FONT_BODY),
-        ("text", 6, 156, web_address(address), T.DIM, T.FONT_SMALL),
+        ("text", 6, 156, web_address(address, net_status), T.DIM,
+         T.FONT_SMALL),
     ]
     if ready:
         out += button(6, BUTTON_ROW_Y, 150, T.ABORT_TOUCH_PX, "START",

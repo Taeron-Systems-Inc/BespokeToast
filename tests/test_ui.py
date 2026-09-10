@@ -605,3 +605,37 @@ def test_a_distant_door_does_not_take_over_the_screen():
                     door_in_s=90.0, **kw)
     assert [c for c in far if c[0] == "plot"], "chart hidden far too early"
     assert "THE DOOR" not in [c[3] for c in far if c[0] == "text"]
+
+
+def test_the_idle_screen_says_what_the_radio_is_doing():
+    """That line used to be the only thing anyone had, and it said "no
+    network" for the whole of a bring-up that looked like a hang."""
+    assert L.web_address(None, "joining Voxelis") == "joining Voxelis"
+    assert L.web_address(None, "setting the clock") == "setting the clock"
+    # An address, once there is one, beats any status.
+    assert L.web_address("10.20.10.242", "joining") == "http://10.20.10.242"
+    # And nothing at all is still the honest answer.
+    assert L.web_address(None, None) == "no network"
+
+
+def test_the_status_reaches_the_idle_screen():
+    """L.home takes it as a keyword with a default, so forgetting to pass
+    it renders "no network" throughout a perfectly good bring-up and
+    nothing anywhere fails -- the same shape of silent breakage that
+    address= and open_the_door= both had."""
+    screen = L.home(24.0, "TS391SNL", True, address=None,
+                    net_status="looking for a network")
+    texts = [c[3] for c in screen if c[0] == "text"]
+    assert "looking for a network" in texts
+
+    up = L.home(24.0, "TS391SNL", True, address="10.20.10.242",
+                net_status="looking for a network")
+    assert "http://10.20.10.242" in [c[3] for c in up if c[0] == "text"]
+
+
+def test_the_idle_screen_still_takes_a_start_press_during_a_bring_up():
+    """The reason there is no abort button. Nothing about the radio coming
+    up stops someone using the oven, so there is nothing to abort."""
+    screen = L.home(24.0, "TS391SNL", True, address=None,
+                    net_status="joining Voxelis")
+    assert L.hit(screen, 40, L.BUTTON_ROW_Y + 10) == "start"

@@ -383,14 +383,14 @@ def test_the_frame_is_drawn_before_the_radio_is_touched():
                      and n.func.attr == "render")
     start = line_of(lambda n: isinstance(n, ast.Call)
                     and isinstance(n.func, ast.Attribute)
-                    and n.func.attr == "start"
+                    and n.func.attr == "advance"
                     and getattr(n.func.value, "id", None) == "web")
     assert render is not None, "the loop never renders"
     assert start is not None, "the loop never starts the web service"
     assert start > render, (
-        "web.start() (line %d) runs before display.render() (line %d) in "
-        "the loop, so a cold boot shows nothing for as long as the radio "
-        "takes" % (start, render))
+        "web.advance() (line %d) runs before display.render() (line %d) in "
+        "the loop, so a cold boot shows nothing until the radio is up "
+        "instead of showing what it is doing" % (start, render))
 
 
 def test_the_web_service_only_polls_while_idle():
@@ -406,11 +406,16 @@ def test_the_web_service_only_polls_while_idle():
                                "code.py")).read()
     tree = ast.parse(source)
 
+    # Both the names that reach the co-processor. advance() is the one the
+    # loop calls; it polls the socket once the server is up and steps the
+    # radio's bring-up before that, and either way it is SPI.
+    TOUCHES_THE_RADIO = ("poll", "advance")
+
     def calls_poll(node):
         for inner in ast.walk(node):
             if (isinstance(inner, ast.Call)
                     and isinstance(inner.func, ast.Attribute)
-                    and inner.func.attr == "poll"
+                    and inner.func.attr in TOUCHES_THE_RADIO
                     and getattr(inner.func.value, "id", None) == "web"):
                 return True
         return False
@@ -421,12 +426,28 @@ def test_the_web_service_only_polls_while_idle():
                 return True
         return False
 
-    assert calls_poll(tree), "web.poll() is never called"
-    guards = [n for n in ast.walk(tree)
-              if isinstance(n, ast.If) and calls_poll(n) and tests_idle(n)]
-    assert guards, (
-        "web.poll() is not inside any if that tests the run state; polling "
-        "during a run would put network latency in the control loop")
+    assert calls_poll(tree), "nothing in code.py ever drives the web service"
+
+    # Every one of them, not just one of them. A second unguarded call site
+    # is exactly how this would come back.
+    def guarded(call_node):
+        for n in ast.walk(tree):
+            if isinstance(n, ast.If) and tests_idle(n):
+                for inner in ast.walk(n):
+                    if inner is call_node:
+                        return True
+        return False
+
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute)
+             and n.func.attr in TOUCHES_THE_RADIO
+             and getattr(n.func.value, "id", None) == "web"]
+    unguarded = [n.lineno for n in calls if not guarded(n)]
+    assert not unguarded, (
+        "code.py touches the radio at line %s without testing the run "
+        "state; SPI during a run puts network latency inside the loop that "
+        "decides when the heater switches off" % unguarded)
 
 
 def test_the_idle_screen_is_given_the_address_it_displays():
@@ -448,3 +469,55 @@ def test_the_idle_screen_is_given_the_address_it_displays():
         value = [k.value for k in call.keywords if k.arg == "address"][0]
         assert isinstance(value, ast.Attribute) and value.attr == "address", (
             "address= must come from the web service, not a constant")
+
+
+def test_boot_does_not_restart_the_program():
+    """The oven booted twice on every power cycle.
+
+    Setting the RTC used to call supervisor.reload(), to give back the
+    7280 bytes the WiFi imports left in sys.modules. That reason has
+    expired twice: the radio now stays associated for the whole session, so
+    the modules are resident whatever happens, and the frozen build leaves
+    60368 free with the server up. What the restart still cost was a second
+    cold boot with the self-test panel frozen on screen for the first one --
+    which is what "it boots up twice and looks hung" was.
+    """
+    import ast
+    tree = _code_py_tree()
+    reloads = [n.lineno for n in ast.walk(tree)
+               if isinstance(n, ast.Call)
+               and isinstance(n.func, ast.Attribute)
+               and n.func.attr == "reload"
+               and getattr(n.func.value, "id", None) == "supervisor"]
+    assert not reloads, (
+        "code.py restarts itself at line %s; boot pays for the whole "
+        "startup twice" % reloads)
+
+
+def test_the_radio_comes_up_once_at_boot_not_twice():
+    """The clock and the page each used to bring the radio up from scratch
+    -- two scans, two joins, a restart between them, and about fifty seconds
+    of it. The clock is now fetched on the connection the page is already
+    making."""
+    import ast
+    tree = _code_py_tree()
+    constructions = [n.lineno for n in ast.walk(tree)
+                     if isinstance(n, ast.Call)
+                     and getattr(n.func, "id", None) == "Radio"]
+    assert len(constructions) <= 1, (
+        "Radio() is constructed at %s. Each one is a co-processor reset, a "
+        "scan and a join." % constructions)
+
+
+def test_setting_the_clock_is_wired_to_the_bring_up():
+    """Otherwise the RTC is never set and every log is stamped from boot --
+    which fails silently, and only shows up when somebody reads a log."""
+    import ast
+    tree = _code_py_tree()
+    wired = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Assign)
+             and any(isinstance(t, ast.Attribute) and t.attr == "on_epoch"
+                     for t in n.targets)]
+    assert wired, "nothing assigns web.on_epoch, so the clock is never set"
+    assert any(getattr(n.value, "id", None) == "set_rtc" for n in wired), (
+        "web.on_epoch is assigned something other than set_rtc")

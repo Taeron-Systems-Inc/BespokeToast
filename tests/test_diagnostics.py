@@ -26,6 +26,11 @@ JUSTIFIED_SILENT = {
     # are exhausted. Warning on every poll would say the same thing twenty
     # times while the co-processor is simply not ready yet.
     "oven/radio.py": "retry loop reports once after exhausting attempts",
+    # The co-processor raises "_GET_TIME returned 0" as its way of saying
+    # "SNTP is not ready yet", once a second for up to twenty seconds. It is
+    # a poll, not an error, and the outcome IS reported: bringup ends in
+    # READY with a detail saying the network gave no time, or with an epoch.
+    "oven/bringup.py": "SNTP polling; the outcome is reported by state",
 }
 
 # Reporting a failure through an injected callback counts as speaking. It is

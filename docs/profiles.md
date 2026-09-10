@@ -279,14 +279,15 @@ Run 0008, 2026-09-08: peak 252.8 C, reached in 261 s, max ramp 2.03 C/s.
 The door was kept shut for the whole 600 s and the log ran on past it, so
 the free-fall curve is the longest and cleanest this oven has produced.
 
-It also showed that chamber temperature alone does not predict cooling.
-Between 180 and 224 C this run fell at 0.62-0.69 of the rate the existing
-table gives for those temperatures, converging to 0.97 by 81 C. The oven
+It also appeared to show that chamber temperature alone does not predict
+cooling: between 180 and 224 C it fell at 0.62-0.69 of the rate the table
+gave, converging to 0.97 by 81 C. The reading at the time was that the oven
 body was hotter than when the table was measured -- cold junction 53.4 C
-against 41.8 -- and a hotter body radiates back into a cooling chamber.
-The table was NOT rewritten from this run: one run cannot separate "the
-table is wrong" from "the table is right for a cooler oven", and the
-second is the more likely reading.
+against 41.8 -- and a hotter body radiates back into a cooling chamber. The
+table was not rewritten, on the grounds that one run cannot separate "the
+table is wrong" from "the table is right for a cooler oven".
+
+**Run 0010 separated them, and it was mostly the first.** See below.
 
 The check line "time above liquidus FAILED 1033 s" in this log is not a
 result. STEP 250 C has no liquidus, and the guard that suppresses that
@@ -314,3 +315,44 @@ first attempt made the run peak at 212 C -- but that was a climb asking
 twice the oven's capability, not the missing hold. With the climb matched
 to capability the hold is worth about 5 C of peak and 5 C of where the
 relay stops firing, and 60 s buys nothing that 30 does not.
+
+### Run 0010, 2026-09-10: what it was for
+
+    peak                    252.94 C   (simulated 253.04)
+    relay last fired at     250.94 C   (run 0008: 232 C)
+    cold junction max        47.31 C   (fault at 70)
+    free cooling            3762 samples, 245.1 C to 58.4 C, relay open
+
+That second line is the entire point of rebuilding the profile. Run 0008
+stopped driving at 232 C, below where the cooling table already reached, so
+it extended nothing. This one hands over 187 degrees of clean free fall.
+
+**The cooling table is now this run**, replacing the one stitched from the
+two 2026-08-25 step tests. That table had two artifacts at its seams -- a
+25% discontinuity at 190->195 C and 8.7% at 230->235 C where measurement
+gave way to flat extrapolation -- and they made it non-monotonic: it had the
+oven shedding heat *faster* at 190 C than at 225 C, which cannot be true of
+loss to a fixed ambient. The new one has a single 0.9% inversion at the top,
+in the two smallest bins.
+
+Validated against run 0008, which it was not built from: mean absolute error
+0.048 C/s against the old table's 0.151, over 225.9 to 134.7 C. 3.2 times
+closer.
+
+The residual is the real effect the artifact was hiding. Run 0008 still
+cools 5-20% slower than this table at every temperature, consistently and
+without a seam, and its body was hotter -- cold junction 53.4 C against
+47.3, because it held a minute at the top where run 0010 held thirty
+seconds. So the original observation was two things: a table artifact, and a
+body-heat effect about a third its size. Only the first is fixed.
+
+The table stops at 245 C, not 250. For the first ten seconds after the relay
+opens the rate is still settling as the element sheds its own heat --
++0.09 C/s at the instant of opening, -0.36 at four seconds, -0.75 by ten --
+so anything above 245 would be element decay recorded as free cooling.
+
+Three profiles changed as a result, all of them the ones whose cooling tails
+are generated: TS391SNL's run is 33 s longer, and the bake's and the step
+test's tails follow the slower curve. The two low-temperature pastes are
+untouched, because their tails are the manufacturer's straight lines rather
+than this oven's measurement.

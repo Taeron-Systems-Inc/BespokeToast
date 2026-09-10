@@ -10,6 +10,13 @@ it is still not something to do by accident.
   python3 tools/deploy.py /mnt/circuitpy            # copy, then verify
   python3 tools/deploy.py /mnt/circuitpy --dry-run
   python3 tools/deploy.py /mnt/circuitpy --force    # deploy anyway (do not)
+  python3 tools/deploy.py --standalone              # hand the volume back
+
+A deploy needs the HOST to own CIRCUITPY, and the oven needs to own it to
+record a run. So every deploy leaves the oven unable to log, and --standalone
+is how it is given back. Forgetting that is not loud: the oven runs perfectly
+and simply keeps no record, which is only discovered when someone goes
+looking for the log afterwards.
 """
 import hashlib
 import os
@@ -21,6 +28,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SRC = os.path.join(ROOT, "firmware")
 CHARACTERISATION = os.path.join(ROOT, "data", "oven-characterisation.json")
+
+# From oven/bootmode.py, repeated rather than imported: this runs on the
+# host, where firmware/ is not on the path.
+HOST_MODE = 0xA5
+STANDALONE_MODE = 0x5A
 
 SKIP_DIRS = {"__pycache__"}
 SKIP_SUFFIX = (".pyc",)
@@ -205,8 +217,8 @@ def running_check(dest, port=None, listen_s=6.0):
 
 
 
-def claim_volume_for_the_host(port=None, mount=None, wait_s=30.0):
-    """If the oven owns the filesystem, take it back and reset.
+def set_boot_mode(mode_byte, port=None, wait_s=30.0):
+    """Record who owns CIRCUITPY on the next boot, and hard-reset into it.
 
     In standalone mode the oven has write access and the host's volume is
     read-only, so a deploy simply cannot write. That is the correct state
@@ -226,8 +238,8 @@ def claim_volume_for_the_host(port=None, mount=None, wait_s=30.0):
     port = resolve_port(port)
     script = (
         "import microcontroller\r\n"
-        "microcontroller.nvm[0:2] = bytearray((0x7E, 0xA5))\r\n"
-        "import microcontroller; microcontroller.reset()\r\n"
+        "microcontroller.nvm[0:2] = bytearray((0x7E, 0x%02X))\r\n"
+        "import microcontroller; microcontroller.reset()\r\n" % mode_byte
     )
     # Opening the port often fails with EIO on the first try, especially
     # just after the board has re-enumerated. Every manual recovery needed
@@ -244,26 +256,104 @@ def claim_volume_for_the_host(port=None, mount=None, wait_s=30.0):
             time.sleep(3)
     if handle is None:
         return "could not reach %s after 4 attempts (%r)" % (port, last)
+    lines = script.strip().split("\r\n")
     try:
         time.sleep(1.0)
         for _ in range(3):
             handle.write(b"\x03")
             time.sleep(0.4)
         handle.read(800)
-        for line in script.strip().split("\r\n"):
+        for line in lines[:-1]:
             handle.write((line + "\r\n").encode())
             time.sleep(0.3)
-        handle.flush()
     except Exception as e:
-        return "could not reclaim over %s (%r)" % (port, e)
+        return "could not set the mode over %s (%r)" % (port, e)
+    try:
+        # The last line is the reset, and it takes the port with it. The
+        # write, the flush or the close then raises EIO -- reliably, on this
+        # board -- and treating that as a failure meant reporting that the
+        # boot mode could not be set at the exact moment it had been. The
+        # nvm write is the line before, and it has already been acked.
+        handle.write((lines[-1] + "\r\n").encode())
+        handle.flush()
+    except Exception:
+        pass
     finally:
         try:
             handle.close()
         except Exception:
             pass
-    # The board reboots and re-enumerates; the volume comes back writable.
+    # The board reboots and re-enumerates.
     time.sleep(wait_s)
     return None
+
+
+def claim_volume_for_the_host(port=None, mount=None, wait_s=30.0):
+    """Take CIRCUITPY back from the oven so a deploy can write to it.
+
+    In standalone mode the oven has write access and the host's volume is
+    read-only, so a deploy simply cannot write. That is the correct state
+    for the oven to be in when it is running on its own -- it is how it
+    records a run -- but it is useless for programming.
+
+    Rather than leave someone staring at "Read-only file system", this sets
+    the boot mode over the serial console and hard-resets the board. Serial
+    is always available when a cable is attached, which is exactly when a
+    deploy is happening. Two lock-outs were rescued by hand this way before
+    it was automated.
+    """
+    return set_boot_mode(HOST_MODE, port=port, wait_s=wait_s)
+
+
+def mounted_circuitpy():
+    """Every path this host has CIRCUITPY mounted at, writable or not.
+
+    Handing the volume back while the host still holds it mounted read-write
+    is how a filesystem gets two writers, so this is a refusal, not a
+    warning. Identified by boot_out.txt rather than by label, because the
+    label lives on the device and the mount table only records the source.
+    """
+    out = []
+    try:
+        with open("/proc/mounts") as f:
+            rows = f.read().splitlines()
+    except Exception:
+        return out
+    for row in rows:
+        parts = row.split()
+        if len(parts) < 3 or parts[2] not in ("vfat", "msdos", "exfat"):
+            continue
+        point = parts[1].replace("\\040", " ")
+        if os.path.exists(os.path.join(point, "boot_out.txt")):
+            out.append(point)
+    return out
+
+
+def hand_volume_back_to_the_oven(port=None):
+    """Give CIRCUITPY to the oven, so it can record its next run.
+
+    The obvious way -- unplug the cable -- takes two power cycles, because
+    the mode is recorded a boot late by design: the first boot after the
+    cable comes out still uses the mode the previous boot wrote. Setting it
+    here means one reset, with the cable still attached, which is also the
+    only way to watch the result on the console.
+    """
+    held = mounted_circuitpy()
+    if held:
+        print("!! CIRCUITPY is still mounted at %s" % ", ".join(held))
+        print("   Handing it to the oven while this host holds it mounted")
+        print("   gives the volume two writers. Unmount first:")
+        for point in held:
+            print("     sudo umount %s" % point)
+        return 1
+    problem = set_boot_mode(STANDALONE_MODE, port=port)
+    if problem:
+        print("!! could not set the boot mode: %s" % problem)
+        return 1
+    print(".. the oven owns CIRCUITPY again and can record its next run.")
+    print("   The cable is still attached, so a further hard reset hands it")
+    print("   back to this host -- that is by design.")
+    return 0
 
 
 # Libraries this firmware carries frozen in flash. A copy of any of these on
@@ -297,6 +387,8 @@ def main(argv):
     if len(argv) < 2:
         print(__doc__)
         return 2
+    if "--standalone" in argv:
+        return hand_volume_back_to_the_oven()
     dest = argv[1]
     dry = "--dry-run" in argv
 

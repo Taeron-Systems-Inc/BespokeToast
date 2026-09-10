@@ -143,3 +143,105 @@ def test_the_real_code_py_declares_the_name_that_broke_the_board():
         os.path.join(os.path.dirname(deploy.__file__), "..", "firmware",
                      "code.py"))
     assert ("oven.profile", "for_operators") in pairs
+
+
+def test_handing_the_volume_back_refuses_while_the_host_holds_it(tmp_path,
+                                                                 monkeypatch):
+    """Two writers on one FAT volume is how a filesystem gets corrupted.
+
+    A deploy leaves the host owning CIRCUITPY, and the natural next step is
+    to hand it straight back -- with the mount still up, because nothing
+    made you unmount it.
+    """
+    import tools.deploy as d
+
+    point = tmp_path / "circuitpy"
+    point.mkdir()
+    (point / "boot_out.txt").write_text("Adafruit CircuitPython 8.0.5\n")
+    monkeypatch.setattr(d, "mounted_circuitpy", lambda: [str(point)])
+
+    called = []
+    monkeypatch.setattr(d, "set_boot_mode",
+                        lambda *a, **k: called.append(a) or None)
+    assert d.hand_volume_back_to_the_oven() == 1
+    assert not called, "the boot mode was changed with the volume mounted"
+
+
+def test_handing_the_volume_back_asks_for_standalone_not_host(monkeypatch):
+    """--standalone once set the host byte, which quietly did nothing.
+
+    The two modes differ by one byte and the reset looks identical either
+    way, so the wrong one is invisible until a run keeps no log.
+    """
+    import tools.deploy as d
+
+    monkeypatch.setattr(d, "mounted_circuitpy", lambda: [])
+    seen = []
+    monkeypatch.setattr(d, "set_boot_mode",
+                        lambda mode, **k: seen.append(mode) or None)
+    assert d.hand_volume_back_to_the_oven() == 0
+    assert seen == [d.STANDALONE_MODE]
+    assert d.STANDALONE_MODE != d.HOST_MODE
+
+
+def test_mounted_circuitpy_identifies_the_volume_by_its_contents(tmp_path,
+                                                                 monkeypatch):
+    """By boot_out.txt, not by label: /proc/mounts records the source device
+    and the mount point, and the label lives on the device."""
+    import tools.deploy as d
+
+    board = tmp_path / "board"
+    board.mkdir()
+    (board / "boot_out.txt").write_text("x")
+    other = tmp_path / "camera"
+    other.mkdir()
+    mounts = tmp_path / "mounts"
+    mounts.write_text("/dev/sda1 %s vfat rw 0 0\n"
+                      "/dev/sdb1 %s vfat rw 0 0\n"
+                      "/dev/mmcblk0p2 / ext4 rw 0 0\n" % (board, other))
+
+    real_open = open
+    monkeypatch.setattr("builtins.open",
+                        lambda p, *a, **k: real_open(mounts, *a, **k)
+                        if p == "/proc/mounts" else real_open(p, *a, **k))
+    assert d.mounted_circuitpy() == [str(board)]
+
+
+def test_the_reset_taking_the_port_with_it_is_not_a_failure(monkeypatch):
+    """The last line of the mode script is microcontroller.reset().
+
+    Writing it disconnects the USB device, so the write, the flush or the
+    close raises EIO -- reliably, on this board. Reporting that as "could
+    not set the boot mode" is a lie told at the exact moment it worked, and
+    it sent someone round the loop three times.
+    """
+    import tools.deploy as d
+
+    class Port(object):
+        def __init__(self, *a, **k):
+            self.written = []
+
+        def write(self, data):
+            text = data.decode("utf-8", "replace")
+            if "reset()" in text:
+                raise OSError(5, "Input/output error")
+            self.written.append(text)
+
+        def read(self, n=1):
+            return b""
+
+        def flush(self):
+            pass
+
+        def close(self):
+            raise OSError(5, "Input/output error")
+
+    port = Port()
+    fake = type("m", (), {"Serial": lambda *a, **k: port})
+    monkeypatch.setitem(__import__("sys").modules, "serial", fake)
+    monkeypatch.setattr(d, "resolve_port", lambda p=None: "/dev/fake")
+    monkeypatch.setattr(d.time, "sleep", lambda s: None)
+
+    assert d.set_boot_mode(d.STANDALONE_MODE) is None
+    assert any("0x5A" in w for w in port.written), \
+        "the mode byte was never written"

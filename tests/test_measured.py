@@ -55,6 +55,26 @@ def test_coast_constant_is_the_measured_one_not_the_legacy_one():
     assert predict_peak(200.0, 0.9, 37.0) - 200.0 > 30
 
 
+def _assert_lands_where_the_profile_asked(profile, m):
+    """Judge a simulated run against the profile's own windows.
+
+    These two tests are about the GAINS, and they used to spell the answer
+    out as `225 <= peak <= 245`. Raising TS391SNL's peak from 235 C to 245 C
+    -- a metallurgical decision with nothing to do with the controller --
+    failed four tests whose subject is the controller, and the temptation at
+    that point is to edit the number rather than ask whether the run was
+    good. Asking the profile removes the temptation.
+    """
+    from oven.metrics import Limits as MetricLimits
+    lim = MetricLimits.for_profile(profile)
+    assert lim.peak_min_c <= m.peak_c <= lim.peak_max_c, (
+        "peaked at %.1f C, outside the %g-%g the profile asks for"
+        % (m.peak_c, lim.peak_min_c, lim.peak_max_c))
+    assert lim.tal_min_s <= m.time_above_liquidus <= lim.tal_max_s, (
+        "%.0f s above liquidus, outside the %g-%g window"
+        % (m.time_above_liquidus, lim.tal_min_s, lim.tal_max_s))
+
+
 # -- capability, which is what makes profiles fail --------------------------
 
 def test_the_oven_is_weakest_exactly_where_reflow_needs_it_strongest():
@@ -221,8 +241,7 @@ def test_the_shipped_gains_track_the_early_ramp():
         o.step(ctl.relay_state(t, ctl.duty_for(t, temp, t)))
         t += 0.25
     assert sum(early) / len(early) < 3.0, "early ramp tracking regressed"
-    assert 225 <= m.peak_c <= 245
-    assert 60 <= m.time_above_liquidus <= 150
+    _assert_lands_where_the_profile_asked(p, m)
 
 
 @pytest.mark.parametrize("scale", [0.8, 1.0, 1.2])
@@ -243,8 +262,7 @@ def test_the_shipped_gains_survive_plant_error(scale):
         m.add(t, temp)
         o.step(ctl.relay_state(t, ctl.duty_for(t, temp, t)))
         t += 0.25
-    assert 225 <= m.peak_c <= 245
-    assert 60 <= m.time_above_liquidus <= 150
+    _assert_lands_where_the_profile_asked(p, m)
 
 
 def test_capability_is_checked_per_segment_not_just_at_the_peak_rate():

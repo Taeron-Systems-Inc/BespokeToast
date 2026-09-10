@@ -1,0 +1,188 @@
+{
+  "ts391snl": {
+    "name": "TS391SNL",
+    "alloy": "Sn96.5/Ag3.0/Cu0.5",
+    "category": "reflow",
+    "default": true,
+    "liquidus_c": 217,
+    "max_ramp_up_c_per_s": 2.5,
+    "tal_min_s": 60,
+    "tal_max_s": 150,
+    "reference": "Chip Quik TS391SNL datasheet rev 1.2 (Sn96.5/Ag3.0/Cu0.5, mp 217-220 C); curve generated from data/oven-characterisation.json by tools/make_profile.py",
+    "notes": "Generated from this oven's measured rates, because the datasheet chart asks 1.40 C/s at 175-217 C where this oven has about 0.90, and 1.07 C/s into peak where run 0008 measured 0.63. A profile that cannot be followed still runs; it just misses its ramps and makes a joint nobody characterised. Peak is 249 C in the datasheet and 245 C here: 245 is 28 C above liquidus, inside the 20-40 C the alloy wants, and it leaves the ramp shortfall as the only unmet part of the recipe rather than adding a temperature nothing has demonstrated. Run 0008 reached 252.8 C, so 245 is inside the evidence. Every ramp asks 80% of measured capability so the controller has headroom instead of saturating. No hold at peak: at 245 C the climb and the fall earn 88 s above liquidus on their own, where at 235 C they earned 56 s and a 32 s dwell had to be added. The cooling tail is this oven's own door-shut curve, so the run completes unattended; opening the door beats it and is preferable. Time above liquidus is judged against 60-150 s, J-STD-020's window for the Pb-free classification profile.",
+    "start_c": 25,
+    "fraction": 0.8,
+    "tolerance_c": 0.25,
+    "segments": [
+      {
+        "ramp_to": 150
+      },
+      {
+        "ramp_to": 180,
+        "rate": 0.4
+      },
+      {
+        "ramp_to": 245
+      },
+      {
+        "cool_to": 150
+      }
+    ]
+  },
+  "ts391lt": {
+    "name": "TS391LT",
+    "alloy": "Sn42/Bi57.6/Ag0.4",
+    "category": "reflow",
+    "liquidus_c": 138,
+    "max_ramp_up_c_per_s": 2.5,
+    "tal_min_s": 60,
+    "tal_max_s": 90,
+    "reference": "Chip Quik TS391LT datasheet rev 1.3, Recommended Profile chart (Sn42/Bi57.6/Ag0.4, mp 138 C); opening ramp generated from data/oven-characterisation.json",
+    "notes": "The manufacturer's curve at every point the manufacturer states: 90 C at 90 s, 130 C at 180 s, liquidus 138 C at 210 s, peak 165 C at 240 s, back through 138 C at 270 s. Chip Quik call it a starting point for process optimisation, not a finished recipe. Only the opening is this oven's own: the digitised chart asked 1.33 C/s from cold, where measurement gives about 0.58 including the oven's transport lag, and runs 0005 and 0007 both lagged it by 21 s at 45 C and then overtook it by 15 s at 90 C -- a wind-up and an overshoot in the first ninety seconds, worth 23 C of tracking error, all of it before the paste has done anything. The opening now follows the measured rate curve scaled to land exactly on 90 C at 90 s, which the datasheet does specify. THE DOOR MUST BE OPENED AT PEAK: the descent from 165 C to 138 C in 30 s is -0.90 C/s and this oven manages about -0.13 C/s shut. The oven asks for it when opening it will land time above liquidus mid-window, and counts down to it. The datasheet also gives a maximum operating temperature of 96 C after assembly: a board built with this paste must not be baked or held above that afterwards.",
+    "start_c": 25,
+    "fraction": 0.8,
+    "tolerance_c": 0.25,
+    "segments": [
+      {
+        "ramp_to": 90,
+        "over_s": 90
+      },
+      {
+        "line_to": 130,
+        "at_s": 180
+      },
+      {
+        "line_to": 138,
+        "at_s": 210
+      },
+      {
+        "line_to": 165,
+        "at_s": 240
+      },
+      {
+        "line_to": 138,
+        "at_s": 270
+      },
+      {
+        "line_to": 95,
+        "at_s": 300
+      }
+    ]
+  },
+  "nc191lta10-datasheet": {
+    "name": "NC191LTA10",
+    "alloy": "Sn42 Bi57 Ag1",
+    "category": "reflow",
+    "liquidus_c": 137,
+    "max_ramp_up_c_per_s": 2.5,
+    "tal_min_s": 60,
+    "tal_max_s": 90,
+    "reference": "Chip Quik NC191LTA10 datasheet, Recommended Profile chart (Sn42/Bi57/Ag1, mp 137 C); opening ramp generated from data/oven-characterisation.json",
+    "notes": "The manufacturer's curve at every point the manufacturer states: 90 C at 90 s, 130 C at 180 s, liquidus 137 C at 210 s, peak 165 C at 240 s, back through 137 C at 270 s. Process-interchangeable with TS391LT: the same chart shape, one degree apart at liquidus. Only the opening is this oven's own, for the reason given in TS391LT's notes -- the digitised chart asked 1.33 C/s from cold against about 0.58 measured, and the oven spent the first ninety seconds first behind the curve and then ahead of it. THE DOOR MUST BE OPENED AT PEAK, and when matters as much as whether: run 0006 opened it 26 s late and finished at 98 s against a 90 s ceiling; run 0007 opened it on the prompt and finished at 76 s. The oven asks when opening it will land time above liquidus mid-window, and counts down to it. Paste needs 4 hours out of the fridge to reach 20-25 C before use.",
+    "start_c": 25,
+    "fraction": 0.8,
+    "tolerance_c": 0.25,
+    "segments": [
+      {
+        "ramp_to": 90,
+        "over_s": 90
+      },
+      {
+        "line_to": 130,
+        "at_s": 180
+      },
+      {
+        "line_to": 137,
+        "at_s": 210
+      },
+      {
+        "line_to": 165,
+        "at_s": 240
+      },
+      {
+        "line_to": 137,
+        "at_s": 270
+      },
+      {
+        "line_to": 95,
+        "at_s": 300
+      }
+    ]
+  },
+  "bake-msl-125c": {
+    "name": "Bake 125 °C",
+    "category": "bake",
+    "max_ramp_up_c_per_s": 2.0,
+    "reference": "J-STD-033 high-temperature bake for moisture-sensitive devices; curve generated from data/oven-characterisation.json",
+    "notes": "Drives absorbed moisture out of MSL 2a-5 parts before reflow. A part past its floor life -- MSL 3 is 168 hours at 30 C / 60% RH once the dry pack is open -- can flash that moisture to steam during reflow and crack internally. Four hours here; J-STD-033 gives the real figure per level and package thickness and it can run to days. Extend by running it more than once. The climb is deliberately unhurried, at 40% of what this oven can do: rapid heating of a part that is already wet is the failure this bake exists to prevent, and on a four-hour run the extra minute costs nothing. The last ten degrees are gentler still, at 0.15 C/s, which is what keeps the approach from carrying past the setpoint -- run 0009 peaked at 127.2 C against 125 and J-STD-033 allows only plus or minus five.",
+    "start_c": 25,
+    "fraction": 0.4,
+    "tolerance_c": 0.25,
+    "segments": [
+      {
+        "ramp_to": 115
+      },
+      {
+        "ramp_to": 125,
+        "rate": 0.15
+      },
+      {
+        "hold_s": 14400
+      },
+      {
+        "cool_to": 60
+      }
+    ]
+  },
+  "diagnostic-fast": {
+    "name": "DIAGNOSTIC fast",
+    "category": "reflow",
+    "diagnostic": true,
+    "liquidus_c": 80,
+    "peak_c": 95,
+    "max_ramp_up_c_per_s": 2.5,
+    "tal_min_s": 10,
+    "tal_max_s": 400,
+    "reference": "not a paste; a fixture for exercising the firmware",
+    "notes": "NOT A SOLDERING PROFILE. Peaks at 95 C and exercises preheat, soak, a liquidus crossing, peak, cooldown, report, every screen, the chart and the console commands in a couple of minutes. liquidus_c is 80 C purely so the run crosses it; that number means nothing metallurgical, and the 10-400 s window on time above liquidus is wide because what it actually measures is how long the room takes to cool the oven back through 80 C after the run ends, which is not a property of this profile. Melts no solder and reflows nothing. It does apply real heat: 95 C is hot enough to matter to anything left inside, and hot enough that the oven is well over the 45 C pre-flight limit when the run ends, so back-to-back iterations wait for a real cooldown. Starts at 45 C so that preheat has work to do -- the shipped pastes all start at room temperature, where preheat is a no-op, and this is the only profile that exercises it.",
+    "start_c": 45,
+    "fraction": 0.55,
+    "tolerance_c": 0.25,
+    "segments": [
+      {
+        "ramp_to": 70
+      },
+      {
+        "hold_s": 10
+      },
+      {
+        "ramp_to": 95
+      },
+      {
+        "hold_s": 20
+      }
+    ]
+  },
+  "step-250c": {
+    "name": "STEP 250 C",
+    "category": "bake",
+    "diagnostic": true,
+    "max_ramp_up_c_per_s": 5.0,
+    "reference": "characterisation step test, extending data/oven-characterisation.json above 235 C",
+    "notes": "NOT A SOLDERING PROFILE. Full power to 250 C, half a minute at the top, then free cooling with the door SHUT -- the cooling curve is the measurement, so do not open it until the run ends. The climb asks for 100% of measured capability, so the controller saturates and the result is a step response. Run 0008 reached 252.8 C, which extended the heating table to 248 and extended nothing on the cooling side: the relay was still firing at 333 s with the oven down to 232 C, so the highest clean free-cooling sample was 224 C -- below where the table already reached. The cause was the descent, not the hold it was blamed on. A straight line from 250 C to 80 C is -0.57 C/s and this oven falls at -0.72 C/s up there, so the oven kept outrunning its own target downwards and the controller kept topping it back up. The descent now follows the measured passive curve, which the oven cannot outrun. Simulated against the measured plant, that moves the last firing of the relay from 232 C to 251 C, which is the whole point of running this again. The hold is 30 s: without one the run peaks at 248 C and stops driving at 247, and 60 s buys nothing 30 does not.",
+    "start_c": 25,
+    "fraction": 1.0,
+    "tolerance_c": 0.25,
+    "segments": [
+      {
+        "ramp_to": 250
+      },
+      {
+        "hold_s": 30
+      },
+      {
+        "cool_to": 80
+      }
+    ]
+  }
+}

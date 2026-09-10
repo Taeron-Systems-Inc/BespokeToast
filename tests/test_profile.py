@@ -25,12 +25,33 @@ def test_every_shipped_profile_loads():
 
 
 def test_the_lead_free_profile_peaks_inside_measured_ground():
-    """235 C, not the datasheet's 249. The step tests reached 240 C, so a
-    249 C peak would be extrapolation rather than evidence."""
+    """The peak must be a temperature this oven has been shown to reach.
+
+    Spelled 235 C when the step tests had only reached 240; run 0008 then
+    reached 252.8 and the profile moved to 245. The rule was never the
+    number -- it is that the peak sits inside the evidence, with room for
+    the overshoot on top. Asking the characterisation keeps it that way
+    without anyone having to remember to edit this file.
+    """
+    import json
+    data = json.load(open(os.path.join(os.path.dirname(__file__), "..",
+                                       "data", "oven-characterisation.json")))
+    measured_to = max(t for t, _ in data["heating_rate_c_per_s"])
     p = Profile.load(os.path.join(PROFILES, "ts391snl.json"))
-    assert p.peak[1] == 235.0
+    assert p.peak[1] <= measured_to, (
+        "peaks at %g C where the step tests reached %g"
+        % (p.peak[1], measured_to))
+    assert p.peak[1] >= p.liquidus_c + 20.0, (
+        "peaks %.0f C above liquidus; SAC305 wants 20-40"
+        % (p.peak[1] - p.liquidus_c))
+    assert p.peak[1] <= p.liquidus_c + 40.0
     assert p.liquidus_c == 217
-    assert p.duration == 488.0
+    # J-STD-020 gives 8 minutes from 25 C to peak as the outside limit, and
+    # the curve must come back down below liquidus inside the run rather
+    # than leaving the joints molten for whoever is watching.
+    peak_t = p.peak[0]
+    assert peak_t <= 480.0, "%.0f s to peak" % peak_t
+    assert p.points[-1][1] < p.liquidus_c
 
 
 def test_datasheet_profile_carries_the_vendor_ramp_limit():

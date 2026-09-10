@@ -11,40 +11,112 @@ ceiling 2700 bytes, limit set at 2560. A profile that cannot be sent back
 to the oven it came from is a profile you can only change over USB, behind
 two screws.
 
+## The curves are generated
+
+`data/profile-specs.json` says what each profile is metallurgically --
+soak here, peak there, this much time above liquidus -- and
+`tools/make_profile.py` turns that into points using the measured rate
+tables in `data/oven-characterisation.json`.
+
+    python3 tools/make_profile.py            # what would change
+    python3 tools/make_profile.py --write    # regenerate
+    python3 tools/make_profile.py --check    # CI: has anything drifted?
+
+This is new, and it replaces three profiles that said they were derived
+from the characterisation while nothing derived them. The points had been
+worked out once, by hand; the characterisation was then measured twice
+more and the curves never moved, because moving them meant somebody
+redoing the arithmetic. A test asserts every shipped file is byte-identical
+to what its spec generates, so that cannot happen again.
+
+Two things follow from it that were previously somebody's job to remember.
+`cooling_assumes_open_door` is now derived -- whether a curve outruns
+door-shut cooling is arithmetic on the curve and the measurement, not a
+flag. And points are placed by chord error rather than at a fixed
+temperature spacing: the stored profile is read back by linear
+interpolation, so what matters is how far the chord between two points
+strays from the curve they came from. At 0.25 C of chord error TS391SNL
+needs 25 points where even spacing needed 64, and the file went from 2717
+bytes -- over the upload limit -- to 1954.
+
 ## TS391SNL -- Sn96.5/Ag3.0/Cu0.5, mp 217-220 C
 
-Chip Quik TS391SNL rev 1.2. The curve is derived from measurement, not
-from the datasheet chart, because the chart asks for ramps this oven does
-not have:
+Chip Quik TS391SNL rev 1.2. Generated from measurement rather than from
+the datasheet chart, because the chart asks for ramps this oven does not
+have:
 
     175 -> 217 C in 30 s     1.40 C/s asked, about 0.90 available
-    217 -> 249 C in 30 s     1.07 C/s asked, about 0.70 available
+    217 -> 249 C in 30 s     1.07 C/s asked, about 0.63 measured
 
 Running it anyway would not fail loudly. It would miss both ramps and
 produce a joint nobody characterised.
 
-Peak is 235 C rather than 249 C. That was set when the step tests had only
-reached 240 C. Run 0008 has since reached 252.8 C, so the temperature is
-demonstrated and 235 is no longer the ceiling the evidence imposes.
+**Peak is 245 C.** It was 235, set when the step tests had only reached
+240; run 0008 then reached 252.8 C and 235 stopped being the ceiling the
+evidence imposed. 235 C is 18 C above liquidus, and a SAC305 joint wants
+20-40 -- so the old peak sat just under the bottom of the range that makes
+the joint, and it was there for want of data rather than for a reason.
+245 C is 28 C above, mid-range, and 8 C inside what this oven has been
+shown to do.
 
-Raising it is a decision nobody has made yet, and it is not the same
-decision as reaching the temperature. The datasheet's *ramp* into peak,
-1.07 C/s over 217-249 C, is still unachievable: run 0008 measured 0.63 C/s
-in that band at full power. A profile peaking at 245-249 C would therefore
-climb the last 30 C more slowly than the paste specifies, whatever its
-peak says.
+The datasheet's 249 C is not adopted. Nothing here is 4 C better than
+245 for the joint, and 245 leaves 15 C to the supervisor's ceiling on a
+profile whose whole top segment is at 80% of capability.
 
-Rise segments run at 80% of the measured full-power rate so the controller
-has headroom instead of saturating. The peak is held briefly to earn time
-above liquidus, which the oven cannot earn on the way up.
+What is still not met is the *ramp* into peak. 1.07 C/s over 217-249 C
+against 0.63 measured; the last thirty degrees are climbed at roughly
+three-fifths of the specified rate whatever the peak says. That is a
+property of the oven and no profile can fix it.
 
-Recorded: peak 236.4 C, TAL 96 s, mean tracking error 4.02 C.
+The hold at peak is gone. At 235 C the climb and the fall earned 56 s
+above liquidus and a 32 s dwell had to be added to clear the 60 s floor.
+At 245 C they earn 88 s unaided, which is nearer the middle of the 60-150
+window and puts only 17 s within 5 C of peak -- J-STD-020 caps that at 30.
+
+Simulated against the measured plant, before and after:
+
+    peak      238.5 C  ->  246.2 C      (asking 235 -> 245)
+    TAL        95.5 s  ->   90.6 s
+    mean error  2.63 C ->    1.86 C
+
+Recorded on the old curve, run 0003: peak 236.4 C, TAL 96 s, mean
+tracking error 4.02 C. **The new curve has not been run.**
 
 ## TS391LT -- Sn42/Bi57.6/Ag0.4, mp 138 C
 
-Chip Quik TS391LT rev 1.3, datasheet curve unmodified, because this oven
-can follow it: the steepest demand is 138 -> 165 C in 30 s, 0.90 C/s,
-where capability is about 1.31.
+Chip Quik TS391LT rev 1.3, at every point the datasheet actually states:
+90 C at 90 s, 130 C at 180 s, liquidus at 210 s, peak 165 C at 240 s, back
+through liquidus at 270 s. This oven can follow all of it -- the steepest
+demand is 138 -> 165 C in 30 s, 0.90 C/s, where capability is about 1.31.
+
+### The opening is this oven's, and it is the one change
+
+Between 0 and 90 s the datasheet chart has no gridlines, and the points
+that used to be there were somebody's reading of the line: 45 C at 15 s,
+60 C at 30 s, 72 C at 45 s. The first of those asks 1.33 C/s from cold and
+this oven does about 0.58 there, transport lag included. So both trial
+runs opened the same way:
+
+    45 C    curve  15 s    actual  34.5 s    21 s behind
+    60 C           30 s            43.3 s    13 s behind
+    80 C           60 s            55.5 s     5 s ahead
+    90 C           90 s            74.5 s    15 s ahead
+
+Behind, then ahead: the controller saturates against a target it cannot
+reach, the integrator winds up, and the oven overshoots when the curve
+finally slackens. Worth 23 C of tracking error, all of it before the paste
+has done anything, and it is why these two profiles had the worst tracking
+of the set.
+
+The opening now follows the measured rate curve, scaled to land exactly on
+90 C at 90 s -- which the datasheet does specify. Simulated, over the
+first two minutes:
+
+    worst error   24.3 C  ->  7.1 C
+    mean error    11.1 C  ->  under 4 C (asserted by a test)
+
+Nothing above 90 s changed, so every number the manufacturer gives is
+still hit at the second they give it.
 
 The datasheet also gives a maximum operating temperature of 96 C after
 assembly. A board built with this paste must not be baked or held above
@@ -58,7 +130,8 @@ already banked, and the door was opened on it.
 ## NC191LTA10 -- Sn42 Bi57 Ag1, mp 137 C
 
 Chip Quik's own curve. Process-interchangeable with TS391LT: the same
-chart shape, one degree apart at liquidus.
+chart shape, one degree apart at liquidus, and the same generated opening
+for the same reason.
 
 | run | date | peak | TAL | verdict |
 |---|---|---|---|---|
@@ -90,10 +163,23 @@ so the overshoot spends 2.2 C of a 5 C allowance and the hold spends
 almost none of it. Duty was 16.2%.
 
 The prediction on record before the run was 135 C -- a 10 C overshoot,
-which would have failed -- extrapolated from the DIAGNOSTIC profile
-overshooting 8.5 C. It was wrong by 8 C, and pessimistically: the
-simulation does not have the four hours of thermal mass the real oven
-brings to a setpoint it is going to sit at. No profile change is needed.
+which would have failed. It was wrong by 8 C. Simulating the same profile
+through the real controller against the measured plant gives 127.15 C
+against the 127.19 measured, so the plant model was never the problem and
+the 135 came from somewhere that is not this harness.
+
+### The ramp changed anyway, and not because of the overshoot
+
+The old curve climbed at close to the oven's maximum. Rapid heating of a
+part that is already wet is the failure this bake exists to prevent, so
+that was the one thing a moisture bake should not do, and it cost nothing
+to fix: the climb is now at 40% of capability and the last ten degrees at
+0.15 C/s, reaching 125 C at 259 s instead of 239 s. Twenty seconds, on a
+four-hour run.
+
+The overshoot improves as a side effect -- simulated 127.4 C to 126.7 --
+which is worth having as margin for a bake started on a warm oven, but is
+not the reason.
 
 Enclosure cold junction reached 48.3 C at t=11539 s and was still rising
 slowly when the run ended, against a 70 C fault. Four hours is the longest
@@ -106,13 +192,32 @@ exists to exercise preheat, soak, a liquidus crossing, peak, cooldown,
 report, every screen and the console in 84 seconds. `liquidus_c` is 80 C
 purely so the run crosses it; the number means nothing metallurgical.
 
-Run 0004, 2026-09-08: peak 103.5 C, and one FAILED check -- max ramp up
-3.20 C/s against a 2.5 limit. That is the profile asking for a ramp its
-own limits forbid, not the oven misbehaving: the fixture is 84 s long and
-gets from 25 to 104 C inside it, which is steeper than anything a real
-paste asks for. Either the limit belongs to the profile or the fixture
-should be gentler; until one of those is decided, a clean DIAGNOSTIC run
-shows one red line and that is expected.
+Run 0004, 2026-09-08: peak 103.5 C against a 95 C target, and one FAILED
+check -- max ramp up 3.20 C/s against a 2.5 limit.
+
+Both were the fixture being too abrupt, and both are addressed.
+
+The 8.5 C overshoot came from the climb running at the oven's maximum on a
+curve too short to settle. At 55% of capability the simulated peak is
+96.8 C.
+
+The 3.20 C/s is more interesting, because this oven cannot do it. The step
+tests peak at 1.85 C/s near 80 C; the run's own log gives 1.58; simulating
+the profile end to end gives 1.84; and every other run that day reported
+1.87 to 2.03. What could produce it is that the rate window had an upper
+bound of 5 s and no lower bound at all, so for the first seconds of a run
+it was measuring over a fraction of a second, where a degree of
+thermocouple noise is several degrees per second. There is now a 3 s
+floor. The 4 Hz samples that produced 3.20 were never captured, so that is
+the mechanism and not a proof about that run -- but a rate measured over a
+third of a second is not a ramp rate either way, and the floor changes
+nothing on any run logged at 1 Hz or slower, which is all of them.
+
+Its time-above-liquidus window is 10-400 s rather than 10-200. What that
+number actually measures on this fixture is how long the room takes to
+cool the oven back through 80 C after the run ends, which is not a
+property of the profile, and 187 s of it was already most of the old
+ceiling.
 
 ## What the door actually does, measured
 
@@ -161,16 +266,13 @@ request and the operator reported against it.
 ## STEP 250 C
 
 Not a soldering profile and not offered at the oven. Full power to
-250 C, a minute at the top, then free cooling with the door SHUT --
+250 C, half a minute at the top, then free cooling with the door SHUT --
 the cooling curve is the measurement.
 
-It exists because the measured heating table stops at 235 C and the
-cooling table at 240, and every lead-free profile is built from both.
-TS391SNL's peak sits at 235 C for exactly that reason: the datasheet
-asks 249 and nothing here has ever been demonstrated above 240.
+It exists because every lead-free profile is built from the measured
+heating and cooling tables, and the cooling table still stops at 235 C.
+The heating side is done: run 0008 took it to 248.
 
-Ten minutes: about 3.5 to reach 250 from cold, one at the top, and the
-rest falling. Simulated peak 248.4 C against a 260 C supervisor ceiling.
 Run it empty, and do not open the door until the run ends.
 
 Run 0008, 2026-09-08: peak 252.8 C, reached in 261 s, max ramp 2.03 C/s.
@@ -190,3 +292,25 @@ The check line "time above liquidus FAILED 1033 s" in this log is not a
 result. STEP 250 C has no liquidus, and the guard that suppresses that
 check was flashed after this run; run 0009 shows the check correctly
 absent.
+
+### Why it extended nothing on the cooling side, and what changed
+
+The profile's own note blamed the one-minute hold at the top. That was
+wrong. The relay was still firing at 333 s with the oven down to 232 C, so
+the highest clean free-cooling sample was 224 C -- below where the table
+already reached -- and the cause was the descent, not the hold:
+
+    the curve asked   250 -> 80 C over 300 s      -0.57 C/s
+    the oven falls    at 235 C, relay open        -0.72 C/s
+
+The oven outran its own target downwards, so the controller kept topping
+it back up. The descent now follows the measured passive curve, which the
+oven cannot outrun. Simulated against the measured plant, that moves the
+last firing of the relay from 232 C to 251 C, which is the entire point of
+running it again.
+
+The hold stays, at 30 s rather than 60. Removing it was tried and the
+first attempt made the run peak at 212 C -- but that was a climb asking
+twice the oven's capability, not the missing hold. With the climb matched
+to capability the hold is worth about 5 C of peak and 5 C of where the
+relay stops firing, and 60 s buys nothing that 30 does not.

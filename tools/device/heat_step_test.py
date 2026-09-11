@@ -115,7 +115,11 @@ def _plateau(setpoint_c, hold_duty, settle_s, amplitude, cycles, half_s,
     ceiling equal to the setpoint would force duty to zero on every upward
     half cycle and the excitation would be of the ceiling, not the oven.
     """
-    ceiling = setpoint_c + 20.0
+    # Capped, not just offset: the first run of this refused itself, because
+    # 235 + 20 is 255 and the Step limit is 250. The limit was right and the
+    # schedule was wrong. 15 C of headroom at the top plateau is enough for
+    # a +/-0.15 duty square wave, which drifts a few degrees, not fifteen.
+    ceiling = min(setpoint_c + 20.0, 250.0)
     out = [Step(600.0, 1.0, setpoint_c, "climb to %s" % label,
                 until_ceiling=True),
            Step(settle_s, hold_duty, ceiling, "%s settle" % label)]

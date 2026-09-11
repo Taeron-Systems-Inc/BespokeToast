@@ -76,6 +76,10 @@ Heating phase only -- the cooling tail is the door's error, not the loop's.
     run 0011  TS391SNL, 34 C warm start       9.14 C rms, worst lag -24.3 C
     run 0013  TS391SNL, 59 C warm start      13.17 C rms, worst lag -32.2 C
 
+(Scored before the entry-sample correction; the sections below use
+1.57/13.06 for the same two runs. The comparison is like for like
+within each section.)
+
 Every run 0010-0015 passed every check: peak, time above liquidus, both ramp
 limits, time to peak.
 
@@ -208,6 +212,23 @@ Measured on hardware, heating phase only:
     run 0019  TS391SNL  59 C start   rms 1.91   worst lag -5.0   (run 0016, pre-charge only: 1.57, -5.1)
     run 0020  TS391LT   59 C start   rms 0.78   worst lag -2.5   (run 0017, pre-charge only: 2.24, -5.4)
     run 0021  TS391SNL  25 C cold     rms 0.95   worst lag -2.6   (run 0014, TS391LT cold, old loop: 2.46, -6.6)
+    run 0022  TS391SNL  59 C start   rms 1.13   worst lag -4.2   (run 0019, decay form, same start: 1.91, -5.0)
+
+0022 answers 0019 directly: same profile, same start temperature, same
+29 s of charge, only the prediction changed. The bias 0019 carried from
+160 C to the peak is gone.
+
+    mean error, C      run 0016     run 0019     run 0022
+    by target band    pre-charge   decay form   driven form
+     80-120 C            -3.35        -3.25       -2.44
+    120-160 C            -0.06        +0.66       +0.00
+    160-200 C            -0.14        +1.67       +0.48
+    200-240 C            +0.47        +1.50       -0.06
+    240-260 C            +0.55        +1.77       -0.50
+
+What is left is the opening: 2.4 C behind between 80 and 120 C, with the
+relay closed. That is the oven at full power on the low end of the
+heating table, and no controller reaches it.
 
 Run 0020 is the case the lead was built for, on the corrected
 prediction. The soak knee that cost run 0017 +4.1 C of overshoot cost

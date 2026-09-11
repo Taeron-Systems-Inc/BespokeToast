@@ -100,6 +100,25 @@ class Step(object):
         self.until_ceiling = bool(until_ceiling)
 
 
+# Element charge time constant, from tools/identify_plant.py across four
+# runs. Used only to decide where a climb should stop.
+ELEMENT_TAU_S = 14.0
+
+# Full-power heating rate by temperature, the measured table thinned to what
+# this needs. A charged element stores about rate * tau of further rise.
+_HEAT_RATE = ((60.0, 1.69), (100.0, 1.75), (150.0, 1.29), (195.0, 0.96),
+              (235.0, 0.69), (250.0, 0.56))
+
+
+def _coast_margin(temp_c):
+    rate = _HEAT_RATE[-1][1]
+    for t, r in _HEAT_RATE:
+        if temp_c <= t:
+            rate = r
+            break
+    return rate * ELEMENT_TAU_S
+
+
 def _plateau(setpoint_c, hold_duty, settle_s, amplitude, cycles, half_s,
              label):
     """Arrive at a plateau, settle, then square-wave the duty around it.
@@ -120,7 +139,16 @@ def _plateau(setpoint_c, hold_duty, settle_s, amplitude, cycles, half_s,
     # schedule was wrong. 15 C of headroom at the top plateau is enough for
     # a +/-0.15 duty square wave, which drifts a few degrees, not fifteen.
     ceiling = min(setpoint_c + 20.0, 250.0)
-    out = [Step(600.0, 1.0, setpoint_c, "climb to %s" % label,
+    # The climb stops SHORT of the plateau and the element carries the oven
+    # the rest of the way. Stopping at the plateau itself put the first run
+    # 22 C past it -- a saturated element stores that much -- so the whole
+    # settle window sat above the ceiling with the excitation clamped. The
+    # margin is the heating rate at that temperature times the element time
+    # constant, which is what a charged element has left to give:
+    #   60 C:  1.7 C/s * 14 s = 24 C   (measured coast was 22)
+    #  235 C:  0.69     * 14 =  10 C
+    stop_at = setpoint_c - _coast_margin(setpoint_c)
+    out = [Step(600.0, 1.0, stop_at, "climb to %s" % label,
                 until_ceiling=True),
            Step(settle_s, hold_duty, ceiling, "%s settle" % label)]
     for i in range(cycles):

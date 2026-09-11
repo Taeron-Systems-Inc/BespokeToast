@@ -21,11 +21,16 @@ prints the commanded duty every control step, which is what these hold.
 | `run-0014-ts391lt.csv` | 0014 | 28 C cold start, to 168 C |
 | `run-0015-bake-125c.csv` | 0015 | 30 C to 125 C and held |
 | `run-0016-ts391snl-hot-precharge.csv` | 0016 | 59 C start on the pre-charge loop, 2026-09-11 |
+| `run-0017-ts391lt-hot-precharge.csv` | 0017 | 59 C start, TS391LT, pre-charge loop, 2026-09-11 |
 
 0011-0015 on 2026-09-10, empty oven. 0016 is the same start as 0013 on the
 pre-charge firmware: 33 s of charge, entered the profile at 80.5 C, heating
 phase rms 1.57 C, worst lag -5.1 C (0013: 13.06 and -32.0). Its `precharge`
 rows are full-duty with the profile clock held.
+0017 is TS391LT from the same start: 27 s of charge, entered at 71.8 C,
+heating phase rms 2.24 C, worst lag -5.4 C, and +4.1 C of overshoot at the
+soak knee at 98 C on stored element heat -- the case the predictive lead
+(commit 5f70797) was built from.
 
 ## The identification run, 2026-09-11
 

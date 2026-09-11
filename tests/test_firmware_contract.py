@@ -542,3 +542,27 @@ def test_a_cable_left_in_does_not_cost_the_oven_its_logging():
     assert "HOST" not in names, (
         "remember_boot_mode references HOST again; the only automatic "
         "direction is towards the oven owning its own filesystem")
+
+
+def test_code_py_never_sets_attributes_on_functions():
+    """CircuitPython function objects take no attributes. The first boot of
+    the predictive image died in make_precharge_factory on
+    `factory.model = model`; CPython accepted it, the board did not. Any
+    name bound by a nested def, then used as the target of an attribute
+    assignment inside the same function, fails here first."""
+    tree = _tree("code.py")
+    offenders = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        local_functions = {n.name for n in fn.body
+                           if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Assign):
+                for tgt in node.targets:
+                    if (isinstance(tgt, ast.Attribute)
+                            and isinstance(tgt.value, ast.Name)
+                            and tgt.value.id in local_functions):
+                        offenders.append("%s: line %d sets %s.%s" % (
+                            fn.name, node.lineno, tgt.value.id, tgt.attr))
+    assert not offenders, offenders

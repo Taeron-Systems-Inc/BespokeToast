@@ -47,6 +47,7 @@ def _html_escape(text):
 
 
 from oven import pacific
+from oven import timesync
 
 UNKNOWN = "?"
 
@@ -69,12 +70,30 @@ def run_id(name):
 def when(started_at):
     """(date, time) in Pacific, or ("?", "?").
 
+    Takes either form the header has ever used: seconds since the epoch,
+    which is what it writes now, or the ISO stamp it wrote before
+    2026-09-08. Reading only the older one is how ten of the fifteen runs
+    on this oven came to show "?" for their date -- the header was improved
+    and the page was not told, and nothing failed, it just quietly stopped
+    knowing when anything happened.
+
     A question mark rather than a blank or a guess: a run written before
     the oven had been told the date carries "monotonic+40" in its header,
-    which happens to the first run after every power cut, and pretending
-    to know is worse than saying it does not.
+    which happens to the first run after every power cut, and pretending to
+    know is worse than saying it does not.
     """
-    got = pacific.local(started_at)
+    if started_at is None:
+        return (UNKNOWN, UNKNOWN)
+    got = None
+    text = str(started_at).strip()
+    # Range-checked rather than wrapped in a try: timesync.looks_set is the
+    # same test the radio puts a fetched time through, so a number that is
+    # seconds-since-boot rather than a date is rejected here for the same
+    # reason and by the same rule.
+    if text.isdigit() and timesync.looks_set(int(text)):
+        got = pacific.local_from_epoch(int(text))
+    if got is None:
+        got = pacific.local(started_at)
     if got is None:
         return (UNKNOWN, UNKNOWN)
     return (got[0], got[1])
@@ -89,7 +108,13 @@ def human_size(size):
     return "%.1f kB" % (size / 1024.0)
 
 
-_STYLE = (
+# Split in two for the same reason the page is served in pieces at all:
+# every piece is encoded to bytes on the way out, so a piece is a contiguous
+# allocation. The stylesheet grew past 1.5 kB when the profile format table
+# was added, on a board measured at 1760 bytes largest free block after a
+# day of runs. Two pieces of 800 always fit where one of 1500 sometimes
+# does not.
+_STYLE_A = (
     "body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:20px;"
     "background:#14161a;color:#eceae3}"
     "h1{font-size:20px;margin:0 0 20px}"
@@ -102,7 +127,18 @@ _STYLE = (
     "th.n{text-align:right}"
     "td{padding:8px 10px 8px 0;border-bottom:1px solid #2e333a}"
     "td.n{text-align:right;font-variant-numeric:tabular-nums;color:#9aa1a9}"
-    ".q{color:#9aa1a9}a{color:#c1d72e}"
+    ".q{color:#9aa1a9}a{color:#c1d72e}")
+
+_STYLE_B = (
+    # The field table is reference, not results: smaller, quieter, and the
+    # first column is the JSON key so it is set like one.
+    "table.f{font-size:14px;margin:8px 0 12px}"
+    "table.f td{padding:6px 12px 6px 0;vertical-align:top;color:#9aa1a9}"
+    "table.f td:first-child{color:#eceae3;font-family:ui-monospace,monospace;"
+    "white-space:nowrap}"
+    "code{font-family:ui-monospace,monospace;font-size:13px;color:#c1d72e}"
+    "button.alt{background:0;color:#c1d72e;border:1px solid #2e333a;"
+    "font-weight:400}"
     "ul{margin:0;padding-left:18px;color:#9aa1a9}"
     ".s{color:#9aa1a9;font-size:14px}"
     ".w{color:#ffb000;font-size:14px;margin:0 0 16px}"
@@ -191,7 +227,8 @@ def result_page(heading, detail, warnings=(), ok=True):
     items = "".join("<li>" + _html_escape(w) + "</li>" for w in warnings)
     return ("<!doctype html><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            "<title>Taeron Reflow Oven</title><style>" + _STYLE + "</style>"
+            "<title>Taeron Reflow Oven</title><style>" + _STYLE_A + _STYLE_B
+            + "</style>"
             "<h1>Taeron Reflow Oven</h1>"
             "<h2>" + _html_escape(heading) + "</h2>"
             "<div class=" + ("s" if ok else "w") + ">"
@@ -230,7 +267,7 @@ def index_parts(runs, profiles, warning=None):
     """
     out = ["<!doctype html><meta charset=utf-8>"
            "<meta name=viewport content='width=device-width,initial-scale=1'>"
-           "<title>Taeron Reflow Oven</title><style>", _STYLE,
+           "<title>Taeron Reflow Oven</title><style>", _STYLE_A, _STYLE_B,
            "</style><h1>Taeron Reflow Oven</h1>"]
     if warning:
         out.append("<div class=w>" + _html_escape(warning) + "</div>")
@@ -242,16 +279,27 @@ def index_parts(runs, profiles, warning=None):
             out.append(_row(r))
     else:
         out.append("<tr><td colspan=5 class='q'>no runs recorded yet</td></tr>")
-    out.append("</table><h2>Profiles</h2><ul>")
-    for name in profiles:
-        out.append("<li>" + _html_escape(name) + "</li>")
+    out.append("</table><h2>Profiles</h2>"
+               "<div class=s>The ones offered at the oven. Open one to see "
+               "exactly what a profile looks like -- it is the same format "
+               "the box below takes.</div><ul>")
+    for entry in profiles:
+        # A bare name, or (name, filename). The filename is what makes the
+        # entry a link to the real thing, which is the only format
+        # documentation that cannot go stale.
+        if isinstance(entry, (tuple, list)):
+            name, filename = entry[0], (entry[1] if len(entry) > 1 else None)
+        else:
+            name, filename = entry, None
+        if filename:
+            out.append("<li><a href='/profiles/%s'>%s</a></li>"
+                       % (_html_escape(filename), _html_escape(name)))
+        else:
+            out.append("<li>" + _html_escape(name) + "</li>")
     if not profiles:
         out.append("<li>none</li>")
     out.append("</ul>")
     out.extend(_UPLOAD)
-    out.append("<h2>Note</h2><div class=s>A run is started at the oven, by "
-               "someone who has looked inside it. This page cannot start "
-               "one.</div>")
     return out
 
 
@@ -265,19 +313,62 @@ def index_page(runs, profiles, warning=None):
 # for.
 _UPLOAD = (
     "<h2>Add or replace a profile</h2>"
-    "<div class=s>A JSON profile, under 2.5 kB. It is checked before it is "
-    "kept, and one that arrives this way never becomes the selected "
-    "profile -- somebody picks that at the oven.</div>"
+    "<div class=s>JSON, under 2.5 kB. It is checked before it is kept: if "
+    "anything is wrong you are told which field and nothing on the oven "
+    "changes. The file it lands in is named after the profile itself, so "
+    "sending one with a name already in the list replaces it.</div>",
+
+    "<table class=f>"
+    "<tr><th>field</th><th>what it is</th></tr>"
+    "<tr><td>name</td><td>required. Shown at the oven, and decides the "
+    "filename.</td></tr>"
+    "<tr><td>points</td><td>required. <code>[[seconds, celsius], ...]</code>"
+    " &mdash; two or more, the first at t=0, times increasing, 0-300 C."
+    "</td></tr>"
+    "<tr><td>category</td><td><code>reflow</code> (the default), "
+    "<code>bake</code> or <code>hold</code>.</td></tr>",
+
+    "<tr><td>liquidus_c</td><td>required for a reflow profile: where the "
+    "alloy melts. The stages and the time above liquidus are worked out "
+    "from it.</td></tr>"
+    "<tr><td>tal_min_s<br>tal_max_s</td><td>the time-above-liquidus window "
+    "the run report judges against.</td></tr>"
+    "<tr><td>max_ramp_up_c_per_s</td><td>the ramp the report treats as too "
+    "steep.</td></tr>",
+
+    "<tr><td>cooling_assumes_open_door</td><td><code>true</code> if the tail "
+    "falls faster than this oven does shut, so the run needs somebody to "
+    "open the door when it asks.</td></tr>"
+    "<tr><td>alloy<br>reference<br>notes</td><td>free text. Kept with the "
+    "profile so a run can be traced back to where its curve came "
+    "from.</td></tr></table>"
+    "<div class=s><code>default</code> and <code>diagnostic</code> are "
+    "removed if you send them: a profile that arrives this way can neither "
+    "make itself the selected one nor hide from the list it just joined. "
+    "Somebody chooses the profile at the oven.</div>",
+
     "<div class=up>"
+    "<div><button id=tpl type=button class=alt>Start from a template</button>"
+    "</div>"
     "<input type=file id=f accept='.json,application/json'>"
-    "<textarea id=t rows=6 placeholder='or paste the profile here'></textarea>"
+    "<textarea id=t rows=10 placeholder='or paste the profile here'>"
+    "</textarea>"
     "<button id=b type=button>Send to the oven</button>"
     "<div id=m class=s></div>"
     "</div>",
 
     "<script>"
     "var f=document.getElementById('f'),t=document.getElementById('t'),"
-    "b=document.getElementById('b'),m=document.getElementById('m');"
+    "b=document.getElementById('b'),m=document.getElementById('m'),"
+    "tpl=document.getElementById('tpl');"
+    "tpl.addEventListener('click',function(){"
+    "t.value=JSON.stringify({name:'My paste',category:'reflow',"
+    "liquidus_c:138,tal_min_s:60,tal_max_s:90,max_ramp_up_c_per_s:2.5,"
+    "cooling_assumes_open_door:true,"
+    "points:[[0,25],[90,90],[180,130],[210,138],[240,165],[270,138],"
+    "[300,95]]},null,1);"
+    "m.textContent='A working low-temperature curve. Edit it, then send.'});",
+
     "f.addEventListener('change',function(){"
     "var r=new FileReader();r.onload=function(){t.value=r.result};"
     "if(f.files[0])r.readAsText(f.files[0])});",
@@ -312,6 +403,11 @@ def route(method, path):
         return ("log", name)
     if path == "/profiles" and method == "POST":
         return ("put-profile", None)
+    if path.startswith("/profiles/"):
+        name = path[len("/profiles/"):]
+        if not name or "/" in name or ".." in name:
+            return ("bad-name", name)
+        return ("get-profile", name)
     if path == "/status":
         return ("status", None)
     return ("not-found", path)

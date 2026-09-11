@@ -294,6 +294,36 @@ class WebService(object):
             # and must never exist in memory as one object.
             return self.logs.chunks(name, webapp.CHUNK)
 
+        if kind == "get-profile":
+            # Served so that "what does a profile look like?" is answered by
+            # a real one rather than by prose that can go stale. Only the
+            # profiles offered at the oven, matched by filename against the
+            # catalogue, so this cannot be talked into reading anything else
+            # off the filesystem.
+            wanted = None
+            for ref in for_operators(self.profiles_ref[1]):
+                if ref.path.rsplit("/", 1)[-1] == arg:
+                    wanted = ref.path
+                    break
+            if wanted is None:
+                start_response("404 Not Found",
+                               [("Content-Type", "text/plain")])
+                return [b"no such profile"]
+            try:
+                with open(wanted, "r") as f:
+                    body = f.read()
+            except OSError as e:
+                print("# web: cannot read %s (%r)" % (wanted, e))
+                start_response("500 Internal Server Error",
+                               [("Content-Type", "text/plain")])
+                return [b"could not read it"]
+            start_response("200 OK", [("Content-Type", "application/json")])
+            # In pieces, like everything else here: a profile is up to
+            # 2.5 kB and one contiguous bytes object of that is the
+            # allocation this page has failed on before.
+            return [body[i:i + webapp.CHUNK].encode("utf-8")
+                    for i in range(0, len(body), webapp.CHUNK)]
+
         if kind == "index":
             runs = []
             if self.logs:
@@ -301,10 +331,19 @@ class WebService(object):
                 # just finished a run and wants that one.
                 for name in reversed(self.logs.runs()):
                     head = self.logs.header(name)
+                    # started_at_epoch is what the header writes now;
+                    # started_at is what it wrote before 2026-09-08. Both,
+                    # or the older runs lose their dates -- which is
+                    # exactly what happened.
                     runs.append((name, self.logs.size(name),
-                                 head.get("started_at"),
+                                 head.get("started_at_epoch")
+                                 or head.get("started_at"),
                                  head.get("profile")))
-            profiles = [r.name for r in for_operators(self.profiles_ref[1])]
+            # Name and filename: the filename makes each one a link to the
+            # profile itself, which is the only description of the format
+            # that cannot drift from the format.
+            profiles = [(r.name, r.path.rsplit("/", 1)[-1])
+                        for r in for_operators(self.profiles_ref[1])]
             # The only thing worth saying at the top of the page, and only
             # when it is true: an unset clock means every date below was
             # written by a board that did not know the date.

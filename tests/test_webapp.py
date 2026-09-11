@@ -82,9 +82,11 @@ def test_an_oven_with_no_runs_says_so_rather_than_showing_nothing():
     assert "no runs recorded yet" in index_page([], ["SAC305"])
 
 
-def test_the_page_says_it_cannot_start_a_run():
-    """Stated on the page because someone will look for the button."""
-    assert "cannot start" in index_page([], []).lower()
+# The page used to carry a footer saying it could not start a run. It was
+# removed: it stated a fact about the firmware to somebody who had not asked,
+# on a page whose whole content is runs that already happened. The guarantee
+# is not the sentence, and never was --
+# test_there_is_no_route_that_starts_a_run is what enforces it.
 
 
 def test_a_hostile_profile_name_cannot_inject_markup():
@@ -343,3 +345,96 @@ def test_the_pieces_are_the_page():
     from oven.webapp import index_parts, index_page
     runs = [("0001-a.csv", 10, None, "X")]
     assert "".join(index_parts(runs, ["A"])) == index_page(runs, ["A"])
+
+
+# -- the dates, which went missing for ten runs ----------------------------
+
+def test_a_run_is_dated_from_either_header_the_oven_has_written():
+    """The header wrote started_at until 2026-09-08 and started_at_epoch
+    after it. The page read only the first, so ten of fifteen runs showed
+    "?" for their date -- nothing failed, the page just quietly stopped
+    knowing when anything had happened."""
+    from oven.webapp import when
+    assert when("1789080336") == ("2026-09-10", "15:45:36")
+    assert when("2026-09-08T19-48-13Z") == ("2026-09-08", "12:48:13")
+
+
+def test_a_run_from_an_oven_that_did_not_know_the_date_says_so():
+    from oven.webapp import when, UNKNOWN
+    assert when("monotonic+40") == (UNKNOWN, UNKNOWN)
+    assert when(None) == (UNKNOWN, UNKNOWN)
+    assert when("") == (UNKNOWN, UNKNOWN)
+
+
+def test_the_dates_survive_a_round_trip_through_the_index():
+    page = index_page([("0015-Bake.csv", 100, "1789080336", "Bake 125 °C")],
+                      [])
+    assert "2026-09-10" in page
+    assert "15:45:36" in page
+
+
+# -- the profile format, documented by example -----------------------------
+
+def test_a_profile_can_be_looked_at():
+    """The only description of the format that cannot drift from it."""
+    from oven.webapp import route
+    assert route("GET", "/profiles/ts391snl.json") == ("get-profile",
+                                                       "ts391snl.json")
+
+
+def test_a_profile_request_cannot_walk_out_of_its_directory():
+    from oven.webapp import route
+    for path in ("/profiles/../wifi.json", "/profiles/a/b.json",
+                 "/profiles/"):
+        kind, _arg = route("GET", path)
+        assert kind in ("bad-name", "not-found"), path
+
+
+def test_posting_a_profile_is_still_a_different_thing_from_reading_one():
+    from oven.webapp import route
+    assert route("POST", "/profiles") == ("put-profile", None)
+
+
+def test_the_profile_list_links_to_the_profiles():
+    page = index_page([], [("TS391SNL", "ts391snl.json")])
+    assert "/profiles/ts391snl.json" in page
+    assert "TS391SNL" in page
+
+
+def test_a_bare_profile_name_still_works():
+    """Callers that have only a name -- and every test written before the
+    links existed -- must not break."""
+    page = index_page([], ["TS391SNL"])
+    assert "TS391SNL" in page
+    assert "/profiles/" not in page
+
+
+def test_the_page_says_what_a_profile_needs():
+    """"There are no clues about the format" was the complaint, and it was
+    fair: the box took JSON and said nothing about what JSON."""
+    page = index_page([], [])
+    for field in ("name", "points", "liquidus_c", "category",
+                  "tal_min_s", "cooling_assumes_open_door"):
+        assert field in page, field
+    # the shape of a point, and the rules that actually reject one
+    assert "seconds" in page and "celsius" in page
+    assert "t=0" in page
+
+
+def test_the_page_offers_a_starting_point_that_is_a_valid_profile():
+    """The template is JSON built in the browser, so it cannot be parsed
+    here -- but the fields it names must be the ones the loader wants."""
+    import re
+    from oven.profile import Profile
+    page = index_page([], [])
+    body = re.search(r"t\.value=JSON\.stringify\((\{.*?\}),null,1\)", page)
+    assert body, "no template in the page"
+    text = body.group(1)
+    for key in ("name", "category", "liquidus_c", "points"):
+        assert key + ":" in text, key
+    pts = re.search(r"points:(\[\[.*?\]\])", text)
+    assert pts
+    import json
+    Profile.from_dict({"name": "t", "category": "reflow", "liquidus_c": 138,
+                       "tal_min_s": 60, "tal_max_s": 90,
+                       "points": json.loads(pts.group(1))})

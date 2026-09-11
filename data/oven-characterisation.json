@@ -431,5 +431,27 @@
  "heating_rate_note": "These are measured trajectory rates from a cold-start step test, and the entries below ~80 C include the oven's ~37 s of transport dead time -- the recorded 0.09 C/s at 25 C is the element not yet delivering heat, not the oven's steady-state capability there (extrapolating the clean region above 85 C, where a straight line fits to within 0.03 C/s, gives ~2.3 C/s). Both numbers are true about different questions. Keep the measured values: the simulator and feed-forward predict trajectories from a cold start, which is what these describe. Do NOT read the low end as capability when generating profiles -- a profile whose whole temperature band sits below 80 C will be given an unfollowably shallow ramp. Put the band above the dead-time region instead.",
  "step_test_250c_note": "Heating is measured to 248 C here for the first time; it was extrapolation above 235. Peak 252.75 C, so 249 C is reachable -- but the datasheet RAMP is not: TS391SNL asks 1.07 C/s from 217 to 249 and this run managed 0.63. COOLING WAS NOT EXTENDED. The controller held 250 C until 333 s, by which point the oven was at 231.6 C, so the highest genuinely free-cooling sample is 223.7 C -- below where the table already ran. Two entries were briefly added at 240 and 250 C and are withdrawn: the 240 window straddled the hold, and the 250 value was interpolated and then described as measured. To extend cooling, the profile has to stop heating at the peak instead of holding there.",
  "cooling_table_provenance": "Run 0010, 2026-09-10, STEP 250 C. One descent, relay open throughout, 3762 samples at 4 Hz from 245.1 C to 58.4 C, binned every 5 C with the slope taken over a 6 s window. The first 12 s after the relay opens are excluded: the rate is still settling there as the element sheds its own heat, reaching the steady value at about +10 s, which is why the table stops at 245 rather than 250. It REPLACES rather than extends the previous table, which was stitched from two step tests and had two artifacts at the seams: a 25% discontinuity at 190->195 C, and 8.7% at 230->235 C where measurement gave way to flat extrapolation. Both made the old table non-monotonic -- it had the oven shedding heat FASTER at 190 C than at 225 C, which cannot be true of loss to a fixed ambient. The new table has one inversion of 0.9% at 240->245, which is noise in the two smallest bins. This also explains the anomaly recorded from run 0008 and previously attributed to a hot oven body: the oven was not cooling slowly, the table was too fast in exactly that band.",
- "cooling_table_validation": "Checked against run 0008, 2026-09-08 -- a different run on a different day that this table was not built from. Over its free-cooling segment, 225.9 C down to 134.7 C, mean absolute error against the new table is 0.048 C/s against 0.151 for the old one: 3.2x closer. A residual remains and it is the real effect the old artifact was hiding. Run 0008 cools 5-20% slower than this table at every temperature, consistently and without a seam, and its oven body was hotter -- cold junction 53.4 C against 47.3 C on run 0010, because it held a minute at 250 C where run 0010 held thirty seconds. A hotter body radiates back into a cooling chamber. So the original observation was two things: a 25% table artifact, and a real body-heat effect about a third its size. Only the first is fixed here."
+ "cooling_table_validation": "Checked against run 0008, 2026-09-08 -- a different run on a different day that this table was not built from. Over its free-cooling segment, 225.9 C down to 134.7 C, mean absolute error against the new table is 0.048 C/s against 0.151 for the old one: 3.2x closer. A residual remains and it is the real effect the old artifact was hiding. Run 0008 cools 5-20% slower than this table at every temperature, consistently and without a seam, and its oven body was hotter -- cold junction 53.4 C against 47.3 C on run 0010, because it held a minute at 250 C where run 0010 held thirty seconds. A hotter body radiates back into a cooling chamber. So the original observation was two things: a 25% table artifact, and a real body-heat effect about a third its size. Only the first is fixed here.",
+ "element_model": {
+  "note": "Two-state element/chamber model from tools/identify_plant.py, fitted on the four captures in data/plant-id/ (2026-09-10), in the parameters the chamber can observe. beta is the element time constant, 1/beta = 13.6 s; d is chamber loss. g and gamma are products of parameters that trade off against each other and are only meaningful together. Its steady state disagrees with the heating table by up to 30% and which is right is undecided pending the 2026-09-11 plateau data. Used for the element observer and the pre-charge decision, NOT for the steady-state feed-forward.",
+  "a": 41.4411,
+  "b": 0.07344,
+  "c": 0.002907,
+  "d": 0.00368,
+  "g": 0.12047,
+  "beta": 0.07635,
+  "gamma": 1.07e-05,
+  "ambient_c": 23.5,
+  "leave_one_out_rms_c": {
+   "run-0015-bake-125c": 4.64,
+   "run-0013-ts391snl-hot": 5.79,
+   "run-0014-ts391lt": 6.07,
+   "run-0011-ts391snl-warm": 6.54
+  }
+ },
+ "precharge": {
+  "note": "Heat the element at full duty before the run clock starts, until the observer says its contribution matches what the curve's opening needs, bounded in time. Swept in simulation (tools/design/precharge_sim.py): 34 and 45 C starts finish in 8-14 s under any bound; a 59 C start is bound-limited, -8.9 C worst lag at 28 s, -6.4 at 40 s, -5.2 at 54 s. Cold starts charge for 1-3 s and are unaffected.",
+  "max_s": 40.0,
+  "margin": 1.0
+ }
 }

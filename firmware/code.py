@@ -17,7 +17,7 @@ import supervisor
 
 from oven import bringup as bringup_mod
 from oven.app import App, STATE_IDLE, STATE_RUNNING, STATE_PREHEAT, \
-    STATE_COOLDOWN, STATE_REPORT, STATE_FAULT
+    STATE_PRECHARGE, STATE_COOLDOWN, STATE_REPORT, STATE_FAULT
 from oven.controller import Controller, FeedForward, PID
 from oven.hardware import Hardware, cpu_temperature
 from oven.history import History
@@ -598,6 +598,40 @@ def load_profiles():
 HARDWARE = None
 
 
+def make_precharge_factory(characterisation):
+    """(profile, temperature) -> PreCharge, from the identified model.
+
+    Returns a factory that yields None when there is nothing to charge for:
+    no model in the characterisation, or a curve whose opening asks for
+    less than the element already gives. Cold starts therefore go straight
+    to running, which simulation says is right -- they charge for a second
+    or two and stand aside.
+    """
+    if not characterisation or not characterisation.get("element_model"):
+        print("# precharge: no element model in the characterisation; off")
+        return None
+    em = characterisation["element_model"]
+    pc = characterisation.get("precharge") or {}
+    try:
+        from oven.elementff import ElementModel, ElementObserver, PreCharge
+        model = ElementModel(g=em["g"], beta=em["beta"], gamma=em["gamma"],
+                             d=em["d"], ambient_c=em["ambient_c"])
+    except Exception as e:
+        print("# precharge: model unusable (%r); off" % e)
+        return None
+    max_s = float(pc.get("max_s", 40.0))
+    margin = float(pc.get("margin", 1.0))
+
+    def factory(profile, temp_c):
+        entry = profile.entry_time_for(temp_c)
+        need = model.z_for(profile.slope_at(entry), temp_c)
+        if need <= 0.0:
+            return None
+        return PreCharge(ElementObserver(model), need, max_s=max_s,
+                         margin=margin)
+    return factory
+
+
 def main():
     global HARDWARE
     hw = Hardware()                    # claims D4 and drives it low
@@ -625,6 +659,7 @@ def main():
 
     data = load_characterisation()
     have_characterisation = data is not None
+    characterisation_data = data
     if data:
         ff = FeedForward(heating_rates=data.get("heating_rate_c_per_s"),
                          cooling_rates=data.get("cooling_rate_c_per_s"))
@@ -634,6 +669,9 @@ def main():
         # [temperature, rate] pairs alive for the life of the run, which is
         # the 7 kB the packing was meant to recover. Measured: free went
         # DOWN, from 30352 to 27056, until this line existed.
+        characterisation_data = {
+            "element_model": data.get("element_model"),
+            "precharge": data.get("precharge")}
         data = None
         gc.collect()
     else:
@@ -898,6 +936,12 @@ def main():
             else "%d \u00b0C" % round(app.temperature),
             selected_ref[0].name if selected_ref[0] else "none")
 
+    # Pre-charge the element before a run's clock starts. Built from the
+    # identified two-state model in the characterisation; if that is
+    # missing the factory returns None and runs start the way they always
+    # did. See oven/elementff.py and docs/control-loop.md.
+    app.precharge_factory = make_precharge_factory(characterisation_data)
+
     web = WebService(logs, (selected_ref[0], profiles), status_line)
     # The clock is set on the connection the page is already making, rather
     # than on a second one of its own. Two bring-ups at boot was two scans,
@@ -915,11 +959,11 @@ def main():
         # log is closed here rather than on an event so that an abort, a
         # fault and a normal finish all go through one path.
         if app.state != previous_state[0]:
-            if previous_state[0] in (STATE_PREHEAT, STATE_RUNNING,
+            if previous_state[0] in (STATE_PREHEAT, STATE_PRECHARGE, STATE_RUNNING,
                                      STATE_COOLDOWN) and \
                     app.state in (STATE_REPORT, STATE_FAULT, STATE_IDLE):
                 end_log()
-            if app.state in (STATE_PREHEAT, STATE_RUNNING) and \
+            if app.state in (STATE_PREHEAT, STATE_PRECHARGE, STATE_RUNNING) and \
                     web.server is not None:
                 # A run is starting. What must not happen during it is
                 # polling the socket -- that is the call that costs up to
@@ -1062,7 +1106,7 @@ def main():
             except MemoryError:
                 gc.collect()
                 note_memory_failure("recording a chart point")
-        elif app.state in (STATE_IDLE, STATE_PREHEAT) and len(history):
+        elif app.state in (STATE_IDLE, STATE_PREHEAT, STATE_PRECHARGE) and len(history):
             history.clear()
 
         # Touch is polled outside the control step: a press must not be able
@@ -1101,7 +1145,7 @@ def main():
         try:
             if app.state == STATE_FAULT:
                 screen = L.fault(app.fault.message if app.fault else "unknown")
-            elif app.state in (STATE_RUNNING, STATE_PREHEAT):
+            elif app.state in (STATE_RUNNING, STATE_PREHEAT, STATE_PRECHARGE):
                 remaining = 0.0
                 if app.profile is not None:
                     remaining = app.profile.duration - app.elapsed

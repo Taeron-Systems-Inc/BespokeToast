@@ -105,6 +105,47 @@ enters past that opening and exposes it.
 See `tools/identify_plant.py`: a two-state model predicts held-out runs two
 to five times better than the one this inverts.
 
+## What replaced the start: pre-charge (2026-09-11)
+
+The loop above is unchanged. What changed is when its clock starts.
+
+    PREHEAT  ->  PRECHARGE  ->  RUNNING
+
+In PRECHARGE the element is driven at full duty with the profile clock held.
+An observer -- `oven/elementff.py`, the two-state model from
+`tools/identify_plant.py` in the parameters the chamber can see --
+estimates the element's contribution to chamber rate, and the run starts
+the moment that reaches what the curve's opening needs, or at a 40 s bound.
+The oven then enters the profile wherever it is, exactly as before, but with
+an element that can follow.
+
+Why timing and not gain: whenever the old loop was more than 8 C behind on a
+warm start, duty was 1.00 for 100% of that time. A state-feedback
+feed-forward was built first and moved the worst-case lag from -11.5 to
+-11.5. The plant does not care how hard it is asked; it cares when.
+
+Simulated through the real App on the identified plant, old feed-forward and
+old PID throughout:
+
+                            without              with            charge
+    TS391SNL 59 C start    rms 12.51 lag -25.2  rms 4.10 lag -8.5   40 s
+    TS391SNL 34 C start    rms  8.59 lag -16.6  rms 5.77 lag -11.8  11 s
+    TS391LT  45 C start    rms  6.47 lag -15.0  rms 3.25 lag -7.5   15 s
+    cold starts            unchanged; 2-4 s of charge, then stands aside
+
+Peaks and time above liquidus do not move. Holds up at g*0.8 and g*1.2.
+
+What it is not: a change to the feed-forward, the PID, the cutoff or the
+output stage. The measured rate tables remain what the steady state comes
+from. The two-state model is used for one decision -- when -- and its
+30% steady-state disagreement with the table is recorded as open rather
+than resolved either way.
+
+The characterisation carries the parameters under `element_model` and the
+bound under `precharge`. An oven whose characterisation lacks them starts
+runs the way it always did; the factory returns None and PRECHARGE is never
+entered.
+
 ## Rules any replacement has to keep
 
 These are not style preferences. Each cost a run, a board, or a day.

@@ -23,6 +23,8 @@ from .safety import Supervisor
 
 STATE_IDLE = "idle"
 STATE_PREHEAT = "preheat"
+# Heating the element, clock held, before the run proper. See _in_precharge.
+STATE_PRECHARGE = "precharge"
 STATE_RUNNING = "running"
 STATE_COOLDOWN = "cooldown"
 STATE_REPORT = "report"
@@ -97,6 +99,11 @@ class App(object):
         self._next_control = None
         self._state_entered = None
         self._run_started = None
+        # (profile, temperature) -> a PreCharge, or None to skip. Injected
+        # so the state machine can be tested without the model, and so the
+        # model can be tested without the state machine.
+        self.precharge_factory = None
+        self._precharge = None
         self._above = False
         self._door_prompted = False
         self.door_in_s = None
@@ -121,7 +128,7 @@ class App(object):
         return None
 
     def abort(self):
-        if self.state in (STATE_PREHEAT, STATE_RUNNING):
+        if self.state in (STATE_PREHEAT, STATE_PRECHARGE, STATE_RUNNING):
             self.relay.set(False)
             self._emit(Event.ABORTED, {})
             self._enter(STATE_COOLDOWN)
@@ -194,7 +201,7 @@ class App(object):
             self.relay.set(False)
             return
         if temp >= start_c - PREHEAT_TOLERANCE_C:
-            self._begin_running(now)
+            self._begin_precharge_or_run(now)
             return
         if now - self._state_entered > PREHEAT_TIMEOUT_S:
             self.relay.set(False)
@@ -268,7 +275,62 @@ class App(object):
                     "reason": "open now to land inside this profile's time "
                               "above liquidus"})
 
-    def _begin_running(self, now):
+    def _begin_precharge_or_run(self, now):
+        """Charge the element first if there is a reason to, else just go.
+
+        The warm-start lag is a saturated actuator: the curve asks for a
+        rate the instant the clock starts, the element is stone cold, and
+        for ten to fourteen seconds nothing the controller asks for arrives.
+        Measured at -24 C from a 34 C start and -32 C from 59 C, with duty
+        at 1.0 throughout. More gain cannot help; earlier heat can. So the
+        element is driven at full duty with the profile clock held, until
+        an observer says its contribution has reached what the curve's
+        opening needs, or a bound is hit. Simulated: -19.8 C to -6.4 C at
+        the hottest legal start, and nothing changes on a cold one.
+        """
+        self._precharge = None
+        if self.precharge_factory is not None and self.temperature is not None:
+            try:
+                self._precharge = self.precharge_factory(self.profile,
+                                                         self.temperature)
+            except Exception as e:
+                print("# precharge: not available (%r); starting directly" % e)
+                self._precharge = None
+        if self._precharge is None:
+            self._begin_running(now)
+            return
+        self.supervisor.begin_run(
+            now, expected_duration_s=(self._precharge.max_s
+                                      + (self.profile.duration
+                                         if self.profile else 0.0)))
+        self._enter(STATE_PRECHARGE)
+        self._emit(Event.STAGE_CHANGED, {"stage": "precharge"})
+
+    def _in_precharge(self, now):
+        pc = self._precharge
+        temp = self.temperature
+        if temp is None or pc is None:
+            self.relay.set(False)
+            if pc is None:
+                self._begin_running(now)
+            return
+        pc.observer.update(now, temp, 1.0 if self.relay.is_on() else 0.0)
+        duty = pc.duty(now)
+        if duty is None:
+            # Ready, or out of time. Enter the profile wherever the oven
+            # now is -- entry_time_for is unchanged -- with an element that
+            # can follow it. The supervisor keeps the run it was given.
+            self.relay.set(False)
+            self._emit(Event.STAGE_CHANGED,
+                       {"stage": "precharge done",
+                        "seconds": round(now - (pc.started_at or now), 1),
+                        "z": round(pc.observer.z, 3)})
+            self._begin_running(now, supervisor_already_running=True)
+            return
+        self.duty = duty
+        self._drive(now, duty)
+
+    def _begin_running(self, now, supervisor_already_running=False):
         # Enter the profile where the oven already is, not always at zero.
         #
         # A warm oven started at t=0 opens with the target below it, so the
@@ -283,9 +345,10 @@ class App(object):
 
         self._run_started = now - entry
         self.elapsed = entry
-        self.supervisor.begin_run(
-            now, expected_duration_s=(self.profile.duration - entry)
-            if self.profile is not None else None)
+        if not supervisor_already_running:
+            self.supervisor.begin_run(
+                now, expected_duration_s=(self.profile.duration - entry)
+                if self.profile is not None else None)
         self.controller.reset(now)
         self._enter(STATE_RUNNING)
         payload = {"profile": self.profile.name}

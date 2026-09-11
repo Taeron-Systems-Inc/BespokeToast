@@ -20,8 +20,12 @@ prints the commanded duty every control step, which is what these hold.
 | `run-0013-ts391snl-hot.csv` | 0013 | 59 C start, the hottest allowed, to 247 C |
 | `run-0014-ts391lt.csv` | 0014 | 28 C cold start, to 168 C |
 | `run-0015-bake-125c.csv` | 0015 | 30 C to 125 C and held |
+| `run-0016-ts391snl-hot-precharge.csv` | 0016 | 59 C start on the pre-charge loop, 2026-09-11 |
 
-All 2026-09-10, empty oven.
+0011-0015 on 2026-09-10, empty oven. 0016 is the same start as 0013 on the
+pre-charge firmware: 33 s of charge, entered the profile at 80.5 C, heating
+phase rms 2.41 C, worst lag -5.1 C (0013: 13.21 and -32.0). Its `precharge`
+rows are full-duty with the profile clock held.
 
 ## The identification run, 2026-09-11
 

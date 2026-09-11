@@ -135,6 +135,19 @@ old PID throughout:
 
 Peaks and time above liquidus do not move. Holds up at g*0.8 and g*1.2.
 
+Measured on hardware, 2026-09-11, run 0016 -- the same 59 C start as run
+0013, empty oven, heating phase only:
+
+                          worst lag    rms    charge   entered at   peak
+    run 0013, old start    -32.0 C   13.21     --        59.4 C    +1.9 C
+    run 0016, pre-charge    -5.1 C    2.41    33 s       80.5 C    -0.2 C
+
+That is the hottest start the supervisor allows, tracking as well as the
+best cold start on record (run 0014, 2.47 C rms). The simulation had said
+4.10 rms and -8.5 C; the real element charged in 33 s against the 40 s
+bound, so the model is conservative in the right direction. Time above
+liquidus 94 s.
+
 What it is not: a change to the feed-forward, the PID, the cutoff or the
 output stage. The measured rate tables remain what the steady state comes
 from. The two-state model is used for one decision -- when -- and its

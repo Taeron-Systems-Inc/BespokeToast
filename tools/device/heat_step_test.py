@@ -181,6 +181,37 @@ def identification_schedule():
     return plan
 
 
+def identification_schedule_v2():
+    """The same plateaux, with excitation the fit can actually use.
+
+    The first run of the v1 schedule on 2026-09-11 produced plateaux the
+    local fit could not resolve: +/-0.15 duty on a 0.0625 C probe is a few
+    degrees of signal, and a 60 s half period lets the response settle so
+    completely that a large gain with a long time constant fits it as well
+    as a small gain with a short one. At the 60 C plateau the down half
+    clamped to zero because 0.043 - 0.15 is negative, so the wave was not
+    even symmetric. tools/plateau_dynamics.py flagged the 60 C plateau as
+    flat and found tau anywhere from 8 to 40 s at 100 C.
+
+    So: amplitude 0.3, half period 30 s, and the hold duty raised where it
+    has to be so the down half is a real step rather than a rail. The
+    climbs between plateaux -- full power, then a stop-short and a coast --
+    were always the strong excitation and are unchanged.
+    """
+    plan = []
+    for setpoint, hold, label in ((60.0, 0.30, "60C"),
+                                  (100.0, 0.30, "100C"),
+                                  (150.0, 0.30, "150C"),
+                                  (195.0, 0.433, "195C"),
+                                  (235.0, 0.526, "235C")):
+        plan.extend(_plateau(setpoint, hold, 120.0, 0.30, 4, 30.0, label))
+    plan.append(Step(1800.0, 0.0, 30.0, "free cooling"))
+    return plan
+
+
+IDENTIFY_V2 = identification_schedule_v2
+
+
 IDENTIFY_60_TO_240 = identification_schedule
 
 

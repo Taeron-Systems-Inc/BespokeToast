@@ -206,6 +206,15 @@ Measured on hardware, heating phase only:
 
     run 0018  TS391SNL  34 C start   rms 1.87   worst lag -5.3   (run 0011, old loop: 9.16, -24.1)
     run 0019  TS391SNL  59 C start   rms 1.91   worst lag -5.0   (run 0016, pre-charge only: 1.57, -5.1)
+    run 0020  TS391LT   59 C start   rms 0.78   worst lag -2.5   (run 0017, pre-charge only: 2.24, -5.4)
+
+Run 0020 is the case the lead was built for, on the corrected
+prediction. The soak knee that cost run 0017 +4.1 C of overshoot cost
+0.8 C; the peak landed at 164.6 against a 164.9 target where 0017 sailed
+to 168.1; duty was saturated for 6% of the heating phase against 21%;
+time above liquidus went 86.8 s to 90.5 s. Relay actuations rose from 42
+to 64, which is the trade: the loop is modulating where it used to sit
+on the rail.
 
 Run 0019 against 0016 is the honest comparison, and the first lead did
 not win it: better through the early ramp (100-140 C rms 3.9 to 2.8),

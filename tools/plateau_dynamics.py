@@ -94,16 +94,36 @@ def simulate(par, window, hold):
     return out
 
 
+TAU_LO, TAU_HI = 3.0, 40.0
+
+
 def fit(window, hold):
+    """(k, tau, drift), rms -- and the rms with tau pinned at three
+    values, so a flat minimum shows as one.
+
+    On the first real capture the free fit returned tau = 96 s at one
+    plateau and a gain of 0.000 at another. Neither was a measurement: a
+    +/-0.15 duty square wave on a 0.0625 C probe is a few degrees of
+    signal, and over a 60 s half period a large gain with a long time
+    constant fits it as well as a small gain with a short one. The fitter
+    was not wrong; the question was not well posed. tau is now bounded to
+    the range any other measurement puts it in, and the profile of rms
+    against tau is printed so a flat answer reads as flat.
+    """
     def cost(par):
-        if par[1] <= 0.5 or par[0] <= 0:
+        if not (TAU_LO <= par[1] <= TAU_HI) or par[0] <= 0:
             return 1e9
         m = simulate(par, window, hold)
         return (sum((m[i] - window[i][2]) ** 2
                     for i in range(len(window))) / len(window)) ** 0.5
     best, err = nelder_mead(cost, [1.0, 12.0, 0.0], [0.5, 5.0, 0.02],
                             iters=600)
-    return best, err
+    profile = {}
+    for tau in (8.0, 14.0, 25.0):
+        b2, e2 = nelder_mead(lambda q: cost([q[0], tau, q[1]]),
+                             [best[0], best[2]], [0.3, 0.02], iters=200)
+        profile[tau] = e2
+    return best, err, profile
 
 
 def main(argv):
@@ -114,13 +134,16 @@ def main(argv):
     if not rows:
         print("no rows in %s" % argv[0])
         return 1
-    print("%-8s %8s %8s %9s %8s %8s" % ("plateau", "mean C", "hold u",
-                                       "gain C/s", "tau s", "rms"))
+    print("%-8s %7s %7s %8s %7s %6s | %s" % ("plateau", "mean C", "hold u",
+                                           "gain", "tau s", "rms",
+                                           "rms at tau=8 / 14 / 25"))
     for name, hold, window in plateaux(rows, marks):
-        (k, tau, drift), err = fit(window, hold)
+        (k, tau, drift), err, prof = fit(window, hold)
         mean_c = sum(c for _, _, c in window) / len(window)
-        print("%-8s %8.1f %8.3f %9.3f %8.1f %8.2f"
-              % (name, mean_c, hold, k, tau, err))
+        flat = max(prof.values()) - min(prof.values()) < 0.05
+        print("%-8s %7.1f %7.3f %8.3f %7.1f %6.2f | %.2f / %.2f / %.2f%s"
+              % (name, mean_c, hold, k, tau, err, prof[8.0], prof[14.0],
+                 prof[25.0], "   <- flat: tau not determined here" if flat else ""))
     return 0
 
 

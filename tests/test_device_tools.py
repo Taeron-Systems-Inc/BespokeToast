@@ -186,7 +186,14 @@ def test_the_schedule_is_bounded_in_wall_clock_time():
 def test_set_clock_from_this_host_is_best_effort_and_never_raises():
     """A missing port, a dead board or a refusal costs a date on a log,
     never a deploy. The function returns a sentence; it does not raise."""
-    import deploy
+    import sys
+    tools = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "..", "tools")
+    sys.path.insert(0, tools)
+    try:
+        import deploy
+    finally:
+        sys.path.remove(tools)
     out = deploy.set_clock_from_this_host(port="/dev/does-not-exist",
                                           settle_s=0.1)
     assert out is None or isinstance(out, str)

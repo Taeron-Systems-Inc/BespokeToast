@@ -25,6 +25,7 @@ prints the commanded duty every control step, which is what these hold.
 | `run-0018-ts391snl-warm-predictive.csv` | 0018 | 34 C start on the predictive loop (lead 6 s), 2026-09-11 |
 | `run-0019-ts391snl-hot-predictive.csv` | 0019 | 59 C start, predictive loop, decay-form prediction (ran 1.5 C hot from 160 C), 2026-09-11 |
 | `run-0020-ts391lt-hot-predictive.csv` | 0020 | 59 C start, TS391LT, driven-form prediction, 2026-09-11 |
+| `run-0021-ts391snl-cold-predictive.csv` | 0021 | 25 C cold start, driven-form prediction, 2026-09-11 |
 
 0011-0015 on 2026-09-10, empty oven. 0016 is the same start as 0013 on the
 pre-charge firmware: 33 s of charge, entered the profile at 80.5 C, heating

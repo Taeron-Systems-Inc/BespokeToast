@@ -207,6 +207,7 @@ Measured on hardware, heating phase only:
     run 0018  TS391SNL  34 C start   rms 1.87   worst lag -5.3   (run 0011, old loop: 9.16, -24.1)
     run 0019  TS391SNL  59 C start   rms 1.91   worst lag -5.0   (run 0016, pre-charge only: 1.57, -5.1)
     run 0020  TS391LT   59 C start   rms 0.78   worst lag -2.5   (run 0017, pre-charge only: 2.24, -5.4)
+    run 0021  TS391SNL  25 C cold     rms 0.95   worst lag -2.6   (run 0014, TS391LT cold, old loop: 2.46, -6.6)
 
 Run 0020 is the case the lead was built for, on the corrected
 prediction. The soak knee that cost run 0017 +4.1 C of overshoot cost

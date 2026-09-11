@@ -1131,6 +1131,10 @@ def main():
                   % (app.state, app.temperature, app.target,
                      1 if hw.relay.is_on() else 0,
                      selected_ref[0].name if selected_ref[0] else None))
+            # The network belongs here too. A boot that fails to join says
+            # so once, in a line that scrolls past; after that the only way
+            # to find out whether the page is reachable was to try the page.
+            print("# status network=%s" % (web.status or "not up"))
         elif cmd:
             print("# unknown command %r" % cmd)
 

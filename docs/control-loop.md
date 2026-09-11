@@ -184,11 +184,11 @@ Swept through the firmware's own Controller on the identified plant
 (`tools/design/predictive_sim.py`), heating phase rms:
 
                           lead 0    4 s     6 s     8 s    10 s
-    TS391LT   28 C         2.70    1.05    1.00    1.63    2.41
-    TS391LT   59 C         1.85    0.76    0.68    1.31    1.88
-    TS391SNL  25 C         5.99    3.66    2.93    3.00    3.32
-    TS391SNL  34 C         4.99    3.27    2.76    3.17    3.77
-    TS391SNL  59 C         2.53    1.61    1.84    2.68    3.42
+    TS391LT   28 C         2.70    1.52    1.47    2.24    3.29
+    TS391LT   59 C         1.85    1.38    0.90    1.22    2.42
+    TS391SNL  25 C         5.99    3.93    3.75    4.12    4.34
+    TS391SNL  34 C         4.99    4.00    3.36    3.76    3.79
+    TS391SNL  59 C         2.53    1.84    1.42    1.61    1.91
 
 Holds at g*0.8 and g*1.2. Ten seconds and beyond overshoots: the
 prediction trusts the observer more than it deserves. Peaks and time

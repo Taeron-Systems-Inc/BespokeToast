@@ -23,6 +23,8 @@ And one thing that is not a controller at all:
     stop by looking only at the present temperature can hit a peak.
 """
 
+import math
+
 from oven.ratetable import as_table
 
 
@@ -269,7 +271,7 @@ class Controller(object):
     """Feed-forward plus PID, with a predictive cutoff near the peak."""
 
     def __init__(self, profile, coast_tau_s, feed_forward=None, pid=None,
-                 tpo=None, peak_guard_c=0.0):
+                 tpo=None, peak_guard_c=0.0, element_model=None, lead_s=0.0):
         if coast_tau_s is None:
             raise ValueError(
                 "coast_tau_s must be measured for this oven (experiment E2); "
@@ -296,6 +298,28 @@ class Controller(object):
         self._last_t = None
         self.rate_c_per_s = 0.0
         self.coasting = False
+        # Predictive tracking. The element stores ten seconds and more of
+        # heat that the chamber has not seen yet, so acting on the error
+        # *now* is acting on stale news: the loop drives full-on into a
+        # knee and then coasts 14 C past it on stored heat. Given an
+        # estimate z of the element's contribution to chamber rate (see
+        # oven/elementff.py), the chamber's position lead_s from now is
+        #
+        #     T + z * (1 - exp(-beta * lead)) / beta - d * (T - Ta) * lead
+        #
+        # and the feed-forward and PID both act on the curve lead_s ahead
+        # against that prediction. Simulated on the identified plant, 6 s
+        # halves the heating-phase rms on every profile and start
+        # temperature; 10 s and beyond overshoots, because the prediction
+        # trusts the observer more than it deserves. With no model, or no
+        # element state passed to duty_for, this is exactly the old loop.
+        self.element_model = element_model
+        self.lead_s = float(lead_s or 0.0)
+        self._lead_gain = 0.0
+        if element_model is not None and self.lead_s > 0.0:
+            b = float(element_model.beta)
+            self._lead_gain = ((1.0 - math.exp(-b * self.lead_s)) / b
+                               if b > 0.0 else self.lead_s)
 
     def reset(self, t=0.0):
         self.pid.reset()
@@ -305,8 +329,14 @@ class Controller(object):
         self.rate_c_per_s = 0.0
         self.coasting = False
 
-    def duty_for(self, elapsed_s, temp_c, t=None):
-        """The duty to request now. Does not touch the relay."""
+    def duty_for(self, elapsed_s, temp_c, t=None, element_z=None):
+        """The duty to request now. Does not touch the relay.
+
+        *element_z* is the observer's estimate of the element's
+        contribution to chamber rate; with it, and a lead configured, the
+        loop tracks the curve lead_s ahead against where the chamber will
+        be. Without it the loop acts on the present.
+        """
         t = elapsed_s if t is None else t
 
         if self._last_t is not None and t > self._last_t:
@@ -336,6 +366,21 @@ class Controller(object):
             else:
                 return 0.0
 
+        if element_z is not None and self._lead_gain > 0.0:
+            ahead = self.lead_s
+            t_ahead = elapsed_s + ahead
+            if elapsed_s <= self.profile.peak[0]:
+                # Never look past the peak on the way up: the descent
+                # beyond it is the door's, and reading it early would
+                # throttle the last of the climb.
+                t_ahead = min(t_ahead, self.profile.peak[0])
+            m = self.element_model
+            predicted = (temp_c + element_z * self._lead_gain
+                         - m.d * (temp_c - m.ambient_c) * ahead)
+            target = self.profile.target_at(t_ahead)
+            slope = self.profile.slope_at(t_ahead)
+            return clamp(self.ff.duty_for(target, slope)
+                         + self.pid.update(t, target, predicted), 0.0, 1.0)
         slope = self.profile.slope_at(elapsed_s)
         return clamp(self.ff.duty_for(target, slope)
                      + self.pid.update(t, target, temp_c), 0.0, 1.0)

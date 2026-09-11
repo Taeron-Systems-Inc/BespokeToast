@@ -622,13 +622,28 @@ def make_precharge_factory(characterisation):
     max_s = float(pc.get("max_s", 40.0))
     margin = float(pc.get("margin", 1.0))
 
-    def factory(profile, temp_c):
+    def factory(profile, temp_c, observer=None):
         entry = profile.entry_time_for(temp_c)
         need = model.z_for(profile.slope_at(entry), temp_c)
         if need <= 0.0:
             return None
-        return PreCharge(ElementObserver(model), need, max_s=max_s,
-                         margin=margin)
+        return PreCharge(observer or ElementObserver(model), need,
+                         max_s=max_s, margin=margin)
+    factory.model = model
+    return factory
+
+
+def make_observer_factory(precharge_factory):
+    """(profile, temperature) -> a fresh ElementObserver on the same model
+    the pre-charge uses, so the controller can read the element state for
+    the whole run. None when there is no model."""
+    model = getattr(precharge_factory, "model", None)
+    if model is None:
+        return None
+    from oven.elementff import ElementObserver
+
+    def factory(profile, temp_c):
+        return ElementObserver(model)
     return factory
 
 
@@ -671,12 +686,28 @@ def main():
         # DOWN, from 30352 to 27056, until this line existed.
         characterisation_data = {
             "element_model": data.get("element_model"),
-            "precharge": data.get("precharge")}
+            "precharge": data.get("precharge"),
+            "predictive": data.get("predictive")}
         data = None
         gc.collect()
     else:
         ff = FeedForward()
         coast = 1.2
+
+    # Pre-charge the element before a run's clock starts, and let the
+    # controller track the curve a few seconds ahead against the same
+    # element state. Both come from the identified two-state model in the
+    # characterisation; without one the factory is None, runs start the
+    # way they always did, and the loop acts on the present. See
+    # oven/elementff.py and docs/control-loop.md.
+    precharge_factory = make_precharge_factory(characterisation_data)
+    element_model = getattr(precharge_factory, "model", None)
+    lead_s = 0.0
+    if element_model is not None and characterisation_data:
+        lead_s = float((characterisation_data.get("predictive") or {})
+                       .get("lead_s", 0.0))
+    print("# predictive tracking: %s" % ("lead %.1f s" % lead_s if lead_s > 0.0
+                                         else "off"))
 
     profiles = load_profiles()
     # Alphabetical order would select "4900P (as run)", which measurement
@@ -737,7 +768,8 @@ def main():
         # windows.
         return Controller(profile, coast_tau_s=coast, feed_forward=ff,
                           pid=PID(kp=0.22, ki=0.004, kd=0.5,
-                                  i_max=0.6, i_min=-0.6))
+                                  i_max=0.6, i_min=-0.6),
+                          element_model=element_model, lead_s=lead_s)
 
     # Every control step is printed as CSV on the serial console. The
     # previous firmware kept no record of any run it ever performed; a host
@@ -936,11 +968,8 @@ def main():
             else "%d \u00b0C" % round(app.temperature),
             selected_ref[0].name if selected_ref[0] else "none")
 
-    # Pre-charge the element before a run's clock starts. Built from the
-    # identified two-state model in the characterisation; if that is
-    # missing the factory returns None and runs start the way they always
-    # did. See oven/elementff.py and docs/control-loop.md.
-    app.precharge_factory = make_precharge_factory(characterisation_data)
+    app.precharge_factory = precharge_factory
+    app.observer_factory = make_observer_factory(precharge_factory)
 
     web = WebService(logs, (selected_ref[0], profiles), status_line)
     # The clock is set on the connection the page is already making, rather

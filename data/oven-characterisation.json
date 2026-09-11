@@ -453,5 +453,9 @@
   "note": "Heat the element at full duty before the run clock starts, until the observer says its contribution matches what the curve's opening needs, bounded in time. Swept in simulation (tools/design/precharge_sim.py): 34 and 45 C starts finish in 8-14 s under any bound; a 59 C start is bound-limited, -8.9 C worst lag at 28 s, -6.4 at 40 s, -5.2 at 54 s. Cold starts charge for 1-3 s and are unaffected.",
   "max_s": 40.0,
   "margin": 1.0
+ },
+ "predictive": {
+  "lead_s": 6.0,
+  "note": "The controller tracks the curve lead_s ahead against where the two-state model says the chamber will be, given the observer's element state. Swept in simulation on the identified plant 2026-09-11 (tools/design/predictive_sim.py): 4-6 s halves the heating-phase rms on every profile and start; 10 s and beyond overshoots. 0 or absent is the loop acting on the present."
  }
 }

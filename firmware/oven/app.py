@@ -104,6 +104,11 @@ class App(object):
         # model can be tested without the state machine.
         self.precharge_factory = None
         self._precharge = None
+        # (profile, temp_c) -> ElementObserver, or None. One observer per
+        # run: pre-charge fills it, and the controller reads it for the
+        # rest of the run. See Controller.duty_for's element_z.
+        self.observer_factory = None
+        self.observer = None
         self._above = False
         self._door_prompted = False
         self.door_in_s = None
@@ -289,10 +294,19 @@ class App(object):
         the hottest legal start, and nothing changes on a cold one.
         """
         self._precharge = None
+        self.observer = None
+        if self.observer_factory is not None and self.temperature is not None:
+            try:
+                self.observer = self.observer_factory(self.profile,
+                                                      self.temperature)
+            except Exception as e:
+                print("# observer: not available (%r); loop acts on the present" % e)
+                self.observer = None
         if self.precharge_factory is not None and self.temperature is not None:
             try:
                 self._precharge = self.precharge_factory(self.profile,
-                                                         self.temperature)
+                                                         self.temperature,
+                                                         self.observer)
             except Exception as e:
                 print("# precharge: not available (%r); starting directly" % e)
                 self._precharge = None
@@ -374,7 +388,12 @@ class App(object):
             self._enter(STATE_COOLDOWN)
             return
 
-        self.duty = self.controller.duty_for(self.elapsed, temp, now)
+        z = None
+        if self.observer is not None and temp is not None:
+            z = self.observer.update(now, temp,
+                                     1.0 if self.relay.is_on() else 0.0)
+        self.duty = self.controller.duty_for(self.elapsed, temp, now,
+                                             element_z=z)
         self._drive(now, self.duty)
 
     def _in_cooldown(self, now):

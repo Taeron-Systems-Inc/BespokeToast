@@ -112,7 +112,7 @@ def test_without_a_factory_a_run_starts_the_way_it_always_did():
 
 def test_a_factory_that_returns_none_is_the_same_as_no_factory():
     app, clock, relay, sensor, profile, events = rig(
-        factory=lambda p, t: None)
+        factory=lambda p, t, o=None: None)
     app.tick()
     app.request_start(profile)
     tick(app, clock, 2)
@@ -122,7 +122,7 @@ def test_a_factory_that_returns_none_is_the_same_as_no_factory():
 def test_preheat_hands_to_precharge_and_precharge_hands_to_running():
     pc = ScriptedPreCharge(steps=8)
     app, clock, relay, sensor, profile, events = rig(
-        factory=lambda p, t: pc)
+        factory=lambda p, t, o=None: pc)
     app.tick()
     app.request_start(profile)
     tick(app, clock, 1)
@@ -137,7 +137,7 @@ def test_preheat_hands_to_precharge_and_precharge_hands_to_running():
 
 def test_the_relay_is_driven_while_charging_and_released_on_handover():
     pc = ScriptedPreCharge(steps=6)
-    app, clock, relay, sensor, profile, events = rig(factory=lambda p, t: pc)
+    app, clock, relay, sensor, profile, events = rig(factory=lambda p, t, o=None: pc)
     app.tick()
     app.request_start(profile)
     tick(app, clock, 1)
@@ -151,7 +151,7 @@ def test_the_relay_is_driven_while_charging_and_released_on_handover():
 
 def test_the_observer_is_fed_every_step_with_what_the_relay_did():
     pc = ScriptedPreCharge(steps=5)
-    app, clock, relay, sensor, profile, events = rig(factory=lambda p, t: pc)
+    app, clock, relay, sensor, profile, events = rig(factory=lambda p, t, o=None: pc)
     app.tick()
     app.request_start(profile)
     tick(app, clock, 8)
@@ -165,7 +165,7 @@ def test_the_run_clock_does_not_advance_while_charging():
     """The whole point: the profile does not start until the element can
     follow it."""
     pc = ScriptedPreCharge(steps=10)
-    app, clock, relay, sensor, profile, events = rig(factory=lambda p, t: pc)
+    app, clock, relay, sensor, profile, events = rig(factory=lambda p, t, o=None: pc)
     app.tick()
     app.request_start(profile)
     tick(app, clock, 1)
@@ -190,7 +190,7 @@ def test_a_factory_that_raises_does_not_take_the_run_with_it():
 
 def test_abort_works_during_precharge():
     pc = ScriptedPreCharge(steps=100)
-    app, clock, relay, sensor, profile, events = rig(factory=lambda p, t: pc)
+    app, clock, relay, sensor, profile, events = rig(factory=lambda p, t, o=None: pc)
     app.tick()
     app.request_start(profile)
     tick(app, clock, 3)

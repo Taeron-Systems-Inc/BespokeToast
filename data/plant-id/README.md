@@ -24,7 +24,7 @@ prints the commanded duty every control step, which is what these hold.
 
 0011-0015 on 2026-09-10, empty oven. 0016 is the same start as 0013 on the
 pre-charge firmware: 33 s of charge, entered the profile at 80.5 C, heating
-phase rms 2.41 C, worst lag -5.1 C (0013: 13.21 and -32.0). Its `precharge`
+phase rms 1.57 C, worst lag -5.1 C (0013: 13.06 and -32.0). Its `precharge`
 rows are full-duty with the profile clock held.
 
 ## The identification run, 2026-09-11

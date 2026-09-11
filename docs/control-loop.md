@@ -63,9 +63,11 @@ dwell.
 
 **TimeProportional** turns duty into relay states: a 4 s window, minimum 0.8 s
 on and off. One window for every profile. A 30 s window would cut relay wear
-on a four-hour bake from ~1080 actuations to ~136, but the oven climbs at
+on a four-hour bake by roughly eight times, but the oven climbs at
 over a degree a second and a 30 s slug of heat overshoots by 35 C; 8 s still
-costs 4.7 C. A bake exists to hold 125 C within a few degrees, and trading
+costs 4.7 C. (The ~1080 actuations per bake this once claimed was a
+simulation figure. Measured at the hold on hardware, both loops sit near
+2300-2550 per four-hour bake -- see the bake numbers below.) A bake exists to hold 125 C within a few degrees, and trading
 that for relay life is the wrong way round.
 
 ## What it achieves, measured
@@ -248,6 +250,19 @@ the PID chased that. Predicting with the element on its way to the
 steady state of the loop's own last duty is unbiased to 0.05 C with half
 the spread (commit 183543e). What is in the simulation table above is
 that form.
+
+### The bake, where the relay wear is
+
+Measured at the 125 C hold, empty oven, 4 Hz console capture:
+
+                        rms      mean duty   closures/min   per 4.2 h bake
+    old loop  (0015)    0.55       0.234          9.0           ~2275
+    predictive          0.40       0.201         10.1           ~2548
+
+The hold is 27% tighter and costs 12% more relay closures. That is the
+honest trade and it is small; a relay rated for 100k cycles is worth
+about 39 bakes either way. The old loop's sampled window was only 3.2
+minutes, so treat the wear difference as indicative rather than settled.
 
 ## Where the loop still loses
 

@@ -205,6 +205,18 @@ table's low end and not a control problem.
 Measured on hardware, heating phase only:
 
     run 0018  TS391SNL  34 C start   rms 1.87   worst lag -5.3   (run 0011, old loop: 9.16, -24.1)
+    run 0019  TS391SNL  59 C start   rms 1.91   worst lag -5.0   (run 0016, pre-charge only: 1.57, -5.1)
+
+Run 0019 against 0016 is the honest comparison, and the first lead did
+not win it: better through the early ramp (100-140 C rms 3.9 to 2.8),
+then +1.2 to +1.8 C hot from 160 C to the peak. Replaying the observer
+over the captures found why. The prediction assumed the element would
+be left to decay over the lead, and the loop was driving it: the chamber
+landed +0.85 C above the prediction on average across three runs, and
+the PID chased that. Predicting with the element on its way to the
+steady state of the loop's own last duty is unbiased to 0.05 C with half
+the spread (commit 183543e). What is in the simulation table above is
+that form.
 
 ## Rules any replacement has to keep
 

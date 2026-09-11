@@ -159,6 +159,53 @@ bound under `precharge`. An oven whose characterisation lacks them starts
 runs the way it always did; the factory returns None and PRECHARGE is never
 entered.
 
+## What replaced the error: predictive tracking (2026-09-11)
+
+Run 0017 -- TS391LT from the same hot start, on pre-charge -- tracked the
+ramp within 5 C and then coasted 14 C past the soak knee with the relay
+open: at 90 C the element held that much heat the chamber had not seen.
+The loop was acting on stale news. Whenever it drove full-on into a knee
+it had already lost.
+
+The same element state that decides when a run starts now tells the loop
+where the chamber will be. `Controller.duty_for` takes the observer's
+estimate z, and with a lead configured evaluates the feed-forward and the
+PID on the curve `lead_s` ahead, against
+
+    T_pred = T + z * (1 - exp(-beta * lead)) / beta - d * (T - Ta) * lead
+
+The App owns one `ElementObserver` per run: pre-charge fills it, the run
+keeps feeding it with what the relay did. The FF, the PID gains, the
+cutoff and the output stage are the ones above; only what they are shown
+has changed. With no model, or no element state, it is the old loop, and
+`tests/test_predictive.py` holds it to that.
+
+Swept through the firmware's own Controller on the identified plant
+(`tools/design/predictive_sim.py`), heating phase rms:
+
+                          lead 0    4 s     6 s     8 s    10 s
+    TS391LT   28 C         2.70    1.05    1.00    1.63    2.41
+    TS391LT   59 C         1.85    0.76    0.68    1.31    1.88
+    TS391SNL  25 C         5.99    3.66    2.93    3.00    3.32
+    TS391SNL  34 C         4.99    3.27    2.76    3.17    3.77
+    TS391SNL  59 C         2.53    1.61    1.84    2.68    3.42
+
+Holds at g*0.8 and g*1.2. Ten seconds and beyond overshoots: the
+prediction trusts the observer more than it deserves. Peaks and time
+above liquidus do not move; a reflow run costs about ten more relay
+actuations, and the four-hour bake costs fewer (2895 to 2440) because the
+hold no longer hunts. The lead is `predictive.lead_s` in the
+characterisation; 6 s.
+
+Not taken: charging the element to the need six or twelve seconds past
+entry instead of at entry. Simulated, it moves nothing -- the residual
+lag on a 34 C start is the oven at full power below 60 C, which is the
+table's low end and not a control problem.
+
+Measured on hardware, heating phase only:
+
+    run 0018  TS391SNL  34 C start   rms 1.87   worst lag -5.3   (run 0011, old loop: 9.16, -24.1)
+
 ## Rules any replacement has to keep
 
 These are not style preferences. Each cost a run, a board, or a day.

@@ -329,6 +329,42 @@ def mounted_circuitpy():
     return out
 
 
+def set_clock_from_this_host(port=None, settle_s=12.0):
+    """Tell the board what time it is, over the console.
+
+    A board that has just been reflashed usually cannot join the network
+    for a minute or two, and the clock is what dates a run log. Runs 0020
+    to 0022 are permanently undated because they were started in that
+    window. The host knows the time; this hands it over. Best effort: a
+    failure here costs a date, not a run.
+    """
+    try:
+        import serial
+    except ImportError:
+        return None
+    port = resolve_port(port)
+    deadline = time.monotonic() + settle_s
+    while time.monotonic() < deadline and not os.path.exists(port):
+        time.sleep(0.5)
+    try:
+        with serial.Serial(port, 115200, timeout=0.5) as s:
+            time.sleep(1.0)
+            s.reset_input_buffer()
+            s.write(b"CLOCK %d\r\n" % int(time.time()))
+            s.flush()
+            end = time.monotonic() + 6.0
+            buf = ""
+            while time.monotonic() < end:
+                buf += s.read(512).decode("utf-8", "replace")
+                if "# clock set from the host" in buf:
+                    return "clock set from this host"
+                if "# clock: refused" in buf:
+                    return "the board refused the clock"
+    except Exception as e:
+        return "could not set the clock: %r" % e
+    return "the board did not acknowledge the clock"
+
+
 def hand_volume_back_to_the_oven(port=None):
     """Give CIRCUITPY to the oven, so it can record its next run.
 
@@ -350,6 +386,9 @@ def hand_volume_back_to_the_oven(port=None):
     if problem:
         print("!! could not set the boot mode: %s" % problem)
         return 1
+    stamp = set_clock_from_this_host(port=port)
+    if stamp:
+        print(".. %s" % stamp)
     print(".. the oven owns CIRCUITPY again and can record its next run.")
     print("   It stays that way across reboots, cable in or out, until a")
     print("   deploy takes the volume back.")

@@ -181,3 +181,22 @@ def test_the_schedule_is_bounded_in_wall_clock_time():
     assert "max_total_s" in src
     assert "wall clock limit" in src, (
         "nothing stops a schedule that overruns its own arithmetic")
+
+
+def test_set_clock_from_this_host_is_best_effort_and_never_raises():
+    """A missing port, a dead board or a refusal costs a date on a log,
+    never a deploy. The function returns a sentence; it does not raise."""
+    import deploy
+    out = deploy.set_clock_from_this_host(port="/dev/does-not-exist",
+                                          settle_s=0.1)
+    assert out is None or isinstance(out, str)
+
+
+def test_the_clock_command_exists_on_the_board():
+    """deploy.py sends CLOCK <epoch>; code.py has to understand it."""
+    import ast
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = open(os.path.join(here, "..", "firmware", "code.py")).read()
+    assert 'cmd.startswith("CLOCK ")' in src
+    ast.parse(src)

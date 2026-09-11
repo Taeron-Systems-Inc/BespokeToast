@@ -1126,6 +1126,17 @@ def main():
                                             hw.relay.is_on(),
                                             radio=web.radio)
                 print("# command UPLOAD done: %d sent" % sent)
+        elif cmd.startswith("CLOCK "):
+            # Set the board's clock from the host. The network sets it too,
+            # but a board that has just been reflashed often cannot join for
+            # a minute or two, and a run started in that window is written
+            # with no date at all -- runs 0020 to 0022 are undated for
+            # exactly this reason. The host always knows the time.
+            try:
+                set_rtc(int(cmd[6:].strip()))
+                print("# clock set from the host")
+            except Exception as e:
+                print("# clock: refused (%r)" % e)
         elif cmd == "STATUS":
             print("# status state=%s temp=%s target=%s relay=%d profile=%s"
                   % (app.state, app.temperature, app.target,

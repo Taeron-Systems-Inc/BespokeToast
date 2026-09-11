@@ -598,8 +598,26 @@ def load_profiles():
 HARDWARE = None
 
 
-def make_precharge_factory(characterisation):
-    """(profile, temperature) -> PreCharge, from the identified model.
+def load_element_model(characterisation):
+    """The identified two-state model from the characterisation, or None
+    (and a line on the console saying why)."""
+    if not characterisation or not characterisation.get("element_model"):
+        print("# element model: none in the characterisation; pre-charge and "
+              "predictive tracking off")
+        return None
+    em = characterisation["element_model"]
+    try:
+        from oven.elementff import ElementModel
+        return ElementModel(g=em["g"], beta=em["beta"], gamma=em["gamma"],
+                            d=em["d"], ambient_c=em["ambient_c"])
+    except Exception as e:
+        print("# element model: unusable (%r); off" % e)
+        return None
+
+
+def make_precharge_factory(characterisation, model=None):
+    """(profile, temperature, observer) -> PreCharge, from the identified
+    model.
 
     Returns a factory that yields None when there is nothing to charge for:
     no model in the characterisation, or a curve whose opening asks for
@@ -607,18 +625,12 @@ def make_precharge_factory(characterisation):
     to running, which simulation says is right -- they charge for a second
     or two and stand aside.
     """
-    if not characterisation or not characterisation.get("element_model"):
-        print("# precharge: no element model in the characterisation; off")
+    if model is None:
+        model = load_element_model(characterisation)
+    if model is None:
         return None
-    em = characterisation["element_model"]
-    pc = characterisation.get("precharge") or {}
-    try:
-        from oven.elementff import ElementModel, ElementObserver, PreCharge
-        model = ElementModel(g=em["g"], beta=em["beta"], gamma=em["gamma"],
-                             d=em["d"], ambient_c=em["ambient_c"])
-    except Exception as e:
-        print("# precharge: model unusable (%r); off" % e)
-        return None
+    from oven.elementff import ElementObserver, PreCharge
+    pc = (characterisation.get("precharge") or {}) if characterisation else {}
     max_s = float(pc.get("max_s", 40.0))
     margin = float(pc.get("margin", 1.0))
 
@@ -629,15 +641,15 @@ def make_precharge_factory(characterisation):
             return None
         return PreCharge(observer or ElementObserver(model), need,
                          max_s=max_s, margin=margin)
-    factory.model = model
     return factory
 
 
-def make_observer_factory(precharge_factory):
-    """(profile, temperature) -> a fresh ElementObserver on the same model
-    the pre-charge uses, so the controller can read the element state for
-    the whole run. None when there is no model."""
-    model = getattr(precharge_factory, "model", None)
+def make_observer_factory(model):
+    """(profile, temperature) -> a fresh ElementObserver on *model*, so the
+    controller can read the element state for the whole run. None when
+    there is no model. A plain function rather than an attribute on the
+    pre-charge factory: CircuitPython functions do not take attributes,
+    and the board said so on the first boot that tried."""
     if model is None:
         return None
     from oven.elementff import ElementObserver
@@ -700,8 +712,9 @@ def main():
     # characterisation; without one the factory is None, runs start the
     # way they always did, and the loop acts on the present. See
     # oven/elementff.py and docs/control-loop.md.
-    precharge_factory = make_precharge_factory(characterisation_data)
-    element_model = getattr(precharge_factory, "model", None)
+    element_model = load_element_model(characterisation_data)
+    precharge_factory = make_precharge_factory(characterisation_data,
+                                               element_model)
     lead_s = 0.0
     if element_model is not None and characterisation_data:
         lead_s = float((characterisation_data.get("predictive") or {})
@@ -969,7 +982,7 @@ def main():
             selected_ref[0].name if selected_ref[0] else "none")
 
     app.precharge_factory = precharge_factory
-    app.observer_factory = make_observer_factory(precharge_factory)
+    app.observer_factory = make_observer_factory(element_model)
 
     web = WebService(logs, (selected_ref[0], profiles), status_line)
     # The clock is set on the connection the page is already making, rather

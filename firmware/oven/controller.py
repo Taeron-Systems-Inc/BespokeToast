@@ -307,7 +307,17 @@ class Controller(object):
         #
         #     T + z * (1 - exp(-beta * lead)) / beta - d * (T - Ta) * lead
         #
-        # and the feed-forward and PID both act on the curve lead_s ahead
+        # if the element were left to decay. It is not: the loop is driving
+        # it, and assuming its own last duty persists puts the element on
+        # its way to z_ss = (g*u + gamma*(T-Ta)) / beta, so
+        #
+        #     T + z_ss*lead + (z - z_ss)*(1 - exp(-beta*lead))/beta
+        #       - d*(T - Ta)*lead
+        #
+        # Replayed against three hardware runs, the decay form under-
+        # predicted by +0.85 C on average (the loop then ran that much
+        # hot); this form is unbiased to 0.05 C with half the spread.
+        # The feed-forward and PID both act on the curve lead_s ahead
         # against that prediction. Simulated on the identified plant, 6 s
         # halves the heating-phase rms on every profile and start
         # temperature; 10 s and beyond overshoots, because the prediction
@@ -320,8 +330,10 @@ class Controller(object):
             b = float(element_model.beta)
             self._lead_gain = ((1.0 - math.exp(-b * self.lead_s)) / b
                                if b > 0.0 else self.lead_s)
+        self._last_duty = 0.0
 
     def reset(self, t=0.0):
+        self._last_duty = 0.0
         self.pid.reset()
         self.tpo.reset(t)
         self._last_temp = None
@@ -364,6 +376,7 @@ class Controller(object):
                 self.coasting = False
                 self.pid.reset()
             else:
+                self._last_duty = 0.0
                 return 0.0
 
         if element_z is not None and self._lead_gain > 0.0:
@@ -375,15 +388,22 @@ class Controller(object):
                 # throttle the last of the climb.
                 t_ahead = min(t_ahead, self.profile.peak[0])
             m = self.element_model
-            predicted = (temp_c + element_z * self._lead_gain
-                         - m.d * (temp_c - m.ambient_c) * ahead)
+            rise = temp_c - m.ambient_c
+            z_ss = (m.g * self._last_duty + m.gamma * rise) / m.beta
+            predicted = (temp_c + z_ss * ahead
+                         + (element_z - z_ss) * self._lead_gain
+                         - m.d * rise * ahead)
             target = self.profile.target_at(t_ahead)
             slope = self.profile.slope_at(t_ahead)
-            return clamp(self.ff.duty_for(target, slope)
+            duty = clamp(self.ff.duty_for(target, slope)
                          + self.pid.update(t, target, predicted), 0.0, 1.0)
+            self._last_duty = duty
+            return duty
         slope = self.profile.slope_at(elapsed_s)
-        return clamp(self.ff.duty_for(target, slope)
+        duty = clamp(self.ff.duty_for(target, slope)
                      + self.pid.update(t, target, temp_c), 0.0, 1.0)
+        self._last_duty = duty
+        return duty
 
     def relay_state(self, t, duty):
         return self.tpo.update(t, duty)

@@ -63,6 +63,18 @@ def test_stored_heat_lowers_the_demand():
         cold.duty_for(t, temp, element_z=0.2)
 
 
+def test_the_prediction_assumes_the_loop_keeps_doing_what_it_is_doing():
+    """Same chamber, same element state; the controller that has just
+    been driving full-on expects to arrive higher, so asks for less."""
+    t = 30.0
+    temp = LT.target_at(t)
+    driving, idle = make(6.0), make(6.0)
+    driving._last_duty = 1.0
+    idle._last_duty = 0.0
+    assert driving.duty_for(t, temp, element_z=0.8) < \
+        idle.duty_for(t, temp, element_z=0.8)
+
+
 def test_the_knee_is_seen_before_it_arrives():
     """Four seconds before the soak begins, the lead loop is already
     asking for the soak's rate; the old loop is still ramping."""

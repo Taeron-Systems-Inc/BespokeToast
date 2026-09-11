@@ -22,6 +22,7 @@ prints the commanded duty every control step, which is what these hold.
 | `run-0015-bake-125c.csv` | 0015 | 30 C to 125 C and held |
 | `run-0016-ts391snl-hot-precharge.csv` | 0016 | 59 C start on the pre-charge loop, 2026-09-11 |
 | `run-0017-ts391lt-hot-precharge.csv` | 0017 | 59 C start, TS391LT, pre-charge loop, 2026-09-11 |
+| `run-0018-ts391snl-warm-predictive.csv` | 0018 | 34 C start on the predictive loop (lead 6 s), 2026-09-11 |
 
 0011-0015 on 2026-09-10, empty oven. 0016 is the same start as 0013 on the
 pre-charge firmware: 33 s of charge, entered the profile at 80.5 C, heating

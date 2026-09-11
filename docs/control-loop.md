@@ -249,6 +249,17 @@ steady state of the loop's own last duty is unbiased to 0.05 C with half
 the spread (commit 183543e). What is in the simulation table above is
 that form.
 
+## Where the loop still loses
+
+Every hardware run above is 2 to 3 C behind between 80 and 120 C with the
+relay closed the whole time. That is not the controller: it is the oven at
+full power on the low end of the heating table, where the table's own
+entries below 85 C are an extrapolation and the first 37 s of the step
+test they came from were transport dead time. Pre-charge shortens it; it
+cannot remove it. Anything further has to come from the plant -- a longer
+charge, or a curve whose opening does not ask for what the oven cannot
+give there.
+
 ## Rules any replacement has to keep
 
 These are not style preferences. Each cost a run, a board, or a day.
@@ -264,6 +275,10 @@ These are not style preferences. Each cost a run, a board, or a day.
    the loop that replaces this one should count them.
 5. **Composing a screen must not be able to kill a run**, and the loop must
    hold its cadence while it happens.
-6. **The measured rate tables are right.** They carry the nonlinearity of a
+6. **The element is a state, not a delay to tune around.** Pre-charge and
+   the predictive lead both come from the same two-state model and the
+   same observer. A loop that sees only the chamber is guessing about
+   half the plant.
+7. **The measured rate tables are right.** They carry the nonlinearity of a
    radiative oven -- a factor of three in process gain between 80 C and
    240 C -- and any replacement that throws them away is starting behind.

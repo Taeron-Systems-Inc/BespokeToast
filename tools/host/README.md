@@ -83,11 +83,15 @@ Needs `iputils-arping`.
 live in this repository: the pin only ever holds one the kernel has learned,
 so the peer list cannot make a host believe something untrue.
 
-### What this does not fix
+### What fixed it for everyone else
 
-Nothing on the access point, because there is nothing there to fix: it was
-audited on 2026-09-10 and is clean, and proxy ARP was requested and the
-request retracted. What remains unexplained is why two devices recorded no
-group frames at all on 2026-09-04. Until that is understood, these two units
-hold the mappings that matter rather than trusting resolution to work every
-time.
+Since 2026-09-15 the router answers ARP for its wireless clients (bridge
+proxy ARP), which fixes resolution for every device on the network, phones
+included. See the last section of `docs/network.md`. An earlier version of
+this README said nothing on the access point needed fixing; that was wrong.
+
+These two units stay as insurance. `arp-announce` is more useful than it
+was, because the router now accepts gratuitous ARP into its cache. Know
+that `arp-pin` also hides the fault from this host: with the oven held as a
+permanent entry, the Pi never has to ask for it, which is why a laptop could
+fail while the Pi never did. Test resolution from some other machine.

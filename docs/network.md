@@ -411,8 +411,9 @@ A broadcast ARP from the router was answered by all twelve associated
 wireless clients on both bands, this Pi and the oven included.
 
 So the conclusion in the section above is withdrawn. Proxy ARP was
-requested and the request was retracted; nothing on the access point has
-been changed and nothing should be.
+requested and the request was retracted. **The retraction was itself wrong:
+proxy ARP was enabled on 2026-09-15 and fixed the fault. See the last
+section of this file.**
 
 ### What was actually measured, and what was inferred
 
@@ -458,3 +459,100 @@ believed is either correct anyway or independently worth having:
 The standing lesson is the one already written at the end of this file and
 apparently not yet learned: *test the mechanism before writing the fix*, and
 one unrepeated observation is not a property of a network.
+
+## Proxy ARP on the router (2026-09-15)
+
+A laptop could not reach the oven. An agent with access to the router
+diagnosed a client missing broadcast ARP requests and changed the router.
+The change is recorded in the router's own repository (design doc section
+5.1, and the installed files under `router-config/proxyarp/`); this is what
+it means for the oven.
+
+### What changed
+
+The router's Linux bridge now answers ARP requests for its wireless
+clients, on both radios, from the router's own ARP cache. Requests for
+addresses the router does not know are still broadcast as before, so no
+other client's behaviour changes. This is the kernel mechanism behind
+hostapd's `proxy_arp` option, set directly because the vendor scripts do
+not expose it, and persisted by a script, two hotplug hooks and a boot-time
+line so it survives reboots, WiFi reloads and bridge rebuilds.
+
+Two supporting changes: the ARP cache garbage-collection thresholds were
+raised, because the cache stood at 118 entries against a limit of 128 and
+the proxy answers from that cache; and the router now accepts gratuitous
+ARP into it, so entries come back quickly after a router reboot.
+
+**A trap worth knowing.** The Qualcomm WiFi driver has its own proxy ARP
+setting, and it is the one a search for "proxy ARP" leads to. It was tried
+first and broke things: it intercepted every ARP request and answered none
+until its table filled from DHCP, and the printer and the smart plug dropped
+off the network. It was on for about twenty seconds and is reverted.
+
+### What this corrects
+
+The correction above was right that nothing on the router was
+misconfigured, and wrong to conclude that nothing should change. The
+fault is a client that misses some broadcasts some of the time --
+intermittent, which is how five probes got five replies on 2026-09-10 and a
+laptop failed on 2026-09-15. The router is the one device that always
+knows every client's address and never sleeps, so it is the right place to
+answer for them. This was what the original section said: *fixed at the
+access point or not fixed.*
+
+It also explains why this Pi never showed the fault in everyday use:
+`arp-pin` holds the oven as a PERMANENT neighbour entry, so the Pi never
+has to ask for it. A fault the Pi has been told to route around cannot be
+seen from the Pi.
+
+### Verified
+
+From the Pi, broadcast ARP requests for the oven are answered in 4 to 35 ms,
+about as fast as the router answers for itself, while pinging the oven
+directly takes 24 to 122 ms. Something much closer than the oven is
+answering, one reply per request.
+
+The concern going in was idleness: the kernel appears to answer only for a
+client it has recently seen traffic from, roughly the last five minutes by
+default, so a quiet oven might drop out and the old failure return. Tested:
+
+    12:44:19 PDT   last contact from the Pi (arp-pin)
+    12:46:31       Pi's periodic check paused
+    12:51          laptop's ARP entry for the oven deleted
+    13:10:46       laptop, entry deleted again, then:
+                     ping             4 of 4, 60-79 ms
+                     arp -a           entry present
+                     GET /            HTTP 200 in 2.5 s
+    13:12:01       Pi's periodic check resumed
+
+Twenty-six minutes of silence, and a laptop with no cached entry reached
+the oven first time. A capture on the Pi was running at 13:10:46 and never
+saw the laptop's request for the oven, which is what the router answering
+and not passing the request on to wireless clients would look like -- but
+broadcasts reaching this Pi have been unreliable before, so that is
+consistent rather than proven. The capture was killed twice for memory, so
+roughly 12:52 to 13:07 is unobserved; nothing this host controls touched
+the oven in that time.
+
+The page takes 2.5 s from the laptop and 2.6 s from the Pi. The same over
+both paths, so that is the oven serving it, not the network.
+
+### Not taken: ESP32 power save
+
+The router agent also suggested disabling power save on the ESP32
+(`WiFi.setSleep(false)` or `esp_wifi_set_ps(WIFI_PS_NONE)`). That form does
+not apply: the PyPortal's ESP32 runs Adafruit's prebuilt NINA firmware
+(1.2.2), not a sketch or an ESP-IDF build of ours. The equivalent is NINA's
+`setPowerMode` command, and it was tried on 2026-09-04 and did nothing --
+though that test proves less than it looks, because at the time the Pi was
+not receiving broadcasts either, so it could not have shown a benefit.
+
+It is not needed now. The benefit it offers beyond ARP is multicast and
+broadcast discovery -- mDNS, SSDP -- and the oven uses none of it: its
+address is on its idle screen. Revisit only if resolution fails again.
+
+### What stays on the Pi
+
+`arp-pin` and `arp-announce` stay, as insurance that costs nothing.
+`arp-announce` is if anything more useful now: the router accepts
+gratuitous ARP into its cache, so the Pi's announcements land there.

@@ -1,5 +1,25 @@
 # The control loop
 
+## What is in production (2026-09-15)
+
+The loop described from *What replaced the start* onward -- pre-charge and
+predictive tracking -- is the production loop. Its image and the `code.py`
+that belongs with it are kept beside the older one:
+
+    git checkout known-good-loop-2026-09-15        # commit 5acdac5
+
+    ~/.bespoketoast/images/known-good/loop-2026-09-15.uf2
+    ~/.bespoketoast/images/known-good/loop-2026-09-15-code.py
+
+    md5  eb4944bc3dce15dcceb2ae85fe5bdf31   loop-2026-09-15.uf2
+    md5  614c7be7a1f812a1d2c59137f7a02273   loop-2026-09-15-code.py
+
+Its control code is what runs 0020 to 0022 validated. This image adds one
+change over theirs, a latched fault announced once rather than every step,
+which touches no heating path. Its first full-length run is the four-hour
+bake set for 2026-09-16. If that disagrees with everything above, the older
+fallback below is still there.
+
 ## The fallback, first
 
 Everything below describes the loop **as it stood on 2026-09-10**, before any

@@ -66,6 +66,28 @@ auto-reload. All of those are safe.
 Probe placement inside the oven cavity is **[unverified]**, which leaves thermal
 lag between element and probe unquantified.
 
+### The amplifier dropped off the bus (2026-09-11)
+
+Twenty-three minutes into a 125 C bake, holding steady at 124.7 C, the
+MCP9600 stopped answering between one sample and the next. The supervisor
+faulted on the first missing reading and opened the relay: the run was lost,
+and nothing else. Neither temperature channel gave warning. The cold junction
+was 46.1 C and levelling off, below what it had reached twice that day without
+trouble, and the chamber reading was quieter in its last minutes than earlier
+in the hold.
+
+Afterwards the board could not start the bus at all (`RuntimeError: No pull up
+found on SDA or SCL`). Read as plain inputs, SCL sat high and SDA sat low even
+with the processor's internal pull-up on: SDA was being held to ground.
+Resetting the processor did not clear it. Removing all power did -- unplugging
+the Pi and the oven's USB cable and plugging them back in, with nothing else
+changed.
+
+That reads as the amplifier latching up and holding SDA low, not as a wiring
+fault. It has happened once. If it happens again the oven faults safely, and
+the fix is to remove power, which can be done from the Pi (see *Cutting the
+oven's power from the Pi*, below).
+
 ## Measured thermal behaviour
 
 Two step tests were run on 2026-08-25, empty oven, logged at 2 Hz. Raw data
@@ -196,6 +218,25 @@ Over USB the board presents two interfaces:
 
 Opening the serial console does not reset the board. Toggling DTR at 1200 baud
 puts it into the UF2 bootloader, so avoid that unless reflashing is intended.
+
+### Cutting the oven's power from the Pi
+
+The bench Pi is a Raspberry Pi 3 Model B. Its USB ports 2 to 5 share one power
+switch, reached through port 2, so the oven's power is cut and restored with
+
+    sudo uhubctl -l 1-1 -p 2 -a cycle -d 12
+
+That cuts every USB device plugged into the Pi, not only the oven. The Pi's own
+network is its built-in WiFi, which is not on USB, so an SSH session survives
+it; the wired Ethernet adapter sits on hub port 1 and is not switched.
+Verified 2026-09-15: the board dropped off the bus and came back with its clock
+restarted from zero.
+
+**Asking for port 4, where the oven is plugged in, does nothing.** `uhubctl`
+reports the port as off and the board re-enumerates, but power never drops. On
+2026-09-11 that was taken for a real power cycle and reported as one. It was
+not, which is why the latched amplifier survived it and a physical unplug
+cleared it.
 
 ## Open questions
 

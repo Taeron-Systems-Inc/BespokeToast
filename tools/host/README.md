@@ -65,7 +65,8 @@ not deleted**. That distinction cost two rounds to get right:
 - Releasing by deleting is a one-way door here. A wireless peer that has been
   forgotten cannot be resolved again, because resolving is exactly what does
   not work. The oven went from pinned to permanently unreachable in one pass,
-  and had to be seeded back by hand from the MAC in `docs/network.md`.
+  and had to be seeded back by hand from its MAC, which the Pi now keeps in
+  `/var/lib/toaster/arp-known`.
 
 Demoting keeps the mapping usable -- the kernel sends to a stale entry
 immediately -- while letting it be replaced the moment the peer says

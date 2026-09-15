@@ -77,7 +77,8 @@ problem.
 
 ## Measured facts
 
-- ESP32 co-processor: NINA firmware 1.2.2, MAC `bc:c9:49:95:ab:34`
+- ESP32 co-processor: NINA firmware 1.2.2. Its MAC is not recorded here;
+  the Pi keeps it in `/var/lib/toaster/arp-known`.
 - `Voxelis` reads −36 to −48 dBm from inside the oven's enclosure
 - Connecting takes about 9–18 s, and the **first attempt frequently fails**
   with `ConnectionError`; the second succeeds. Retry is not optional.
@@ -253,7 +254,7 @@ Once either side holds the other's address everything works and keeps
 working -- 20 of 20 pings, the index page in 0.44 s, and the oven pinging
 the Pi in 20 ms where minutes earlier it had timed out.
 
-Both are associated to the same BSSID, 76:16:c1:0a:6d:54, on channel 11,
+Both are associated to the same BSSID, on channel 11,
 at -35 and -47 dBm. Neither is the odd one out.
 
 **This is the access point, and it is not something the firmware can fix.**
@@ -263,7 +264,10 @@ IGMP or ARP snooping, proxy ARP, and any "multicast enhancement" setting.
 
 Until then, a host reaches the oven by being told its address once:
 
-    sudo ip neigh replace 10.20.10.242 lladdr 34:ab:95:49:c9:bc dev wlan0 nud permanent
+    sudo ip neigh replace 10.20.10.242 lladdr <the oven's MAC> dev wlan0 nud permanent
+
+(The MAC is kept on the Pi in `/var/lib/toaster/arp-known`, not in this
+repository.)
 
 #### What this costs the product
 

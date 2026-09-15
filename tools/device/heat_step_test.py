@@ -169,13 +169,22 @@ def identification_schedule():
     About 50 minutes, ending hot. The cooldown that follows is free data:
     with the relay off it is a passive-cooling measurement across the whole
     range.
+
+    The 150, 195 and 235 C holds are now the ones measured on the first
+    run of this schedule (2026-09-11), each corrected to zero drift and
+    interpolated to its setpoint. The table's values are high above about
+    200 C: at 0.433 the 195 C plateau settled at 203.5 C, and at 0.526 the
+    235 C plateau climbed to 248.8 C and clamped on its ceiling. The 60 and
+    100 C holds are left as they were -- those plateaux settled low, at 49
+    and 79 C, but were still moving too fast (the 100 C one falling at
+    0.13 C/s) for a correction to be worth trusting.
     """
     plan = []
     for setpoint, hold, label in ((60.0, 0.043, "60C"),
                                   (100.0, 0.079, "100C"),
-                                  (150.0, 0.213, "150C"),
-                                  (195.0, 0.433, "195C"),
-                                  (235.0, 0.526, "235C")):
+                                  (150.0, 0.222, "150C"),
+                                  (195.0, 0.351, "195C"),
+                                  (235.0, 0.435, "235C")):
         plan.extend(_plateau(setpoint, hold, 180.0, 0.15, 3, 60.0, label))
     plan.append(Step(1800.0, 0.0, 30.0, "free cooling"))
     return plan
@@ -202,8 +211,8 @@ def identification_schedule_v2():
     for setpoint, hold, label in ((60.0, 0.30, "60C"),
                                   (100.0, 0.30, "100C"),
                                   (150.0, 0.30, "150C"),
-                                  (195.0, 0.433, "195C"),
-                                  (235.0, 0.526, "235C")):
+                                  (195.0, 0.351, "195C"),
+                                  (235.0, 0.435, "235C")):
         plan.extend(_plateau(setpoint, hold, 120.0, 0.30, 4, 30.0, label))
     plan.append(Step(1800.0, 0.0, 30.0, "free cooling"))
     return plan

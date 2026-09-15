@@ -169,9 +169,19 @@ class App(object):
         fault = self.supervisor.update(now, self.reading, relay_was_on)
         if fault is not None:
             self.relay.set(False)
+            # Announced once, not every step. The supervisor goes on
+            # returning a latched fault until it is acknowledged, and this
+            # used to announce it again each time: on 2026-09-11 a dead
+            # sensor printed the same line 888 times, buried the console's
+            # answer to STATUS at the moment it mattered whether the relay
+            # was open, and wrote every copy into the run's log. If the
+            # supervisor ever returns a different fault, that is announced.
+            news = not (self.state == STATE_FAULT and self.fault is not None
+                        and self.fault.code == fault.code)
             self.fault = fault
-            self._emit(Event.FAULTED, {"fault": fault})
-            self._enter(STATE_FAULT)
+            if news:
+                self._emit(Event.FAULTED, {"fault": fault})
+                self._enter(STATE_FAULT)
             return
 
         handler = getattr(self, "_in_" + self.state)

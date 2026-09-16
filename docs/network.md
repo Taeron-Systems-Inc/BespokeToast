@@ -788,6 +788,23 @@ two phones on the network. So there is no mechanism on this AP to deliver a
 group frame as unicast, which was the one fix that would have covered ARP,
 mDNS and SSDP together.
 
+#### Ten minutes, zero group frames
+
+Measured here to put a number on the same question from the receiving side:
+
+    00:27:43 to 00:37:43 PDT, 600 s, every group-addressed frame from
+    anyone but us, on 2.4 GHz channel 11, associated throughout, unicast
+    to the gateway 3 of 3 immediately after
+
+    received: 0
+
+No ARP, mDNS, SSDP or DHCP, on a network carrying a printer, phones and a
+plug. At the 10% the access point measured for this same host, dozens would
+be expected. So the two measurements of one host disagree, which now matters
+more than the oven does: theirs is responder-side (a probe that needs the
+host to receive *and* answer), mine is receiver-side (every group frame the
+driver accepts). Neither should be near zero at 10%.
+
 What remains unreconciled: from this Pi, station-originated broadcast ARP to
 the oven is 0 of 172, against their 1 of 10 from the bridge. The candidate
 was origin -- theirs start on `br-lan`, mine start on a station inside the

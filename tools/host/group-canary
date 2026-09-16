@@ -42,9 +42,11 @@ KEY=$(cat /home/kaan/relay/token 2>/dev/null || echo)
   echo
   printf '%s\n' "$OUT"
   echo
-  echo "The reference answered every probe while the radio was healthy."
-  echo "If the gaps above are a clean 1-in-N, this is the 155-day fault"
-  echo "returning and a radio restart should clear it."
+  echo "The reference answered every probe, gaps all 1, while the radio"
+  echo "was healthy. A clean 1-in-N gap pattern above is the 155-day"
+  echo "fault returning, and a radio restart cleared it last time. Zero"
+  echo "replies means the same thing with the pattern hidden: re-probe"
+  echo "with more probes to see the gaps."
 } | curl -s -m 20 -X POST \
     "http://10.20.10.237:8799/messages?key=$KEY&from=oven-canary" \
     --data-binary @- >/dev/null 2>&1 || true

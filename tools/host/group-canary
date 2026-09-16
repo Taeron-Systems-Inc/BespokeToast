@@ -10,6 +10,10 @@
 # It is expected to recur as uptime grows. The totals hide it; the GAPS
 # identify it, because random loss cannot produce a clean 1-in-N.
 #
+# The alert is written to /var/lib/toaster/group-canary-ALERT.txt and sent
+# to any logged-in session. It used to be posted to an agent relay shared
+# with the router's operator; that channel is gone.
+#
 # The printer is the reference rather than the canary: it kept answering
 # every probe even while the radio was degraded.
 set -eu
@@ -33,8 +37,7 @@ fi
 printf '%s' "$NEW" > "$STATE"
 [ "$NEW" = "degraded" ] || exit 0
 [ "$WAS" = "degraded" ] && exit 0      # already reported; say it once
-KEY=$(cat /home/kaan/relay/token 2>/dev/null || echo)
-[ -n "$KEY" ] || exit 0
+ALERT=/var/lib/toaster/group-canary-ALERT.txt
 {
   echo "CANARY: group-addressed delivery looks degraded again."
   echo
@@ -47,6 +50,10 @@ KEY=$(cat /home/kaan/relay/token 2>/dev/null || echo)
   echo "fault returning, and a radio restart cleared it last time. Zero"
   echo "replies means the same thing with the pattern hidden: re-probe"
   echo "with more probes to see the gaps."
-} | curl -s -m 20 -X POST \
-    "http://10.20.10.237:8799/messages?key=$KEY&from=oven-canary" \
-    --data-binary @- >/dev/null 2>&1 || true
+  echo
+  echo "The fix is on the access point: wifi down wifi0 && wifi up wifi0."
+  echo "wifi reload is a no-op there and looks like a clean negative."
+} > "$ALERT"
+# Said out loud as well as written down: a file nobody opens is not an
+# alert. wall reaches any logged-in session; it is allowed to fail.
+wall < "$ALERT" 2>/dev/null || true

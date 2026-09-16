@@ -105,6 +105,19 @@ while read -r line; do
         continue
     fi
 
+    # Seed the entry before verifying, not after. The check below is a
+    # ping, and a ping cannot leave this host while the kernel's entry is
+    # FAILED -- which is exactly the state a peer that could not be
+    # resolved leaves behind. So the verification could never pass, the
+    # mapping was never installed, and the peer stayed unreachable while
+    # this script reported that it was holding one. Measured on
+    # 2026-09-15: the remembered MAC was on disk the whole time, and one
+    # `ip neigh replace` by hand restored 4 of 4 pings and the page.
+    case "$(ip neigh show "$addr" dev "$IFACE" 2>/dev/null)" in
+        *REACHABLE*|*PERMANENT*|*STALE*|*DELAY*|*PROBE*) ;;
+        *) ip neigh replace "$addr" lladdr "$mac" dev "$IFACE" nud stale ;;
+    esac
+
     if answers "$addr"; then
         rm -f "$misses_file"
         ip neigh replace "$addr" lladdr "$mac" dev "$IFACE" nud permanent

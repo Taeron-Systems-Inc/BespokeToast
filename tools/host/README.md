@@ -68,6 +68,13 @@ not deleted**. That distinction cost two rounds to get right:
   and had to be seeded back by hand from its MAC, which the Pi now keeps in
   `/var/lib/toaster/arp-known`.
 
+It also seeds the entry from what it remembers *before* it verifies. The
+verification is a ping, and a ping cannot leave the host while the kernel's
+entry is FAILED, which is the state an unresolvable peer leaves behind. Until
+2026-09-15 the check could therefore never pass in the one case it existed
+for, and the script reported that it was holding a mapping it had not
+installed.
+
 Demoting keeps the mapping usable -- the kernel sends to a stale entry
 immediately -- while letting it be replaced the moment the peer says
 anything, which is how a machine that changes its NIC recovers by itself.

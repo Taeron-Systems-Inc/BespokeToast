@@ -277,16 +277,21 @@ that form.
 
 ### The bake, where the relay wear is
 
-Measured at the 125 C hold, empty oven, 4 Hz console capture:
+Measured over a full four-hour run, 2026-09-16, empty oven, from the oven's
+own log (run 0024):
 
-                        rms      mean duty   closures/min   per 4.2 h bake
-    old loop  (0015)    0.55       0.234          9.0           ~2275
-    predictive          0.40       0.201         10.1           ~2548
+                        rms      mean       closures/min   hold measured
+    old loop (0015)     0.552              8.8            3.2 min
+    predictive (0024)   0.240   +0.141 C   8.2            240 min
 
-The hold is 27% tighter and costs 12% more relay closures. That is the
-honest trade and it is small; a relay rated for 100k cycles is worth
-about 39 bakes either way. The old loop's sampled window was only 3.2
-minutes, so treat the wear difference as indicative rather than settled.
+Better on both counts, and the earlier reading that suggested 12% more
+relay wear came from a 23-minute probe that was mostly the settle. There is
+no drift across the four hours:
+
+    hour 0   rms 0.266        hour 2   rms 0.224
+    hour 1   rms 0.238        hour 3   rms 0.234
+
+Peak 125.9 C, both ramp limits passed, no faults, 14868 rows.
 
 ## Where the loop still loses
 

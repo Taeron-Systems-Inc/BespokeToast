@@ -625,3 +625,43 @@ def test_the_liveness_check_is_rate_limited():
                     assert 10.0 <= node.value.value <= 300.0
                     return
     raise AssertionError("LIVENESS_INTERVAL_S is not a plain number any more")
+
+
+def test_the_page_is_served_on_the_report_screen_too():
+    """After a run the oven parks on the report screen until DONE is
+    pressed. Gating the web service on idle alone left the page unreachable
+    for all of it -- measured 2026-09-16: ping 0% loss through the run and
+    the report, HTTP dead for both, back 34 s after DONE. netconfig has
+    always listed report as safe; this is the line that disagreed."""
+    src = open(os.path.join(FIRMWARE, "code.py")).read()
+    assert "app.state in (STATE_IDLE, STATE_REPORT)" in src, \
+        "the web service is gated on idle alone again"
+
+
+def test_precharge_requires_the_curve_to_ask_for_a_rise():
+    """z_for is rate + d*(temp - ambient). On a flat opening the rate term
+    vanishes and the guard becomes 'is the room warm', which fired for a
+    profile whose target was 14 C below ambient and closed the relay."""
+    tree = _tree("code.py")
+    # There are two nested functions called `factory` in code.py -- the
+    # pre-charge one and the observer one -- so find the enclosing maker
+    # first. Taking the last match inspected the wrong function.
+    maker = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) \
+                and node.name == "make_precharge_factory":
+            maker = node
+    assert maker is not None, "make_precharge_factory went missing"
+    factory = None
+    for node in ast.walk(maker):
+        if isinstance(node, ast.FunctionDef) and node.name == "factory":
+            factory = node
+    assert factory is not None, "the pre-charge factory went missing"
+    src = ast.dump(factory)
+    assert "slope" in src, "the factory no longer looks at the curve's slope"
+    returns_none_early = any(
+        isinstance(n, ast.If) and any(
+            isinstance(r, ast.Return) and isinstance(r.value, ast.Constant)
+            and r.value.value is None for r in ast.walk(n))
+        for n in ast.walk(factory))
+    assert returns_none_early, "the factory no longer declines any profile"

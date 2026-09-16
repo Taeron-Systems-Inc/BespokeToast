@@ -691,7 +691,18 @@ def make_precharge_factory(characterisation, model=None):
 
     def factory(profile, temp_c, observer=None):
         entry = profile.entry_time_for(temp_c)
-        need = model.z_for(profile.slope_at(entry), temp_c)
+        slope = profile.slope_at(entry)
+        # The curve has to be asking for a rise. z_for is
+        # rate + d*(temp - ambient), so on a flat opening the rate term
+        # vanishes and the test collapses to "is the oven warmer than the
+        # model's 23.5 C ambient" -- true in any warm room, for any
+        # profile, however cold its target. A no-heat profile with a 10 C
+        # target closed the relay for 0.6 s at full duty on 2026-09-16
+        # because of this. Pre-charge exists to fill the element before a
+        # ramp; where there is no ramp there is nothing to fill it for.
+        if slope <= 0.0:
+            return None
+        need = model.z_for(slope, temp_c)
         if need <= 0.0:
             return None
         return PreCharge(observer or ElementObserver(model), need,
@@ -1309,7 +1320,16 @@ def main():
         # radio comes up over several seconds of loop time rather than in
         # one call that stops the oven, and the screen says what it is
         # doing while it happens.
-        if app.state == STATE_IDLE and not hw.relay.is_on():
+        # Idle OR the report screen. netconfig.SAFE_STATES has always said
+        # both are safe; this line said only idle, and the two disagreed.
+        # The cost of that disagreement: after every run the oven parks on
+        # the report screen until somebody presses DONE, and for the whole
+        # of that time the page is unreachable while the oven sits there
+        # healthy and still associated. Measured 2026-09-16: ping 0% loss
+        # throughout the run and the report, HTTP dead for both, back
+        # within 34 s of DONE. It reads exactly like "it doesn't come back
+        # after a run", and the radio never went anywhere.
+        if app.state in (STATE_IDLE, STATE_REPORT) and not hw.relay.is_on():
             if web_wanted[0]:
                 web_wanted[0] = web.advance()
             if not caught_up[0] and web.server is not None:

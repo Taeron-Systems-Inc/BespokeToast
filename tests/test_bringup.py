@@ -40,6 +40,8 @@ class FakeESP(object):
         self.time_after = time_after
         self.epoch = epoch
         self.commands = []
+        self.ip_config = None
+        self.dns_config = None
         self._scans = 0
         self._status_reads = 0
         self._time_reads = 0
@@ -54,6 +56,14 @@ class FakeESP(object):
         if self._scans < self.scan_after:
             return None
         return [{"ssid": bytes(s, "utf-8"), "rssi": r} for s, r in self.aps]
+
+    def set_ip_config(self, ip, gateway, mask):
+        self.commands.append("set_ip")
+        self.ip_config = (ip, gateway, mask)
+
+    def set_dns_config(self, dns1, dns2):
+        self.commands.append("set_dns")
+        self.dns_config = (dns1, dns2)
 
     def wifi_set_passphrase(self, ssid, password):
         self.commands.append("passphrase")
@@ -89,6 +99,19 @@ class FakeRadio(object):
 
 def networks():
     return [Network("Voxelis", "secret"), Network("Taeron", "other")]
+
+
+def static_networks():
+    return [Network("Voxelis", "secret", ip="10.20.10.242",
+                    gateway="10.20.10.1")]
+
+
+class RefusingESP(FakeESP):
+    """A co-processor too old to know the command."""
+
+    def set_ip_config(self, ip, gateway, mask):
+        self.commands.append("set_ip")
+        raise RuntimeError("unknown command")
 
 
 def drive(b, clock, limit=400, dt=0.25):
@@ -278,3 +301,62 @@ def test_a_bringup_that_was_not_asked_for_a_clock_reports_none():
     assert b.want_clock is False
     assert b.connected
     assert "get_time" not in esp.commands
+
+
+# -- a fixed address -------------------------------------------------------
+
+def test_a_fixed_address_is_set_before_the_join():
+    """The order is the whole point: the address has to be in place before
+    the join, or DHCP runs first and the ARP answer refuses it."""
+    clock = Clock()
+    esp = FakeESP()
+    b = Bringup(static_networks(), FakeRadio(esp), monotonic=clock)
+    drive(b, clock)
+    assert b.state == READY
+    assert esp.ip_config == ("10.20.10.242", "10.20.10.1", "255.255.255.0")
+    assert esp.dns_config == ("10.20.10.1", "10.20.10.1")
+    c = esp.commands
+    assert c.index("set_ip") < c.index("set_dns") < c.index("passphrase")
+
+
+def test_setting_an_address_still_does_one_command_per_step():
+    clock = Clock()
+    esp = FakeESP()
+    b = Bringup(static_networks(), FakeRadio(esp), monotonic=clock)
+    while not b.finished:
+        before = len(esp.commands)
+        b.step()
+        clock.advance(0.25)
+        assert len(esp.commands) - before <= 1, esp.commands[before:]
+
+
+def test_the_address_is_set_once_however_many_join_attempts():
+    clock = Clock()
+    esp = FakeESP(connect_after=10 ** 6)
+    b = Bringup(static_networks(), FakeRadio(esp), monotonic=clock)
+    drive(b, clock)
+    assert b.state == FAILED
+    assert esp.commands.count("set_ip") == 1
+    assert esp.commands.count("passphrase") == bringup.JOIN_ATTEMPTS
+
+
+def test_a_co_processor_that_refuses_the_address_falls_back_to_dhcp():
+    """Every build before this one had no address to set. One that cannot
+    take one has to behave like those, not fail the network."""
+    clock = Clock()
+    esp = RefusingESP()
+    b = Bringup(static_networks(), FakeRadio(esp), monotonic=clock)
+    drive(b, clock)
+    assert b.state == READY
+    assert "passphrase" in esp.commands
+    assert "set_dns" not in esp.commands
+
+
+def test_a_network_without_an_address_sets_nothing():
+    clock = Clock()
+    esp = FakeESP()
+    b = Bringup(networks(), FakeRadio(esp), monotonic=clock)
+    drive(b, clock)
+    assert b.state == READY
+    assert esp.ip_config is None
+    assert "set_ip" not in esp.commands

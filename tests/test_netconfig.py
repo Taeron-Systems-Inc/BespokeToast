@@ -171,3 +171,31 @@ def test_the_example_is_not_deployed_to_the_board():
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
     import deploy
     assert not any("wifi.example" in rel for _f, rel in deploy.files())
+
+
+def test_a_static_address_is_read_when_both_halves_are_there():
+    text = ('{"networks": [{"ssid": "Voxelis", "password": "x", '
+            '"ip": "10.20.10.242", "gateway": "10.20.10.1"}]}')
+    net = load(opener=opener_for(text))[0]
+    assert net.static
+    assert (net.ip, net.gateway) == ("10.20.10.242", "10.20.10.1")
+    assert net.mask == "255.255.255.0"
+    assert net.dns == "10.20.10.1"
+
+
+def test_an_address_without_a_gateway_is_refused_not_half_applied():
+    """An address with no gateway joins and then reaches nothing, which
+    looks like a working network until something leaves the subnet."""
+    warnings = []
+    text = ('{"networks": [{"ssid": "Voxelis", "password": "x", '
+            '"ip": "10.20.10.242"}]}')
+    net = load(opener=opener_for(text), on_warning=warnings.append)[0]
+    assert not net.static
+    assert net.ip is None
+    assert warnings and "gateway" in warnings[0]
+
+
+def test_a_network_with_no_address_still_loads():
+    text = '{"networks": [{"ssid": "Voxelis", "password": "x"}]}'
+    net = load(opener=opener_for(text))[0]
+    assert not net.static and net.ip is None

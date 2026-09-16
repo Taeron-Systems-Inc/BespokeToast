@@ -73,6 +73,11 @@ class Bringup(object):
         # worst a single pass can cost is one SPI transaction, 227 ms.
         self._pending_join = False
         self._pending_ip = False
+        # Setting a fixed address is two more commands, so they are two
+        # more passes rather than a step that does three things.
+        self._pending_addr = False
+        self._pending_dns = False
+        self._addr_done = False
 
     @property
     def finished(self):
@@ -140,7 +145,10 @@ class Bringup(object):
             self.network = netconfig.choose(self.networks, seen)
             if self.network is None:
                 return self._fail("none of the known networks are in range")
-            self._pending_join = True
+            if self.network.static and not self._addr_done:
+                self._pending_addr = True
+            else:
+                self._pending_join = True
             self.state = JOINING
             return self.state
         if self._now() >= self._deadline:
@@ -156,7 +164,48 @@ class Bringup(object):
         self.state = JOINING
         return self.state
 
+    def _apply_address(self):
+        """Take the configured address instead of asking for one.
+
+        Why this exists: on 2026-09-15 the access point began answering ARP
+        on behalf of its own clients. Before binding an address DHCP has
+        offered, this stack broadcasts an ARP request for it and treats any
+        reply as a conflict -- it compares the address only, never the MAC
+        -- so the access point answered with this device's own MAC and the
+        stack refused the address it had just been given. Measured from the
+        router: 37 associations, 37 completed handshakes, 37 addresses
+        handed out, and the device reported itself unconnected every time.
+        An address that is never asked for cannot be answered.
+        """
+        n = self.network
+        try:
+            self._esp.set_ip_config(n.ip, n.gateway, n.mask)
+            self._pending_dns = True
+        except Exception as e:
+            # An older co-processor that does not know the command, or an
+            # address it will not take. Say so and let DHCP have its turn,
+            # which is what every build before this one did.
+            print("# radio: fixed address refused (%r); asking DHCP" % (e,))
+            self._pending_join = True
+        self._addr_done = True
+        return self.state
+
+    def _apply_dns(self):
+        try:
+            self._esp.set_dns_config(self.network.dns, self.network.dns)
+        except Exception as e:
+            # Losing DNS costs the clock, not the network.
+            print("# radio: DNS refused (%r); the clock may not set" % (e,))
+        self._pending_join = True
+        return self.state
+
     def _join(self):
+        if self._pending_addr:
+            self._pending_addr = False
+            return self._apply_address()
+        if self._pending_dns:
+            self._pending_dns = False
+            return self._apply_dns()
         if self._pending_join:
             self._pending_join = False
             return self._start_join()

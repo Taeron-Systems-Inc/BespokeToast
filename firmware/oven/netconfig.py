@@ -36,14 +36,34 @@ SAFE_STATES = ("idle", "report")
 
 
 class Network(object):
-    __slots__ = ("ssid", "password")
+    """A network to join, and optionally the address to take on it.
 
-    def __init__(self, ssid, password):
+    An address is given rather than asked for when DHCP cannot be trusted
+    to complete. On this network it could not: see `static` and
+    docs/network.md.
+    """
+
+    __slots__ = ("ssid", "password", "ip", "gateway", "mask", "dns")
+
+    def __init__(self, ssid, password, ip=None, gateway=None,
+                 mask="255.255.255.0", dns=None):
         self.ssid = ssid
         self.password = password
+        self.ip = ip
+        self.gateway = gateway
+        self.mask = mask or "255.255.255.0"
+        # Almost always the gateway on a small network, and one less thing
+        # to get wrong in the file.
+        self.dns = dns or gateway
+
+    @property
+    def static(self):
+        """Both halves or neither. An address without a gateway reaches
+        nothing off the subnet, and would look like a working network."""
+        return bool(self.ip and self.gateway)
 
     def __repr__(self):
-        return "Network(%s)" % self.ssid
+        return "Network(%s%s)" % (self.ssid, ", static" if self.static else "")
 
 
 def load(path=CONFIG_PATH, opener=open, on_warning=None):
@@ -71,7 +91,18 @@ def load(path=CONFIG_PATH, opener=open, on_warning=None):
         if not ssid or password is None:
             warn("ignoring a network with no ssid or password in %s" % path)
             continue
-        out.append(Network(ssid, password))
+        ip = entry.get("ip")
+        gateway = entry.get("gateway")
+        if bool(ip) != bool(gateway):
+            # Half a static configuration is worse than none: an address
+            # with no gateway joins and then reaches nothing, which looks
+            # like a working network until something tries to leave the
+            # subnet.
+            warn("ignoring the static address for %s in %s: it needs both "
+                 "ip and gateway" % (ssid, path))
+            ip = gateway = None
+        out.append(Network(ssid, password, ip=ip, gateway=gateway,
+                           mask=entry.get("mask"), dns=entry.get("dns")))
     if not out:
         warn("%s lists no usable networks" % path)
     return out

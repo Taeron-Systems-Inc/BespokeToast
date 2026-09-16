@@ -726,8 +726,36 @@ arithmetic anyway: group frames go out at the most robust basic rate and
 unicast at a high MCS, and the oven passes 100% of the fragile ones while
 losing the robust ones.
 
-The open question is now the access point's, and the pivot is one command:
-list the 2.4 GHz stations with their band, then probe a third confirmed
-2.4 GHz client. If none of them hear a broadcast, group delivery on that BSS
-is broken for every client, which also breaks mDNS, SSDP and broadcast DHCP
-network-wide, and no ARP proxy is the right answer to it.
+#### But six other hosts hear broadcasts perfectly
+
+Written twenty minutes after the section above, because it qualifies it.
+Every host this bench has a MAC for, 8 broadcast and 8 unicast ARP probes
+each:
+
+    10.20.10.1     8/8 broadcast     10.20.10.148   8/8 broadcast
+    10.20.10.4     8/8 broadcast     10.20.10.162   8/8 broadcast  (wired)
+    10.20.10.145   8/8 broadcast     10.20.10.220   8/8 broadcast
+                   (5 GHz ch 36)
+    10.20.10.242   0/8 broadcast, 8/8 unicast                      (the oven)
+
+So group delivery works for six hosts and fails only for the oven, which is
+the opposite of what the previous section implies on its own.
+
+What survives is narrower and still decides it. The bands of .4, .148 and
+.220 are unknown; bench5 is 5 GHz, eridani is wired, .1 is the router. The
+only two hosts *known* to be on 2.4 GHz channel 11 are the oven and this Pi,
+and both are deaf to group-addressed frames. This Pi cannot resolve the rest
+-- its radio is 2.4 GHz only, so it cannot scan 5 GHz or read another
+client's band.
+
+So the pivot is one command on the access point: list the 2.4 GHz stations
+with their band, then probe a confirmed 2.4 GHz client that is not ours.
+
+* If .4, .148 and .220 are all 5 GHz or wired, both 2.4 GHz clients are deaf
+  and the fault is that radio's group delivery -- which also breaks mDNS,
+  SSDP and broadcast DHCP for anything else that joins it, and no ARP proxy
+  is the right answer to that.
+* If any one of them is on 2.4 GHz and hears broadcasts, group delivery is
+  fine, the reading above is dead, and it is per-station -- where the group
+  key is the first suspect, since the GTK carries group frames and the PTK
+  carries the unicast that works.

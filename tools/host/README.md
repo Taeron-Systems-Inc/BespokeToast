@@ -91,6 +91,19 @@ Needs `iputils-arping`.
 live in this repository: the pin only ever holds one the kernel has learned,
 so the peer list cannot make a host believe something untrue.
 
+## arp-probe.py
+
+Sends ARP requests with an Ethernet destination you choose, and counts the
+replies. `arping` cannot do this job: it starts with broadcast and only
+switches to unicast once a reply arrives, so against a peer that never
+answers, every probe it sends is broadcast and the two cases look the same.
+
+    sudo python3 tools/host/arp-probe.py 10.20.10.237 12 \
+        "oven unicast,10.20.10.242,<mac>" "oven broadcast,10.20.10.242,"
+
+Always include a peer that works as a control. That is what showed the
+oven answering unicast 12 of 12 and broadcast 0 of 12 in the same minute.
+
 ### What fixed it for everyone else
 
 Since 2026-09-15 the router answers ARP for its wireless clients (bridge

@@ -653,6 +653,38 @@ reply `01` -- and the association survived it. It changes nothing. The Pi
 resolves every other wireless peer in the same minutes, so the path is not
 the Pi's.
 
+### Unicast is perfect, group-addressed is nil (2026-09-15, later)
+
+The power-save rounds above are eight probes each, which can exclude a fix
+that works but not a small change. So the question was put differently: is
+the oven's receiving broken, or only its answering? `iputils-arping` cannot
+answer that -- it sends broadcast until it gets a reply and only then
+switches to unicast, so against a peer that never answers, every probe it
+sends is a broadcast. `tools/host/arp-probe.py` builds the frame instead,
+so the only difference between the two modes is the destination MAC.
+
+    12 probes each, one minute, 2026-09-15 23:56
+
+    bench5    unicast     12 of 12      gateway  unicast   12 of 12
+    bench5    broadcast   12 of 12
+    OVEN      unicast     12 of 12      ICMP to the oven   0% loss
+    OVEN      broadcast    0 of 12
+
+Tonight the oven answered 0 of 172 broadcast probes and every unicast one.
+
+So nothing is wrong with its ARP, and its receiver is not weak in general:
+frames addressed to it arrive and are answered every time. What it does not
+get is group-addressed frames. 802.11 retries a unicast frame until it is
+acknowledged and never retries a group-addressed one, so a receiver that
+loses frames at random looks perfect on unicast and hopeless on broadcast --
+which is also why the access point reports kicking it for excessive
+retries.
+
+That reframes the earlier power-save test rather than restoring it: with
+broadcast reception at zero, turning power save off did not raise it, and
+eight probes are enough to exclude a fix, though not to measure a small
+change.
+
 So there is no device-side fix in reach. The oven can be *reached* by a host
 that already knows its address, which is what `arp-pin` provides here, and
 it can be found by anything if the access point answers for it. That is what

@@ -759,3 +759,38 @@ with their band, then probe a confirmed 2.4 GHz client that is not ours.
   fine, the reading above is dead, and it is per-station -- where the group
   key is the first suspect, since the GTK carries group frames and the PTK
   carries the unicast that works.
+
+### It is the access point's 2.4 GHz radio (2026-09-16, from its operator)
+
+The router's operator measured four clients on that radio, 10 broadcast ARP
+probes each from `br-lan`, unicast perfect for all four:
+
+    printer          11 of 10        (replies can exceed probes; it answers twice)
+    bench Pi          1 of 10
+    the oven          1 of 10
+    Kasa smart plug   1 of 10
+
+Three unrelated clients -- an ESP32, a mainstream Linux host and a smart
+plug -- all receive about a tenth of group-addressed frames, and power save
+does not predict which ones fail. So this is not the oven, and the
+co-processor's beacon and DTIM handling is no longer worth investigating for
+this fault.
+
+Their lead: the radio is configured for 40 MHz but operating at 20 MHz
+because eight associated stations advertise 40 MHz intolerance. Testing it
+needs a radio reload.
+
+**Both group-to-unicast escapes are closed.** Qualcomm's multicast
+enhancement is compiled out of that firmware -- setting it returns success
+while the value stays 0 and the kernel logs the parameter as unsupported --
+and the oven advertises no 802.11v DMS support at every association, as do
+two phones on the network. So there is no mechanism on this AP to deliver a
+group frame as unicast, which was the one fix that would have covered ARP,
+mDNS and SSDP together.
+
+What remains unreconciled: from this Pi, station-originated broadcast ARP to
+the oven is 0 of 172, against their 1 of 10 from the bridge. The candidate
+was origin -- theirs start on `br-lan`, mine start on a station inside the
+same BSS -- but six other hosts answer my station-originated probes 8 of 8,
+which weakens it. Their per-client IPs will settle whether the two methods
+even agree about the same client.

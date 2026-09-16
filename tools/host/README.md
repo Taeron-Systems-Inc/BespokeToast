@@ -111,7 +111,11 @@ installed as `group-canary.timer`. It probes the printer at 10.20.10.234 --
 the reference client, which kept answering every probe even while the radio
 was degraded -- and logs the total and the gap pattern to
 `/var/lib/toaster/group-canary.log`. On the first hour it sees 4 or fewer of
-12 it posts to the agent relay as `oven-canary`, once per episode.
+12 it writes `/var/lib/toaster/group-canary-ALERT.txt` and sends the same
+text to any logged-in session, once per episode rather than once per hour.
+The alert carries the fix with it, because the fix is on the access point
+and not here: `wifi down wifi0 && wifi up wifi0`, since `wifi reload` there
+is a no-op that looks like a clean negative result.
 
     sudo install -m 755 tools/host/group-canary /usr/local/sbin/
     sudo cp tools/host/group-canary.* /etc/systemd/system/

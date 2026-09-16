@@ -40,7 +40,10 @@ class Limits(object):
         declares one.
         """
         peak = profile.peak[1]
+        # Reflow only. See the note on the check itself.
+        reflow = getattr(profile, "category", "reflow") == "reflow"
         return cls(
+            max_time_to_peak_s=(480.0 if reflow else None),
             max_ramp_up_c_per_s=(profile.max_ramp_up_c_per_s or 3.0),
             peak_min_c=peak - peak_tolerance_c,
             peak_max_c=peak + peak_tolerance_c,
@@ -174,7 +177,15 @@ class RunMetrics(object):
             -self.max_ramp_down <= lim.max_ramp_down_c_per_s,
             "%.2f \u00b0C/s (limit %.1f)" % (self.max_ramp_down,
                                           lim.max_ramp_down_c_per_s))
-        if self.peak_t is not None:
+        # Only where getting there quickly is part of the process. The
+        # 480 s ceiling is J-STD-020's, and it exists to limit how long a
+        # board spends hot on the way to reflow. A bake deliberately spends
+        # four hours at 125 C and reaches its "peak" whenever the room lets
+        # it, so run 0024 -- a clean four-hour bake -- reported "time to
+        # peak FAILED 5916 s (limit 480)". That is the same bug the
+        # liquidus guard above exists for: a red FAILED on a check the run
+        # could neither pass nor fail, on a report people then stop reading.
+        if self.peak_t is not None and lim.max_time_to_peak_s:
             add("time to peak", self.peak_t,
                 self.peak_t <= lim.max_time_to_peak_s,
                 "%.0f s (limit %.0f)" % (self.peak_t,

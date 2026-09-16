@@ -1,0 +1,5 @@
+[Unit]
+Description=Check the access point still delivers group-addressed frames
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/group-canary

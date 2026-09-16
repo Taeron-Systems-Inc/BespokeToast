@@ -811,3 +811,59 @@ was origin -- theirs start on `br-lan`, mine start on a station inside the
 same BSS -- but six other hosts answer my station-originated probes 8 of 8,
 which weakens it. Their per-client IPs will settle whether the two methods
 even agree about the same client.
+
+## Resolved: the radio had been up 155 days (2026-09-16)
+
+The access point's 2.4 GHz radio had quietly degraded. Group-addressed
+frames reached most of its stations **exactly one time in ten**, with
+essentially no variance, while unicast stayed perfect. `wifi down wifi0 &&
+wifi up wifi0` fixed it in forty seconds. Nothing was misconfigured; every
+setting was as it had been.
+
+Confirmed here afterwards, 30 broadcast ARP probes at 1 s with the printer
+probed in the same window as a reference:
+
+    oven      30 of 30     gaps all 1     (0 of 172 before the restart)
+    printer   30 of 30     gaps all 1
+    oven unicast control 10 of 10
+
+And on this Pi, 90 s passive: **548** group-addressed frames from 18
+senders, 114 of them mDNS to 224.0.0.251 -- where the identical test read 0
+in 70 s and 0 in 600 s the night before. Multicast discovery had been dead
+on that radio, presumably for months, and nobody had attributed it.
+
+### What found it, and what hid it
+
+The totals hid this for three days. Every party measured a rate -- 5 of 48,
+0 of 172, 1 of 10 -- and argued about whose number was right. The fault was
+visible the moment anyone asked whether the successes were *clustered or
+uniform*: gaps of 10, 10, 11, 10, 10 with near-zero variance cannot come
+from random loss. That took ninety seconds to measure and no amount of
+configuration review would have produced it.
+
+`tools/host/arp-probe.py` prints the gaps for this reason, and
+`tools/host/group-canary` checks hourly and says so when it sees a clean
+1-in-N. Expect a recurrence as the radio's uptime grows.
+
+Wrong turns worth keeping, all ours:
+
+* Proxy ARP was recommended on an idle test that never exercised a fresh
+  join, which is the one path it broke.
+* A 5 GHz host was used as a "wireless control" twice, after this same file
+  had already recorded that error once with a wired host. A control is not a
+  control until its band and BSSID are written next to the number.
+* A BSS-wide conclusion was published here and corrected within the hour.
+
+### Open: the oven does not notice when it falls off the network
+
+When the radio restarted, the oven lost its association and **never came
+back**. For eight hours it reported `network=10.20.10.242`, a live web
+service and no fault, while answering nothing and being absent from the
+access point's station table. Restarting `code.py` rejoined it in seconds.
+
+Nothing in the firmware checks that the radio is still associated once
+bring-up has succeeded. It needs a liveness check that re-runs bring-up when
+the co-processor stops answering -- cheap to write, but it is frozen code,
+so it needs a rebuild and a reflash. Until then, an oven that has silently
+left the network is indistinguishable, from its own console, from one that
+is on it.

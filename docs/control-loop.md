@@ -6,13 +6,17 @@ The loop described from *What replaced the start* onward -- pre-charge and
 predictive tracking -- is the production loop. Its image and the `code.py`
 that belongs with it are kept beside the older one:
 
-    git checkout known-good-loop-2026-09-15        # commit 5acdac5
+    git checkout known-good-loop-2026-09-15b       # commit f9aeead
 
-    ~/.bespoketoast/images/known-good/loop-2026-09-15.uf2
-    ~/.bespoketoast/images/known-good/loop-2026-09-15-code.py
+    ~/.bespoketoast/images/known-good/loop-2026-09-15b.uf2
+    ~/.bespoketoast/images/known-good/loop-2026-09-15b-code.py
 
-    md5  eb4944bc3dce15dcceb2ae85fe5bdf31   loop-2026-09-15.uf2
-    md5  614c7be7a1f812a1d2c59137f7a02273   loop-2026-09-15-code.py
+    md5  5d1db2c62f155c7fa7c46c5af8736095   loop-2026-09-15b.uf2
+    md5  614c7be7a1f812a1d2c59137f7a02273   loop-2026-09-15b-code.py
+
+The image before it, `loop-2026-09-15` (commit 5acdac5), is kept beside it
+and differs only in not knowing how to take a fixed address -- see the last
+section of docs/network.md. Neither touches a heating path.
 
 Its control code is what runs 0020 to 0022 validated. This image adds one
 change over theirs, a latched fault announced once rather than every step,

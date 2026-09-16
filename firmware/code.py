@@ -149,6 +149,13 @@ def now_iso():
         return None
 
 
+# How often the web service checks that the radio is still associated.
+# Long enough that it costs nothing -- one SPI call a minute on the idle
+# path -- and short enough that a silent drop is noticed in a minute rather
+# than the eight hours it went unnoticed on 2026-09-16.
+LIVENESS_INTERVAL_S = 60.0
+
+
 class WebService(object):
     """The oven's own web page, served only while it is idle.
 
@@ -179,6 +186,9 @@ class WebService(object):
         self.bringup = None
         self.on_epoch = None
         self.status = None
+        # When the association was last confirmed still to exist. See
+        # _still_associated.
+        self._checked_at = None
 
     def advance(self):
         """One step towards being up, or one poll once it is.
@@ -193,6 +203,20 @@ class WebService(object):
         Returns False when there is no point calling again.
         """
         if self.server is not None:
+            if not self._still_associated():
+                # Gone. stop() clears the server and the bring-up, so the
+                # next pass starts a fresh one and the screen goes back to
+                # saying which stage it is in.
+                #
+                # Returns True, not False. The caller keeps calling advance()
+                # only while it returns True, so False means "stop trying" --
+                # which is right for a network that is not there, and exactly
+                # wrong here, where the whole point is to try again. Written
+                # as False first, which would have turned an eight-hour
+                # silent drop into a permanent one.
+                print("# web: the radio is no longer associated; rejoining")
+                self.stop()
+                return True
             self.poll()
             return True
         if self.bringup is None:
@@ -254,7 +278,38 @@ class WebService(object):
             self.stop()
             return False
 
+    def _still_associated(self):
+        """Is the radio actually still on the network?
+
+        Nothing used to ask. On 2026-09-16 the access point restarted its
+        radio, the oven lost its association, and for eight hours it went on
+        reporting a joined network and a live address while answering
+        nothing and being absent from the access point's station table. Its
+        own console could not be told apart from a healthy one. Restarting
+        code.py rejoined it in seconds, so the recovery was always there --
+        only the noticing was missing.
+
+        One SPI call, and at most one per LIVENESS_INTERVAL_S. This runs on
+        the idle path only, because advance() is not called during a run;
+        the 227 ms an SPI call can cost must never land inside the control
+        loop. A co-processor that raises rather than answering is treated as
+        gone, which is what the library does with a busy or wedged one.
+        """
+        now = time.monotonic()
+        if self._checked_at is not None and \
+                now - self._checked_at < LIVENESS_INTERVAL_S:
+            return True
+        self._checked_at = now
+        if self.radio is None:
+            return False
+        try:
+            return bool(self.radio._hardware().is_connected)
+        except Exception as e:
+            print("# web: cannot ask the radio if it is associated (%r)" % e)
+            return False
+
     def stop(self):
+        self._checked_at = None
         self.server = None
         self.bringup = None
         if self.radio is not None:

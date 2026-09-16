@@ -566,3 +566,62 @@ def test_code_py_never_sets_attributes_on_functions():
                         offenders.append("%s: line %d sets %s.%s" % (
                             fn.name, node.lineno, tgt.value.id, tgt.attr))
     assert not offenders, offenders
+
+
+def test_the_web_service_checks_the_radio_is_still_associated():
+    """On 2026-09-16 the access point restarted its radio, the oven lost its
+    association, and for eight hours it reported a joined network and a live
+    address while answering nothing. Nothing asked whether it was still on
+    the network; now the idle path does."""
+    tree = _tree("code.py")
+    assert "LIVENESS_INTERVAL_S" in _defined(tree)
+    src = open(os.path.join(FIRMWARE, "code.py")).read()
+    assert "_still_associated" in src
+
+    advance = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "advance":
+            advance = node
+    assert advance is not None, "WebService.advance went missing"
+    called = {n.func.attr for n in ast.walk(advance)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert "_still_associated" in called, "advance no longer checks liveness"
+    assert "poll" in called
+
+
+def test_losing_the_association_asks_to_be_called_again():
+    """The caller keeps calling advance() only while it returns True, so
+    returning False on a dropped association would turn a silent eight-hour
+    drop into a permanent one. Every return in the liveness branch must be
+    True; False is reserved for 'this network is not there'."""
+    tree = _tree("code.py")
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.FunctionDef) and node.name == "advance"):
+            continue
+        for branch in ast.walk(node):
+            if not isinstance(branch, ast.If):
+                continue
+            calls = {n.func.attr for n in ast.walk(branch.test)
+                     if isinstance(n, ast.Call)
+                     and isinstance(n.func, ast.Attribute)}
+            if "_still_associated" not in calls:
+                continue
+            returns = [r.value for r in ast.walk(branch)
+                       if isinstance(r, ast.Return)]
+            assert returns, "the liveness branch returns nothing"
+            for r in returns:
+                assert isinstance(r, ast.Constant) and r.value is True, \
+                    "the liveness branch must return True so it is retried"
+
+
+def test_the_liveness_check_is_rate_limited():
+    """One SPI call can block 227 ms. Checking every pass would put that on
+    the idle path several times a second; it is once a minute."""
+    tree = _tree("code.py")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == "LIVENESS_INTERVAL_S":
+                    assert 10.0 <= node.value.value <= 300.0
+                    return
+    raise AssertionError("LIVENESS_INTERVAL_S is not a plain number any more")

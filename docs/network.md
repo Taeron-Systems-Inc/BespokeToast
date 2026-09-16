@@ -570,12 +570,21 @@ device with this network stack.
 
 The access point answers ARP on behalf of its own clients. Before taking an
 address DHCP has offered it, this stack broadcasts an ARP request for that
-address to check nobody else has it -- and treats **any** reply as a
-conflict, comparing the address only and never the MAC. So the access point
-answered on the oven's behalf, with the oven's own MAC, and the oven refused
-the address it had just been given. RFC 5227 says a conflict is a reply
-whose sender MAC is *not* yours; lwIP here does not make that distinction.
-Most clients do, which is why nothing else on the network noticed.
+address to check nobody else has it. The access point answered on the oven's
+behalf, carrying the oven's own MAC, and the oven refused the address it had
+just been given.
+
+The stack was right to. RFC 5227 2.1.1 says that during the probe phase
+*any* ARP packet whose sender address is the address being probed means the
+address is in use, with no MAC comparison -- the sender-MAC test belongs to
+the later phases. This was written here the other way round, claiming lwIP
+was the lax one; the router's owner corrected it.
+
+What made the oven the visible casualty is that the poisoned answer needs
+the router to hold both an ARP cache entry for the address and a forwarding
+entry for that MAC behind a wireless port, a window open only on a quick
+rejoin -- and that when a client declines an offer, dnsmasq goes on offering
+the same lease to the oven rather than a different address.
 
 From the router's own logs, over the first 37 attempts: 37 authentications,
 37 completed WPA2 handshakes, 37 addresses handed out, zero denials -- and
@@ -593,14 +602,14 @@ Two things this cost, both mine:
   hours after the change for exactly that reason: it joined at 09:20, the
   flag went on at 09:43, and lease renewals do not repeat the check.
 
-### The fix is on the access point
+### Reverted on the access point (2026-09-15)
 
-A proxy must not answer an ARP *probe* -- a request whose sender address is
-0.0.0.0, which is a device asking whether its own new address is free.
-Answering one tells the asker its address is taken. As far as the kernel
-source shows, the `proxyarp_wifi` path answers them; the `neigh_suppress`
-path has a guard against zero-sender requests. That is for whoever owns the
-router to design.
+Proxy ARP is off again on both radios, its persistence files removed and the
+ARP cache thresholds back to kernel defaults, so nothing answers for the
+oven any more. If it returns -- there are devices on this network that
+cannot be reflashed -- it will carry a guard against answering address
+probes, which is the rule any proxy has to keep: never answer a request
+whose sender address is 0.0.0.0.
 
 ### What the firmware does about it: nothing, by default
 

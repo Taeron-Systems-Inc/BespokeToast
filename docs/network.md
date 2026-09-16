@@ -355,6 +355,8 @@ of that mode is group-addressed traffic. NINA implements the Arduino
 WIFI_PS_NONE. It was accepted -- the co-processor replied `01` -- and
 changed nothing: three more rounds of broadcast ARP, still unanswered.
 A firmware change was written for this, and reverted when it did not work.
+Retested properly on 2026-09-15, on one live association with a control --
+see the last section. Same answer.
 
 Its one measurable effect, 20 pings each way over a warm entry, was not a
 clean win either:
@@ -624,3 +626,40 @@ It is here for testing -- proving the diagnosis, and reaching the oven while
 the access point is being fixed. A co-processor that will not take the
 command falls back to DHCP, and a configuration missing either half is
 refused rather than half applied.
+
+### Power save is not the reason, measured (2026-09-15)
+
+With proxy ARP reverted the original fault came straight back: a host with
+an empty cache cannot find the oven. The standing suggestion for the device
+side is to turn the co-processor's power saving off, on the grounds that
+modem sleep is weakest at group-addressed traffic. It was tried on
+2026-09-04 and did nothing, but that test was worthless -- nothing on the
+network was receiving broadcasts that day, so there was nothing for it to
+fix.
+
+This one is not. One association, held open from the REPL for the whole
+test, measured from this Pi with its re-pinning timer stopped and its
+neighbour entry deleted before each round:
+
+    joined 23:13:51, still connected 23:15:30
+
+    power save default   arping -b 0 of 8     ping 100% loss
+    power save off       arping -b 0 of 8     ping 100% loss
+
+    control, same minutes:  bench5 5 of 5,  gateway 5 of 5
+
+The command was accepted -- NINA's `setPowerMode` at 0x17 with a zero byte,
+reply `01` -- and the association survived it. It changes nothing. The Pi
+resolves every other wireless peer in the same minutes, so the path is not
+the Pi's.
+
+So there is no device-side fix in reach. The oven can be *reached* by a host
+that already knows its address, which is what `arp-pin` provides here, and
+it can be found by anything if the access point answers for it. That is what
+proxy ARP bought, and why it is worth having back with a guard against
+answering address probes.
+
+Also worth recording: the first join attempt returned status 4 and the
+second succeeded, five seconds apart. That is the behaviour `radio.py`
+already documents and the reason `JOIN_ATTEMPTS` is 3. A single-attempt
+probe reads it as a dead network.

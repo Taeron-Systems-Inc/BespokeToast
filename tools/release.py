@@ -22,7 +22,11 @@ import subprocess
 import sys
 import time
 
-HOST = os.environ.get("TOASTER_BUILD_HOST", "vox@10.20.10.162")
+# No default. This used to fall back to one bench's build host, which is
+# wrong the moment the repository is used anywhere else: the address either
+# does not exist or belongs to somebody else, and the failure reads as
+# "cannot reach the build host" rather than "you have not said which host".
+HOST = os.environ.get("TOASTER_BUILD_HOST")
 REMOTE_TOP = "~/build/circuitpython"
 REMOTE_FROZEN = REMOTE_TOP + "/frozen/BespokeToast/oven"
 REMOTE_UF2 = REMOTE_TOP + "/ports/atmel-samd/build-pyportal/firmware.uf2"
@@ -293,6 +297,13 @@ def main(argv):
         print(" returns to where you just were.)")
         return 0
 
+    if not HOST:
+        print("!! TOASTER_BUILD_HOST is not set, so there is no build host.")
+        print("   The firmware is cross-compiled on another machine; set it")
+        print("   to the account and address that builds it, for example:")
+        print("     export TOASTER_BUILD_HOST=user@host")
+        print("   See docs/frozen-build.md for what that machine needs.")
+        return 1
     print("build host : %s" % HOST)
     if not reachable():
         print("!! cannot reach the build host over ssh")

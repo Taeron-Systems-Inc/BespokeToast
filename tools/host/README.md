@@ -48,15 +48,12 @@ answers, every probe it sends is broadcast and the two cases look the same.
 Always include a peer that works as a control. That is what showed the
 oven answering unicast 12 of 12 and broadcast 0 of 12 in the same minute.
 
-### What fixed it for everyone else
+### What the access point was actually doing
 
-Since 2026-09-15 the router answers ARP for its wireless clients (bridge
-proxy ARP), which fixes resolution for every device on the network, phones
-included. See the last section of `docs/network.md`. An earlier version of
-this README said nothing on the access point needed fixing; that was wrong.
-
-These two units stay as insurance. `arp-announce` is more useful than it
-was, because the router now accepts gratuitous ARP into its cache. Know
-that `arp-pin` also hides the fault from this host: with the oven held as a
-permanent entry, the Pi never has to ask for it, which is why a laptop could
-fail while the Pi never did. Test resolution from some other machine.
+Discovery failures here were never this host's fault. On 2026-09-16 the
+access point's 2.4 GHz radio was found to be delivering group-addressed
+frames exactly one time in ten after 155 days of uptime, which breaks ARP
+resolution, mDNS and SSDP for every client on it while leaving unicast
+perfect. A radio restart fixed it. See `docs/network.md` for the signature
+and the fix, and use `arp-probe.py` above to tell that fault from any other:
+a clean 1-in-N gap pattern is this one.

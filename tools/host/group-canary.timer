@@ -1,7 +1,0 @@
-[Unit]
-Description=Hourly group-frame delivery check
-[Timer]
-OnBootSec=10min
-OnUnitActiveSec=1h
-[Install]
-WantedBy=timers.target

@@ -104,26 +104,6 @@ answers, every probe it sends is broadcast and the two cases look the same.
 Always include a peer that works as a control. That is what showed the
 oven answering unicast 12 of 12 and broadcast 0 of 12 in the same minute.
 
-## group-canary
-
-Hourly check that the access point still delivers group-addressed frames,
-installed as `group-canary.timer`. It probes the printer at 10.20.10.234 --
-the reference client, which kept answering every probe even while the radio
-was degraded -- and logs the total and the gap pattern to
-`/var/lib/toaster/group-canary.log`. On the first hour it sees 4 or fewer of
-12 it writes `/var/lib/toaster/group-canary-ALERT.txt` and sends the same
-text to any logged-in session, once per episode rather than once per hour.
-The alert carries the fix with it, because the fix is on the access point
-and not here: `wifi down wifi0 && wifi up wifi0`, since `wifi reload` there
-is a no-op that looks like a clean negative result.
-
-    sudo install -m 755 tools/host/group-canary /usr/local/sbin/
-    sudo cp tools/host/group-canary.* /etc/systemd/system/
-    sudo systemctl enable --now group-canary.timer
-
-A clean 1-in-N gap pattern is the signature of the 2026-09-16 fault, and the
-fix for that is a radio restart on the access point, not anything here.
-
 ### What fixed it for everyone else
 
 Since 2026-09-15 the router answers ARP for its wireless clients (bridge

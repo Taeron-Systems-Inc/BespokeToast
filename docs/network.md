@@ -841,9 +841,12 @@ uniform*: gaps of 10, 10, 11, 10, 10 with near-zero variance cannot come
 from random loss. That took ninety seconds to measure and no amount of
 configuration review would have produced it.
 
-`tools/host/arp-probe.py` prints the gaps for this reason, and
-`tools/host/group-canary` checks hourly and says so when it sees a clean
-1-in-N. Expect a recurrence as the radio's uptime grows.
+`tools/host/arp-probe.py` prints the gaps for this reason. Expect a
+recurrence as the radio's uptime grows: when discovery starts failing again,
+probe a client known to work alongside the one that does not, and compare
+the gap patterns rather than the totals. A clean 1-in-N is this fault, and
+the fix is on the access point -- `wifi down wifi0 && wifi up wifi0`, since
+`wifi reload` there is a no-op that looks like a clean negative result.
 
 Wrong turns worth keeping, all ours:
 

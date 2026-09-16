@@ -666,7 +666,7 @@ so the only difference between the two modes is the destination MAC.
     12 probes each, one minute, 2026-09-15 23:56
 
     bench5    unicast     12 of 12      gateway  unicast   12 of 12
-    bench5    broadcast   12 of 12
+    bench5    broadcast   12 of 12      <- NOT a control, see below
     OVEN      unicast     12 of 12      ICMP to the oven   0% loss
     OVEN      broadcast    0 of 12
 
@@ -695,3 +695,39 @@ Also worth recording: the first join attempt returned status 4 and the
 second succeeded, five seconds apart. That is the behaviour `radio.py`
 already documents and the reason `JOIN_ATTEMPTS` is 3. A single-attempt
 probe reads it as a dead network.
+
+### It is not the oven: nothing on this radio hears a broadcast (2026-09-16)
+
+Every "wireless control" above is withdrawn. bench5 is on **5 GHz channel
+36**, a different BSSID. Measuring it proved that the 5 GHz group path works
+and that bench5 can send a unicast reply. It never tested the 2.4 GHz group
+path the oven lives on.
+
+This is the second time this file has recorded that mistake. The first was a
+"wireless host that works" which turned out to be eridani, on the wire. The
+rule that follows from doing it twice: **a control is not a control until
+its band and BSSID are written down next to the number.**
+
+What a real measurement says. The bench Pi -- Broadcom radio, Linux, power
+save off, 2.4 GHz channel 11, the same BSS as the oven -- listening
+promiscuously for 70 s:
+
+    group-addressed frames received, any source, any protocol      0
+    of which, 20 UDP broadcasts sent from WIRED eridani during it  0 of 20
+
+Not one ARP, mDNS, DHCP or anything else. So two clients that share nothing
+but this BSS, an ESP32 and a Broadcom radio with power save off, are both
+blind to group-addressed frames.
+
+That exonerates the oven and everything inside it -- the SPI link, NINA's
+buffering, CircuitPython's polling, the antenna, the enclosure, the heater
+-- and it retires the "impaired receive path" reading, which never fit the
+arithmetic anyway: group frames go out at the most robust basic rate and
+unicast at a high MCS, and the oven passes 100% of the fragile ones while
+losing the robust ones.
+
+The open question is now the access point's, and the pivot is one command:
+list the 2.4 GHz stations with their band, then probe a third confirmed
+2.4 GHz client. If none of them hear a broadcast, group delivery on that BSS
+is broken for every client, which also breaks mDNS, SSDP and broadcast DHCP
+network-wide, and no ARP proxy is the right answer to it.

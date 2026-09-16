@@ -560,3 +560,58 @@ address is on its idle screen. Revisit only if resolution fails again.
 `arp-pin` and `arp-announce` stay, as insurance that costs nothing.
 `arp-announce` is if anything more useful now: the router accepts
 gratuitous ARP into its cache, so the Pi's announcements land there.
+
+## The oven could not join, and why (2026-09-15)
+
+After the host processor was reflashed at 14:17 the oven stopped joining
+Voxelis. Every attempt failed for hours. The cause is the proxy ARP change
+above, and the mechanism is worth knowing because it will do the same to any
+device with this network stack.
+
+The access point answers ARP on behalf of its own clients. Before taking an
+address DHCP has offered it, this stack broadcasts an ARP request for that
+address to check nobody else has it -- and treats **any** reply as a
+conflict, comparing the address only and never the MAC. So the access point
+answered on the oven's behalf, with the oven's own MAC, and the oven refused
+the address it had just been given. RFC 5227 says a conflict is a reply
+whose sender MAC is *not* yours; lwIP here does not make that distinction.
+Most clients do, which is why nothing else on the network noticed.
+
+From the router's own logs, over the first 37 attempts: 37 authentications,
+37 completed WPA2 handshakes, 37 addresses handed out, zero denials -- and
+the oven reporting itself unconnected every time. Nothing was refusing it.
+
+Two things this cost, both mine:
+
+* The co-processor's status said `WL_NO_SSID_AVAIL`, which reads as "the
+  network is not there". This firmware reports connected only once it has an
+  address, so that status cannot tell "not found" from "joined and refused
+  the address". It was read as the first.
+* Proxy ARP was recommended here on the strength of an idle test that
+  checked whether an *existing* client could be found. It never exercised a
+  fresh join, which is the one path it breaks. The oven was stable for five
+  hours after the change for exactly that reason: it joined at 09:20, the
+  flag went on at 09:43, and lease renewals do not repeat the check.
+
+### The fix is on the access point
+
+A proxy must not answer an ARP *probe* -- a request whose sender address is
+0.0.0.0, which is a device asking whether its own new address is free.
+Answering one tells the asker its address is taken. As far as the kernel
+source shows, the `proxyarp_wifi` path answers them; the `neigh_suppress`
+path has a guard against zero-sender requests. That is for whoever owns the
+router to design.
+
+### What the firmware does about it: nothing, by default
+
+`netconfig` will now read `ip` and `gateway` (and optionally `mask` and
+`dns`) for a network in `wifi.json`, and bring-up sets them before joining,
+so DHCP never runs and there is no address check to answer. Measured on the
+device: joined in 4.5 s, took its address, pinged the host at 40 ms, held.
+
+**It is not configured, and is not the production answer.** A fixed address
+is a second place for the network's layout to be recorded and to go stale.
+It is here for testing -- proving the diagnosis, and reaching the oven while
+the access point is being fixed. A co-processor that will not take the
+command falls back to DHCP, and a configuration missing either half is
+refused rather than half applied.

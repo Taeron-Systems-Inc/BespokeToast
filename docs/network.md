@@ -271,6 +271,19 @@ exactly like a clean negative result.
    equal to the target: both are a device asking whether its own address is
    free, and RFC 5227 requires it to treat any answer as a conflict.
 
+## Open: the web service dies on SPI errors while idle
+
+Measured 2026-09-16 across two ten-minute idle windows: the service stopped
+twice on its own and restarted itself 11 s and 40 s later.
+
+    web: stopped serving (ConnectionError('Failed to send 88 bytes (sent 0)'))
+    web: stopped serving (TimeoutError('ESP32 not responding'))
+
+The association is untouched throughout -- ping stays at 0% loss -- so this
+is the co-processor intermittently not answering over SPI, not a network
+fault. It is self-healing, and the cost is a page that is unreachable for
+tens of seconds at a time. Undiagnosed.
+
 ## Open: the oven does not notice when it falls off the network
 
 When that radio restarted, the oven lost its association and **never came
@@ -278,7 +291,9 @@ back**. For eight hours it reported `network=10.20.10.242`, a live web
 service and no fault, while answering nothing and being absent from the
 access point's station table. Restarting `code.py` rejoined it in seconds.
 
-Nothing checks that the radio is still associated once bring-up has
-succeeded. It needs a liveness check that re-runs bring-up when the
-co-processor stops answering. Until then, an oven that has silently left the
-network is indistinguishable, from its own console, from one that is on it.
+The idle path now asks the co-processor once a minute whether it is still
+associated, and on a no, tears the service down so the next pass runs a
+fresh bring-up. That closes the eight-hour case. What is still open is that
+it has never been observed firing in anger -- the association has not
+dropped since it was deployed, so the recovery path is written and tested
+but not yet proven against the real fault.

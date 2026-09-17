@@ -1,30 +1,35 @@
 # Notice
 
-`firmware/code.py` is a derivative work of **Adafruit's EZ Make Oven**
-controller, written by Dan Cogliano for Adafruit Industries and released under
-the MIT licence:
+## The firmware in this tree
 
-```
-SPDX-FileCopyrightText: 2019 Dan Cogliano for Adafruit Industries
-SPDX-License-Identifier: MIT
-```
+`firmware/` is original work, released under the MIT licence. Every module
+carries an SPDX header and `LICENSE` holds the full text.
 
-The controller was adapted for this oven in 2023. Over that work the original
-SPDX header was dropped, which the MIT licence does not permit — it requires the
-copyright and permission notice to travel with the code. The header has been
-restored, and `LICENSE` carries the full text.
+It is **not** a derivative of the controller it replaced. That controller --
+Adafruit's EZ Make Oven, written by Dan Cogliano for Adafruit Industries and
+adapted for this oven in 2023 -- is in this repository's history at tag `v1`,
+and `LICENSE` carries its copyright line because that history is part of the
+repository.
 
-## The only edit to the firmware
+For the avoidance of doubt, measured rather than asserted: the `v1`
+controller is 416 lines and the current `code.py` is 1394, and they have no
+line in common. The rewrite shares the hardware and the problem, not the
+code.
 
-Restoring those six header lines is the **sole** difference between
-`firmware/code.py` here and the file on the device. The code itself is
-unmodified and byte-identical below the header.
+An earlier version of this file claimed the opposite -- that `code.py` was
+Adafruit's work with six restored header lines as its "sole" difference.
+That was true when it was written and became false at the rewrite.
 
 ## Third-party components
 
-The Adafruit CircuitPython libraries the firmware depends on are not committed
-here; they are redistributable builds carried on the device. See
-`docs/firmware.md` for the list.
+**CircuitPython and the Adafruit libraries** the firmware depends on are not
+committed here. They are redistributable builds carried on the device, and
+the set the firmware expects is listed in `docs/frozen-build.md` -- which
+also explains why a copy of any of them on the volume is actively harmful.
 
-Font and brand assets used by any future firmware carry their own licences and
-are recorded alongside them when added.
+**Fonts.** `firmware/assets/fonts/` holds B612, released under the SIL Open
+Font Licence. The licence travels with them in
+`firmware/assets/fonts/OFL.txt`.
+
+**Brand assets.** `firmware/assets/taeron-logo-*.bmp` are Taeron Systems'
+own.

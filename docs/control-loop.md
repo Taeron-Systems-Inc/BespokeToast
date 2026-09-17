@@ -6,13 +6,13 @@ Pre-charge and predictive tracking, described below. The image and the
 `code.py` that belongs with it are kept together, because `code.py` is not
 frozen and does not travel with a `.uf2`:
 
-    git checkout known-good-loop-2026-09-16        # commit 7320298
+    git checkout known-good-loop-2026-09-16        # commit 0395111
 
     ~/.bespoketoast/images/known-good/loop-2026-09-16.uf2
     ~/.bespoketoast/images/known-good/loop-2026-09-16-code.py
 
     md5  b6fc67b32a057615132b5421a5b5ad3d   loop-2026-09-16.uf2
-    md5  7c058d41a4374a1aee34295cfae18f55   loop-2026-09-16-code.py
+    md5  094bf903cdacc90b66ac516a41cfb64e   loop-2026-09-16-code.py
 
 Validated on hardware: runs 0020 to 0022 for the reflow profiles, and run
 0024, a full four-hour bake at 0.240 C rms. Rolling the firmware back

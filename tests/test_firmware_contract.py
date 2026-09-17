@@ -665,3 +665,38 @@ def test_precharge_requires_the_curve_to_ask_for_a_rise():
             and r.value.value is None for r in ast.walk(n))
         for n in ast.walk(factory))
     assert returns_none_early, "the factory no longer declines any profile"
+
+
+def test_a_failed_bring_up_asks_to_be_called_again():
+    """The caller keeps calling advance() only while it returns True, and
+    web_wanted is set True exactly once at startup and never restored. So
+    returning False when a bring-up fails took the oven off the network
+    until a human rebooted it: a boot that lost a scan to a busy channel,
+    or met an access point still coming up, stayed offline while sitting
+    there healthy and reporting no fault. The liveness check does not cover
+    this -- it only guards an association lost after a server exists."""
+    tree = _tree("code.py")
+    assert "RETRY_INTERVAL_S" in _defined(tree)
+    advance = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "advance":
+            advance = node
+    assert advance is not None, "WebService.advance went missing"
+
+    for branch in ast.walk(advance):
+        if not isinstance(branch, ast.If):
+            continue
+        # The branch that handles bringup FAILED.
+        if "FAILED" not in ast.dump(branch.test):
+            continue
+        returns = [r.value for r in ast.walk(branch) if isinstance(r, ast.Return)]
+        assert returns, "the FAILED branch returns nothing"
+        for r in returns:
+            assert isinstance(r, ast.Constant) and r.value is True, \
+                "a failed bring-up must ask to be retried, not switch off"
+        assigned = {t.attr for n in ast.walk(branch)
+                    if isinstance(n, ast.Assign)
+                    for t in n.targets if isinstance(t, ast.Attribute)}
+        assert "_retry_at" in assigned, "the FAILED branch sets no retry time"
+        return
+    raise AssertionError("advance() no longer handles a failed bring-up")

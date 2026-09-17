@@ -284,16 +284,30 @@ is the co-processor intermittently not answering over SPI, not a network
 fault. It is self-healing, and the cost is a page that is unreachable for
 tens of seconds at a time. Undiagnosed.
 
-## Open: the oven does not notice when it falls off the network
+## Losing the network, and getting it back
 
-When that radio restarted, the oven lost its association and **never came
-back**. For eight hours it reported `network=10.20.10.242`, a live web
-service and no fault, while answering nothing and being absent from the
-access point's station table. Restarting `code.py` rejoined it in seconds.
+The oven can be off the network while looking perfectly healthy from its
+own console: idle, no fault, an address on the screen. It happened for eight
+hours on 2026-09-15 -- reporting `network=10.20.10.242` and a live web
+service while answering nothing and absent from the access point's station
+table -- and a reload rejoined it in seconds.
 
-The idle path now asks the co-processor once a minute whether it is still
-associated, and on a no, tears the service down so the next pass runs a
-fresh bring-up. That closes the eight-hour case. What is still open is that
-it has never been observed firing in anger -- the association has not
-dropped since it was deployed, so the recovery path is written and tested
-but not yet proven against the real fault.
+Two separate faults sat behind this, and the second was the worse one.
+
+**An association lost after the page is up** is now noticed: the idle path
+asks the co-processor once a minute whether it is still associated, and on a
+no, tears the service down so the next pass runs a fresh bring-up.
+
+**A bring-up that fails in the first place** used to be terminal. The main
+loop calls `advance()` only while it returns True, and its flag is set once
+at startup and never restored, so a boot that lost a scan to a busy channel
+or met an access point still coming up went off the network until somebody
+rebooted it -- healthy, idle, reporting no fault, retrying nothing. Observed
+2026-09-16: four minutes unreachable across two liveness intervals with a
+silent console, cleared instantly by a reload. A failed bring-up now backs
+off and retries every 120 s instead.
+
+The liveness check never covered that case, because it sits behind an
+established server. Between them they cover both directions, and the
+eight-hour outage of 2026-09-15 was most likely the latch rather than the
+silent drop.

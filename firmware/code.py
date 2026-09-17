@@ -155,6 +155,12 @@ def now_iso():
 # than the eight hours it went unnoticed on 2026-09-16.
 LIVENESS_INTERVAL_S = 60.0
 
+# How long to wait before trying the network again after a bring-up fails.
+# Not zero: a failed scan-and-join costs three join attempts of 10 s, and
+# retrying flat out would spend the idle loop on the radio. Not never, which
+# is what it used to be -- see the retry note in WebService.advance.
+RETRY_INTERVAL_S = 120.0
+
 
 class WebService(object):
     """The oven's own web page, served only while it is idle.
@@ -189,6 +195,8 @@ class WebService(object):
         # When the association was last confirmed still to exist. See
         # _still_associated.
         self._checked_at = None
+        # When to try again after a failed bring-up, or None.
+        self._retry_at = None
 
     def advance(self):
         """One step towards being up, or one poll once it is.
@@ -202,6 +210,10 @@ class WebService(object):
 
         Returns False when there is no point calling again.
         """
+        if self._retry_at is not None:
+            if time.monotonic() < self._retry_at:
+                return True
+            self._retry_at = None
         if self.server is not None:
             if not self._still_associated():
                 # Gone. stop() clears the server and the bring-up, so the
@@ -225,10 +237,21 @@ class WebService(object):
         state = self.bringup.step()
         self.status = self.bringup.status_text()
         if state == bringup_mod.FAILED:
-            print("# web: no network (%s)" % self.bringup.detail)
+            # Try again later; do NOT return False. The caller keeps calling
+            # advance() only while it returns True, and web_wanted is set
+            # True exactly once at startup and never restored -- so returning
+            # False here took the oven off the network until a human rebooted
+            # it. A boot that loses a scan to a busy channel, or meets an
+            # access point still coming up, was permanently offline while
+            # sitting there healthy and reporting no fault. The liveness
+            # check does not save it either: that only guards an association
+            # lost AFTER a server exists.
+            print("# web: no network (%s); retrying in %.0f s"
+                  % (self.bringup.detail, RETRY_INTERVAL_S))
             self.bringup = None
             self.stop()
-            return False
+            self._retry_at = time.monotonic() + RETRY_INTERVAL_S
+            return True
         if state != bringup_mod.READY:
             return True
 
@@ -309,6 +332,8 @@ class WebService(object):
             return False
 
     def stop(self):
+        # _retry_at is deliberately NOT cleared here: stop() is how a failed
+        # bring-up tears itself down, and clearing it would retry instantly.
         self._checked_at = None
         self.server = None
         self.bringup = None

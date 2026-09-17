@@ -66,7 +66,7 @@ auto-reload. All of those are safe.
 Probe placement inside the oven cavity is **[unverified]**, which leaves thermal
 lag between element and probe unquantified.
 
-### The amplifier dropped off the bus (2026-09-11)
+### The amplifier can latch up and hold the bus down
 
 Twenty-three minutes into a 125 C bake, holding steady at 124.7 C, the
 MCP9600 stopped answering between one sample and the next. The supervisor
@@ -83,10 +83,11 @@ Resetting the processor did not clear it. Removing all power did -- unplugging
 the Pi and the oven's USB cable and plugging them back in, with nothing else
 changed.
 
-That reads as the amplifier latching up and holding SDA low, not as a wiring
-fault. It has happened once. If it happens again the oven faults safely, and
-the fix is to remove power, which can be done from the Pi (see *Cutting the
-oven's power from the Pi*, below).
+That is the amplifier latching up and holding SDA low, not a wiring fault.
+Seen once. The oven faults safely when it happens -- the supervisor opens
+the relay on the first missing reading -- and the fix is to remove power,
+which can be done from the Pi without touching the bench (see *Cutting the
+oven's power from the Pi*).
 
 ## Measured thermal behaviour
 
@@ -240,8 +241,12 @@ cleared it.
 
 ## Open questions
 
-1. Does the relay fail safe when `D4` stops being driven?
-2. Where is the thermocouple mounted in the cavity?
-3. Relay contact rating, and whether it switches one leg or both.
-4. Is there an independent thermal cutout, or is the PyPortal the only control
-   over the elements?
+1. Where is the thermocouple mounted in the cavity? Unknown placement leaves
+   the lag between element and probe unquantified.
+2. Relay contact rating, and whether it switches one leg or both.
+3. Is there an independent thermal cutout, or is the PyPortal the only
+   control over the elements?
+4. How large is the cold-junction compensation error at peak? Bounding it
+   needs a reference probe in the cavity (see *The enclosure warms
+   unevenly*).
+

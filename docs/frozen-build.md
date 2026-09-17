@@ -62,8 +62,12 @@ The displaced copies are kept in `.shadowed/` on the volume.
 
 ## Building
 
-The build host needs ~3 GB of disk and an ARM toolchain; this project uses
-eridani, since the Pi that talks to the oven has neither.
+The build host needs ~3 GB of disk and an ARM toolchain, which the Pi that
+talks to the oven has neither of. `tools/release.py` takes it from
+`TOASTER_BUILD_HOST` and refuses to run without it, rather than defaulting
+to whichever machine happened to build it here:
+
+    export TOASTER_BUILD_HOST=user@host
 
     # toolchain, no root required
     mkdir -p ~/toolchains && cd ~/toolchains

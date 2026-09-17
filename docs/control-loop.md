@@ -1,28 +1,23 @@
 # The control loop
 
-## What is in production (2026-09-15)
+## What is in production
 
-The loop described from *What replaced the start* onward -- pre-charge and
-predictive tracking -- is the production loop. Its image and the `code.py`
-that belongs with it are kept beside the older one:
+Pre-charge and predictive tracking, described below. The image and the
+`code.py` that belongs with it are kept together, because `code.py` is not
+frozen and does not travel with a `.uf2`:
 
-    git checkout known-good-loop-2026-09-15b       # commit f9aeead
+    git checkout known-good-loop-2026-09-16        # commit 7320298
 
-    ~/.bespoketoast/images/known-good/loop-2026-09-15b.uf2
-    ~/.bespoketoast/images/known-good/loop-2026-09-15b-code.py
+    ~/.bespoketoast/images/known-good/loop-2026-09-16.uf2
+    ~/.bespoketoast/images/known-good/loop-2026-09-16-code.py
 
-    md5  5d1db2c62f155c7fa7c46c5af8736095   loop-2026-09-15b.uf2
-    md5  614c7be7a1f812a1d2c59137f7a02273   loop-2026-09-15b-code.py
+    md5  b6fc67b32a057615132b5421a5b5ad3d   loop-2026-09-16.uf2
+    md5  7c058d41a4374a1aee34295cfae18f55   loop-2026-09-16-code.py
 
-The image before it, `loop-2026-09-15` (commit 5acdac5), is kept beside it
-and differs only in not knowing how to take a fixed address -- see the last
-section of docs/network.md. Neither touches a heating path.
-
-Its control code is what runs 0020 to 0022 validated. This image adds one
-change over theirs, a latched fault announced once rather than every step,
-which touches no heating path. Its first full-length run is the four-hour
-bake set for 2026-09-16. If that disagrees with everything above, the older
-fallback below is still there.
+Validated on hardware: runs 0020 to 0022 for the reflow profiles, and run
+0024, a full four-hour bake at 0.240 C rms. Rolling the firmware back
+without its `code.py` leaves a board that boots and serves a dead page --
+that was found by doing it.
 
 ## The fallback, first
 

@@ -6,8 +6,10 @@ control loop achieves is in `control-loop.md`.
 
 ## What has actually been run
 
-Twenty-four logged runs, every one recorded to the oven's own storage with
-every control step. The ones that matter:
+Twenty-six logged runs, every one recorded to the oven's own storage with
+every control step. Two of those are a no-heat fixture used to test the
+run-to-idle transition and prove nothing about heating. The ones that
+matter:
 
     reflow, cold and warm starts    runs 0020-0022   0.78-1.13 C rms
     a full four-hour bake           run 0024         0.240 C rms hold

@@ -187,8 +187,7 @@ docs/        Hardware, network, control loop, profiles, build, validation.
 | | |
 |---|---|
 | `v1` | the oven's state as found, before the rewrite |
-| `known-good-loop-2026-09-10` | the last loop before pre-charge |
-| `known-good-loop-2026-09-16` | the loop in production |
+| `v2` | this firmware: pre-charge, predictive tracking, supervisor, run logging |
 
 A tag records the source. The image and `code.py` that were tested together
 are kept outside the repository, because a `.uf2` is a build artefact; see

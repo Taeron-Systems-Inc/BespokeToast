@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: MIT
 """An observer for the state the plant model was missing: the element.
 
-The loop this sits beside -- docs/control-loop.md, tag
-known-good-loop-2026-09-10 -- inverts a plant with no element state. On a
+The loop this sits beside -- docs/control-loop.md -- inverts a plant with
+no element state, which is what this repository's history holds before
+pre-charge. On a
 warm start the oven lagged its curve by 24-32 C for the first ninety
 seconds with duty pinned at 1.0 the whole time. No gain fixes an actuator
 that is already flat out, and this file does not try to: the first version

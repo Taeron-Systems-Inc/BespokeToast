@@ -4,7 +4,7 @@
 
 Pre-charge and predictive tracking, described below. The source is the tag:
 
-    git checkout known-good-loop-2026-09-16
+    git checkout v2
 
 The built image is **not** in this repository -- a `.uf2` is a build
 artefact -- and neither is the `code.py` that was flashed with it. Those two
@@ -163,10 +163,10 @@ opening does not ask for what the oven cannot give there.
 ## Rolling back
 
 Each baseline is an image plus the `code.py` that belongs with it. Neither
-is in this repository; the tag is.
+is in this repository; the source is.
 
-    known-good-loop-2026-09-16   the loop in production
-    known-good-loop-2026-09-10   the last loop before pre-charge
+    v2         the loop in production
+    9ebb22e    the last loop before pre-charge, for comparison
 
 `tools/release.py --rollback` reflashes the image before the last one and
 restores its `code.py` with it, which is the cheap path when the change

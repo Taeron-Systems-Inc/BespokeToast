@@ -4,7 +4,7 @@
 
 Pre-charge and predictive tracking, described below. The source is the tag:
 
-    git checkout v2
+    git checkout v2.0
 
 The built image is **not** in this repository -- a `.uf2` is a build
 artefact -- and neither is the `code.py` that was flashed with it. Those two
@@ -165,7 +165,7 @@ opening does not ask for what the oven cannot give there.
 Each baseline is an image plus the `code.py` that belongs with it. Neither
 is in this repository; the source is.
 
-    v2         the loop in production
+    v2.0       the loop in production
     9ebb22e    the last loop before pre-charge, for comparison
 
 `tools/release.py --rollback` reflashes the image before the last one and

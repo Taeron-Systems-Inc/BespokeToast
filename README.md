@@ -187,7 +187,7 @@ docs/        Hardware, network, control loop, profiles, build, validation.
 | | |
 |---|---|
 | `v1` | the oven's state as found, before the rewrite |
-| `v2` | this firmware: pre-charge, predictive tracking, supervisor, run logging |
+| `v2.0` | this firmware: pre-charge, predictive tracking, supervisor, run logging. The firmware reports the same name on the splash and in every run log header |
 
 A tag records the source. The image and `code.py` that were tested together
 are kept outside the repository, because a `.uf2` is a build artefact; see

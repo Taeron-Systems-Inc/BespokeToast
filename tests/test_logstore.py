@@ -114,7 +114,7 @@ def make(fs=None, **kw):
 
 def test_a_run_is_recorded_with_its_header_and_rows():
     store, fs, _ = make()
-    path = store.begin("SAC305 (this oven)", "v2", "2026-08-31T10:00:00Z")
+    path = store.begin("SAC305 (this oven)", "v2.0", "2026-08-31T10:00:00Z")
     assert path is not None
     store.write(0.0, 25.0, 25.4, False, 30.0, 34.0)
     store.write(1.0, 26.0, 25.9, True, 30.1, 34.1)
@@ -122,7 +122,7 @@ def test_a_run_is_recorded_with_its_header_and_rows():
     text = fs.files[path]
     assert ",".join(HEADER_FIELDS) in text
     assert "# profile,SAC305 (this oven)" in text
-    assert "# firmware,v2" in text
+    assert "# firmware,v2.0" in text
     assert "0.0,25.00,25.400,0,30.00,34.00" in text
     assert "1.0,26.00,25.900,1,30.10,34.10" in text
     assert "# summary,peak=236.7 tal=97" in text
@@ -382,7 +382,7 @@ def test_the_header_says_what_the_time_column_means():
     from oven.logstore import HEADER_FIELDS
     assert HEADER_FIELDS[0] == "elapsed_s"
     store, fs, _ = make()
-    path = store.begin("TS391LT", "v2", "2026-09-08T19-48-13Z",
+    path = store.begin("TS391LT", "v2.0", "2026-09-08T19-48-13Z",
                        entered_at_s=2.4, epoch=1789234093)
     text = fs.files[path]
     assert text.startswith("# Taeron Reflow Oven run log")
@@ -399,7 +399,7 @@ def test_a_warm_start_is_recorded_because_row_zero_never_happened():
     """A warm oven joins the curve part-way along. Without the offset in
     the header, no row's wall clock can be recovered from the file."""
     store, fs, _ = make()
-    path = store.begin("TS391LT", "v2", "2026-09-08T19-48-13Z",
+    path = store.begin("TS391LT", "v2.0", "2026-09-08T19-48-13Z",
                        entered_at_s=41.7, epoch=1789234093)
     assert "# entered_at_s,41.7" in fs.files[path]
     assert "started_at_epoch + elapsed_s" in fs.files[path]
@@ -410,7 +410,7 @@ def test_a_run_with_no_clock_still_says_when_it_thinks_it_was():
     """No RTC yet -- the first run after a power cut. It must not silently
     lose the only timing information it has."""
     store, fs, _ = make()
-    path = store.begin("TS391LT", "v2", "monotonic+40", entered_at_s=0.0)
+    path = store.begin("TS391LT", "v2.0", "monotonic+40", entered_at_s=0.0)
     text = fs.files[path]
     assert "started_at_epoch" not in text
     assert "monotonic+40" in text

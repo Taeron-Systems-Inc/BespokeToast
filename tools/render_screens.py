@@ -225,7 +225,7 @@ def screens():
         trace.append((t, profile.target_at(t) - 4.0))
         t += 4.0
     return [
-        ("01-splash", L.splash("v2")),
+        ("01-splash", L.splash("v2.0")),
         ("02-self-test", L.self_test([("thermocouple", True),
                                       ("relay safe state", True),
                                       ("profiles", True),

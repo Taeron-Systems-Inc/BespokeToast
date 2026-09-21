@@ -27,7 +27,7 @@ from oven.ui import layout as L
 from oven.ui import theme as T
 from oven.ui.display import Display, preload
 
-VERSION = "v2.0"
+VERSION = "v2"
 
 # Commands accepted on the serial console, one per line. This exists so a run
 # can be started and supervised from a host when nobody is standing at the

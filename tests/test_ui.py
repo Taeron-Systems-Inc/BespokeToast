@@ -26,7 +26,7 @@ def bounds_ok(cmd):
 
 
 SCREENS = {
-    "splash": lambda: L.splash("v2.0"),
+    "splash": lambda: L.splash("v2"),
     "home_ready": lambda: L.home(24.5, "SAC305 (this oven)", True),
     "home_hot": lambda: L.home(84.0, "SAC305 (this oven)", False, "oven too hot"),
     "home_networked": lambda: L.home(24.5, "NC191LTA10 (datasheet)", True,

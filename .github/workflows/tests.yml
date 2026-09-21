@@ -1,0 +1,28 @@
+name: tests
+
+# The suite runs off-hardware on purpose: a test parses every module in
+# oven/ and fails if anything but hardware.py imports board, so everything
+# here can be checked without the oven. pytest is the only dependency.
+
+on:
+  push:
+    branches: [main, rebuild]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytest
+      - name: The suite
+        run: python3 -m pytest tests/ -q
+      - name: The figures the documentation quotes
+        # Not an assertion -- tests/test_scores.py holds these to the
+        # documented values. Printed so a failure there can be read
+        # against the numbers that produced it.
+        run: python3 tools/score_runs.py

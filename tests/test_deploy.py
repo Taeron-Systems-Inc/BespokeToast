@@ -22,6 +22,22 @@ def test_an_unreadable_port_refuses_rather_than_assuming_idle():
     assert "cannot confirm" in reason
 
 
+def test_a_host_without_pyserial_refuses_too(monkeypatch):
+    """The guard must not vanish on a machine that cannot open a port.
+
+    It did. This bench has pyserial, CI does not, and on every runner the
+    check returned None -- which main() reads as "nothing is running" and
+    deploys on. Setting the module to None in sys.modules is what makes
+    `import serial` raise here on a machine that has it installed.
+    """
+    monkeypatch.setitem(sys.modules, "serial", None)
+    reason = deploy.running_check("/mnt/circuitpy",
+                                  port="/dev/definitely-not-a-port",
+                                  listen_s=0.1)
+    assert reason is not None, "the deploy guard disappeared without pyserial"
+    assert "cannot confirm" in reason
+
+
 def test_the_busy_states_are_the_ones_that_matter():
     """preheat and cooldown count as busy as well as running: preheat is
     already applying heat, and a reboot during cooldown loses the run report

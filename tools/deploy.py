@@ -94,6 +94,11 @@ def missing_on_board(pairs, port=None, settle_s=1.0):
     try:
         import serial
     except ImportError:
+        # An empty list reads as "nothing is missing", which is not what
+        # this knows. It cannot refuse -- the answer is advisory and only
+        # the board has it -- so at least it says the check did not happen.
+        print("!! pyserial is not installed, so the board cannot be asked "
+              "which names its firmware has; skipping that check")
         return []
     by_module = {}
     for mod, name in pairs:
@@ -184,7 +189,13 @@ def running_check(dest, port=None, listen_s=6.0):
     try:
         import serial
     except ImportError:
-        return None                    # cannot check; caller decides
+        # NOT "cannot check, so the caller decides": main() reads a None as
+        # "nothing is running" and deploys. A host without pyserial cannot
+        # see the telemetry at all, which is the definition of unknown, and
+        # unknown fails closed here like every other branch. --force is the
+        # way past it, deliberately and loudly.
+        return ("pyserial is not installed here -- cannot confirm the oven "
+                "is idle")
     busy = ("running", "preheat", "cooldown")
     port = resolve_port(port)
     try:

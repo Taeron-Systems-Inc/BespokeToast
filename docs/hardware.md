@@ -91,8 +91,9 @@ oven's power from the Pi*).
 
 ## Measured thermal behaviour
 
-Two step tests were run on 2026-08-25, empty oven, logged at 2 Hz. Raw data
-is in `data/`.
+Two step tests were run on 2026-08-25, empty oven, logged at 2 Hz:
+`data/e2-step-test-2026-08-25.csv` (26 → 200 °C) and
+`data/e2-step-test-240c-2026-08-25.csv` (53 → 240 °C).
 
 | | **[measured]** |
 |---|---|

@@ -1,6 +1,6 @@
 # Captures for plant identification
 
-Four real runs, off the serial console rather than out of the oven's own
+Eleven runs, taken off the serial console rather than out of the oven's own
 logs, and decimated to 1 Hz.
 
 The run logs the oven writes carry `elapsed_s, target_c, actual_c, relay,
@@ -13,6 +13,10 @@ prints the commanded duty every control step, which is what these hold.
 
     python3 tools/identify_plant.py            cross-validate and score
     python3 tools/identify_plant.py --fit      fit on everything
+    python3 tools/score_runs.py                the tracking figures the docs quote
+
+`../README.md` lists every run in the repository, including the oven's own
+logs for some of these same runs, and how to fetch one that is not here.
 
 | file | run | span |
 |---|---|---|
@@ -28,14 +32,16 @@ prints the commanded duty every control step, which is what these hold.
 | `run-0021-ts391snl-cold-predictive.csv` | 0021 | 25 C cold start, driven-form prediction, 2026-09-11 |
 | `run-0022-ts391snl-hot-predictive.csv` | 0022 | 59 C start, driven-form prediction -- the direct answer to 0019 |
 
-0011-0015 on 2026-09-10, empty oven. 0016 is the same start as 0013 on the
-pre-charge firmware: 33 s of charge, entered the profile at 80.5 C, heating
-phase rms 1.57 C, worst lag -5.1 C (0013: 13.06 and -32.0). Its `precharge`
-rows are full-duty with the profile clock held.
-0017 is TS391LT from the same start: 27 s of charge, entered at 71.8 C,
-heating phase rms 2.24 C, worst lag -5.4 C, and +4.1 C of overshoot at the
-soak knee at 98 C on stored element heat -- the case the predictive lead
-(commit 5f70797) was built from.
+0011-0015 on 2026-09-10, empty oven, and the four the element model was
+fitted on are 0011, 0013, 0014 and 0015.
+
+0016 is the same start as 0013 on the pre-charge firmware: 33 s of charge,
+entered the profile at 80.5 C, heating phase rms 1.57 C, worst lag -5.1 C
+(0013: 13.06 and -32.0). Its `precharge` rows are full-duty with the profile
+clock held. 0017 is TS391LT from the same start: 27 s of charge, entered at
+71.8 C, heating phase rms 2.24 C, worst lag -5.2 C, and +4.1 C of overshoot
+at the soak knee at 98 C on stored element heat -- the case the predictive
+lead was built from.
 
 ## The identification run, 2026-09-11
 

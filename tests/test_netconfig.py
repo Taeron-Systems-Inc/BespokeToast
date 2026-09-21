@@ -151,8 +151,8 @@ def test_the_example_config_is_valid_and_carries_no_password():
     read netconfig.py to learn what goes in it."""
     import json
     import os
-    here = os.path.join(os.path.dirname(__file__), "..", "docs",
-                        "wifi.example.json")
+    here = os.path.join(os.path.dirname(__file__), "..",
+                        "wifi.json.example")
     assert os.path.exists(here), "no example for the one uncommittable file"
     data = json.load(open(here))
     assert "networks" in data and data["networks"]
@@ -164,13 +164,14 @@ def test_the_example_config_is_valid_and_carries_no_password():
 
 
 def test_the_example_is_not_deployed_to_the_board():
-    """It lives in docs/ for that reason: deploy copies everything under
-    firmware/, and an example config beside the real one is a trap."""
+    """It sits at the top of the repository and not under firmware/ for
+    that reason: deploy copies everything under firmware/, and an example
+    config landing beside the real credentials is a trap."""
     import os
     import sys
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
     import deploy
-    assert not any("wifi.example" in rel for _f, rel in deploy.files())
+    assert not any("wifi.json.example" in rel for _f, rel in deploy.files())
 
 
 def test_a_static_address_is_read_when_both_halves_are_there():

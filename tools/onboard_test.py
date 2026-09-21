@@ -15,11 +15,12 @@ No profile is started, so nothing can request heat.
 """
 import os, shutil, subprocess, sys, time, serial
 
-BASE="/tmp/claude-1001/-home-kaan/e3791a80-a239-41f2-9f58-11ee423d796e/scratchpad"
-SRC="/srv/repo/BespokeToast-rebuild/firmware"
-DATA="/srv/repo/BespokeToast-rebuild/data/oven-characterisation.json"
-MNT="/mnt/circuitpy"
-PORT="/dev/ttyACM0"
+ROOT=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC=os.path.join(ROOT,"firmware")
+DATA=os.path.join(ROOT,"data","oven-characterisation.json")
+BASE=os.environ.get("TOASTER_LOG_DIR",os.getcwd())
+MNT=os.environ.get("TOASTER_MOUNT","/mnt/circuitpy")
+PORT=os.environ.get("TOASTER_PORT","/dev/ttyACM0")
 log=open(BASE+"/onboard.log","w")
 
 def note(m):

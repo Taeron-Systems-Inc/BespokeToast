@@ -2,20 +2,25 @@
 
 ## Credentials
 
-The oven reads `/wifi.json` from its own filesystem:
+The oven reads `/wifi.json` from its own filesystem. `wifi.json.example` at
+the top of this repository is the template: copy it onto the CIRCUITPY
+volume as `wifi.json` and fill it in.
 
 ```json
 {
   "networks": [
-    {"ssid": "Voxelis", "password": "..."},
-    {"ssid": "Taeron",  "password": "..."}
+    {"ssid": "YourNetwork", "password": "..."},
+    {"ssid": "AnotherNetwork", "password": "..."}
   ]
 }
 ```
 
-It is **device-only**. It is not in this repository, it is in `.gitignore`,
-and `tools/deploy.py` never writes it — deploy copies `firmware/` wholesale
-and would otherwise replace the credentials every time.
+It is **device-only**. The filled-in file is not in this repository, the
+name is in `.gitignore`, and `tools/deploy.py` never writes it — deploy
+copies `firmware/` wholesale and would otherwise replace the credentials
+every time. The example lives at the top level and not under `firmware/`
+for the same reason: an example config landing beside the real one is a
+trap, and a test holds it there.
 
 The oven scans and joins whichever listed network it hears most strongly,
 rather than taking the first in the file. Both networks reach the bench.

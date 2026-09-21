@@ -16,10 +16,6 @@ controller is 416 lines and the current `code.py` is 1394, and they have no
 line in common. The rewrite shares the hardware and the problem, not the
 code.
 
-An earlier version of this file claimed the opposite -- that `code.py` was
-Adafruit's work with six restored header lines as its "sole" difference.
-That was true when it was written and became false at the rewrite.
-
 ## Third-party components
 
 **CircuitPython and the Adafruit libraries** the firmware depends on are not

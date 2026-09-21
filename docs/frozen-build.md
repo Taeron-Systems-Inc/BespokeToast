@@ -26,9 +26,12 @@ in this project has been a few hundred to a couple of thousand bytes failing
 against a heap with tens of kB free and no hole big enough, because
 MicroPython's collector does not compact.
 
-The clearest case: run 0009, a four-hour bake, logged "composing a screen
-ran out of memory 3256 times" while reporting 50 kB free, and finished with
-a largest free block of 1776 bytes. Measured on the board, one compose of
+The clearest case: run 0009, a four-hour bake, reported 50 kB free and a
+largest free block of 1776 bytes while the console counted 3256 memory
+failures composing a screen. (The counter is a console warning from
+`code.py`, not a column in the log —
+`data/bake-125c-run-0009-2026-09-09.csv` is the run, not the counter.)
+Measured on the board, one compose of
 the running screen holds 2896 bytes -- but as forty small tuples plus, at
 the time, two copied point lists:
 
@@ -59,6 +62,17 @@ So a frozen build requires the volume NOT to contain:
 `tools/deploy.py` refuses to deploy when any of the libraries reappear, and
 skips `oven/` entirely when it sees the board is running a frozen build.
 The displaced copies are kept in `.shadowed/` on the volume.
+
+## Why 8.0.5, and why it is pinned
+
+The board runs CircuitPython **8.0.5** and the frozen build is pinned to it.
+The reason is a version coupling inherited from the oven as found: the
+controller that was on it called `display.show(group)`, which CircuitPython
+9 removed, and its bundled `.mpy` libraries were 8.x builds. The current
+firmware no longer depends on either, so the pin is now a deliberate choice
+rather than a constraint: 8.0.5 is the version every measurement in this
+repository was taken on, and moving it is a change to be made and validated
+on purpose, not inherited by building against whatever is current.
 
 ## Building
 

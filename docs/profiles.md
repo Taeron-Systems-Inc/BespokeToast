@@ -100,10 +100,11 @@ to prevent, so climbing at the oven's maximum was the one thing it should
 not do, and slowing it costs twenty seconds on a four-hour run. Overshoot
 is 0.44 C against a J-STD-033 allowance of 5.
 
-Validated over a full run: 0.240 C rms across four hours of hold, mean
-+0.141 C, no drift, peak 125.9 C. The enclosure's cold junction reaches
-about 48 C against a 70 C fault -- this is the longest soak the oven does
-and it has around 20 C of headroom.
+Validated over a full run -- `data/bake-125c-run-0024-2026-09-16.csv`, and
+`tools/score_runs.py` recomputes all of it: 0.240 C rms across four hours of
+hold, mean +0.141 C, no drift, peak 125.9 C. The enclosure's cold junction
+reaches 48.1 C against a 70 C fault -- this is the longest soak the oven
+does and it has around 20 C of headroom.
 
 ## DIAGNOSTIC fast
 

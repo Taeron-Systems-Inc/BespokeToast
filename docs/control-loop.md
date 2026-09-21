@@ -2,22 +2,22 @@
 
 ## What is in production
 
-Pre-charge and predictive tracking, described below. The image and the
-`code.py` that belongs with it are kept together, because `code.py` is not
-frozen and does not travel with a `.uf2`:
+Pre-charge and predictive tracking, described below. The source is the tag:
 
-    git checkout known-good-loop-2026-09-16        # commit 0395111
+    git checkout known-good-loop-2026-09-16
 
-    ~/.bespoketoast/images/known-good/loop-2026-09-16.uf2
-    ~/.bespoketoast/images/known-good/loop-2026-09-16-code.py
+The built image is **not** in this repository -- a `.uf2` is a build
+artefact -- and neither is the `code.py` that was flashed with it. Those two
+are kept together as a pair on whichever host built them (on this bench,
+`~/.bespoketoast/images/known-good/`), because `code.py` is not frozen and
+does not travel inside a `.uf2`. Rolling the firmware back without its
+`code.py` leaves a board that boots and serves a dead page -- found by doing
+it. With no saved image, check out the tag and rebuild: `docs/frozen-build.md`.
 
-    md5  b6fc67b32a057615132b5421a5b5ad3d   loop-2026-09-16.uf2
-    md5  094bf903cdacc90b66ac516a41cfb64e   loop-2026-09-16-code.py
-
-Validated on hardware: runs 0020 to 0022 for the reflow profiles, and run
-0024, a full four-hour bake at 0.240 C rms. Rolling the firmware back
-without its `code.py` leaves a board that boots and serves a dead page --
-that was found by doing it.
+Validated on hardware, and every figure below is recomputed from the files
+named by `python3 tools/score_runs.py`: runs 0020 to 0022 for the reflow
+profiles (`data/plant-id/run-002*.csv`) and run 0024, a full four-hour bake
+at 0.240 C rms (`data/bake-125c-run-0024-2026-09-16.csv`).
 
 ## What it is
 
@@ -112,29 +112,43 @@ trading that for relay life is the wrong way round.
 ## What it achieves, measured
 
 Heating phase only -- the cooling tail is the door's error, not the loop's.
+From the captures in `data/plant-id/`, scored by `tools/score_runs.py`,
+which also says exactly what "heating phase" means and why it is not the
+whole run.
 
-    run 0021  TS391SNL  25 C cold     0.95 C rms   worst lag -2.6
-    run 0018  TS391SNL  34 C start    1.87 C rms   worst lag -5.3
-    run 0022  TS391SNL  59 C start    1.13 C rms   worst lag -4.2
-    run 0020  TS391LT   59 C start    0.78 C rms   worst lag -2.5
+    run 0021  TS391SNL  25 C cold     0.95 C rms   worst lag -2.5
+    run 0018  TS391SNL  34 C start    1.87 C rms   worst lag -5.2
+    run 0022  TS391SNL  59 C start    1.12 C rms   worst lag -3.8
+    run 0020  TS391LT   59 C start    0.77 C rms   worst lag -2.4
 
 59 C is the hottest start the supervisor allows. For scale, the loop before
 pre-charge and the lead managed 13.06 C rms with -32.0 C of lag from that
-same start, and 2.47 C from its best cold start.
+same start (run 0013), and 2.46 C from its best cold start (run 0014).
+
+These are scored on captures decimated to 1 Hz, so a worst lag is the worst
+*sampled* one; the oven's own logs run at about 4 Hz.
 
 Peaks land within 0.9 C, time above liquidus is unmoved, and every run
 passes its checks.
 
 ### The bake, where the relay wear is
 
-A full four-hour run, 2026-09-16, empty oven, from the oven's own log:
+Scored across the hold, from the oven's own logs, all three in `data/`:
 
-                        rms      mean       closures/min   hold measured
-    old loop (0015)     0.552              8.8            3.2 min
-    current (0024)      0.240   +0.141 C   8.2            240 min
+                             rms     mean     cl/min   hold      peak
+    old loop, run 0009      0.264   +0.002    8.26    240 min   127.2 C
+    old loop, run 0015      0.552   -0.146    8.80    3.2 min   125.4 C
+    current,  run 0024      0.240   +0.141    8.19    240 min   125.9 C
 
-Better on both counts. No drift across the four hours -- 0.266, 0.238,
-0.224, 0.234 rms by hour. Peak 125.9 C, both ramp limits passed, no faults.
+Run 0009 is the honest comparison and it is the narrower one: against the
+only other four-hour bake on record the current loop is better by 0.024 C
+rms and holds 1.3 C less peak overshoot, on 0.7% fewer relay closures. Run
+0015 is not a four-hour comparison -- it was stopped after 3.2 minutes of
+hold -- and 0.552 against 0.240 flatters the new loop by taking the old
+one's worst minutes.
+
+No drift across the four hours: 0.263, 0.237, 0.226, 0.233 rms by hour.
+Both ramp limits passed, no faults.
 
 ## Where the loop still loses
 
@@ -148,19 +162,22 @@ opening does not ask for what the oven cannot give there.
 
 ## Rolling back
 
-Each baseline is an image plus the `code.py` that belongs with it, kept
-outside the repository because `code.py` is not frozen and does not travel
-with a `.uf2`. Rolling the firmware back without its `code.py` leaves a
-board that boots and serves a dead page -- found by doing it.
+Each baseline is an image plus the `code.py` that belongs with it. Neither
+is in this repository; the tag is.
 
-    known-good-loop-2026-09-16   current
+    known-good-loop-2026-09-16   the loop in production
     known-good-loop-2026-09-10   the last loop before pre-charge
 
-    ~/.bespoketoast/images/known-good/
+`tools/release.py --rollback` reflashes the image before the last one and
+restores its `code.py` with it, which is the cheap path when the change
+being undone is the most recent.
 
-To put one back: enter the bootloader (`tools/release.py`, or
-`microcontroller.on_next_reset(microcontroller.RunMode.BOOTLOADER)` over
-the console), copy the `.uf2` onto `PORTALBOOT`, then deploy its `code.py`.
+Otherwise: enter the bootloader (`tools/release.py`, or
+`microcontroller.on_next_reset(microcontroller.RunMode.BOOTLOADER)` over the
+console), copy the `.uf2` onto `PORTALBOOT`, then deploy its `code.py`. If
+the saved pair is gone, check out the tag and rebuild -- the source is what
+the repository guarantees. **Never pair an image with a different
+`code.py`:** the board boots, and the page is dead.
 
 ## Rules any replacement has to keep
 

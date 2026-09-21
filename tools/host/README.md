@@ -1,9 +1,8 @@
 # What runs on the bench host
 
 None of this is needed for the oven to work. The oven runs standalone; this
-is the machine that programs it and keeps the working copy. It is here
-because it was previously untracked, living only on one SD card that was
-92 % full and had already gone read-only once.
+is the machine that programs it and keeps the working copy, and what it
+needs is tracked here rather than living only on its SD card.
 
 ## toaster
 

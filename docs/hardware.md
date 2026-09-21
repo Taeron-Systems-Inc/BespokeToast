@@ -40,9 +40,17 @@ to.
 | Connector | `D4` is one of the PyPortal's two 3-pin JST-PH connectors **[spec]** |
 | Load | 120 VAC to the oven elements **[confirmed]** |
 
-Roughly 20 actuations in a typical session **[confirmed]**. The firmware holds
-the relay on continuously while the temperature error is large and only
-modulates near setpoint, so it does not toggle once per control window.
+**Actuations are a consumable, and this firmware spends more of them than
+the one it replaced [measured].** The relay is driven by a 4 s
+time-proportional window, so it is held continuously while the error is
+large and modulates near setpoint. Measured across the hold of a four-hour
+bake, `data/bake-125c-run-0024-2026-09-16.csv`: 8.19 closures per minute,
+about 1965 in the run. A reflow profile costs far fewer, because most of it
+is spent saturated. The controller that was here before this one managed
+roughly 20 in a session by holding the relay across consecutive saturated
+windows; the cost of the change is relay life, and what it buys is 0.240 C
+rms instead of a curve the oven wandered around. Contact rating is still
+unknown — see *Open questions*.
 
 **The relay fails safe [measured].** Reading `D4` back as an input under each
 internal pull returns `False` under both pull-up and pull-down, so an external
@@ -198,10 +206,13 @@ Consequences worth recording:
 
 ## Fitted, not used by the firmware
 
-ESP32 WiFi co-processor **[spec]** — `adafruit_esp32spi` and `adafruit_io` are on
-the volume, but no `secrets.py` or `settings.toml` exists, so networking is
-inactive **[observed]**. Also unused: microSD slot, speaker, light sensor, and
-NeoPixel **[spec]** — the NeoPixel is in any case enclosed, see above.
+microSD slot, speaker and light sensor **[spec]**, and the NeoPixel, which is
+in any case enclosed and invisible — see above.
+
+The ESP32 WiFi co-processor **is** used: it sets the clock at boot and serves
+the oven's page while it is idle. It is kept out of the control loop by
+timing rather than by choice, because one SPI call to it can block for 227 ms
+against a 250 ms deadline. See `network.md`.
 
 ## Connecting to the device
 

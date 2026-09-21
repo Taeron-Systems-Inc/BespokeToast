@@ -1,9 +1,22 @@
 {
-  "_comment": "Template. Copy to wifi.json in the root of the CIRCUITPY volume and fill it in. Never commit the filled-in file: it holds passwords, and .gitignore refuses the name. The oven scans and joins whichever listed network it hears most strongly, not the first in the list.",
+  "_comment": "Template for the oven's /wifi.json. Copy this file onto the CIRCUITPY volume as wifi.json and edit it there. Never commit the filled-in version: it holds passwords, and .gitignore refuses the name. Only \"networks\" and \"archive\" are read -- every key starting with an underscore is ignored, which is how the two worked examples below stay switched off until you want them.",
+
   "networks": [
     {"ssid": "YourNetwork", "password": "..."},
     {"ssid": "AnotherNetwork", "password": "..."}
   ],
-  "_optional_ip": "A network entry may also carry ip and gateway, and optionally mask and dns, to skip DHCP. Both ip and gateway are required together or the entry is refused rather than half applied. For testing; a fixed address is not the production answer. See docs/network.md.",
-  "_optional_archive": "An archive block -- {\"host\": ..., \"port\": ..., \"path\": ...} at the top level -- posts each finished run to a collector. Left out on purpose: the oven keeps its runs and serves them from its own page."
+  "_about_networks": "List as many as you like. The oven scans and joins whichever one it hears most strongly, not the first in the list, so order means nothing. An entry missing an ssid or a password is skipped with a warning.",
+
+  "_how_to_use_a_fixed_address": "Copy the ip and gateway fields from the example below into one of your entries in \"networks\", and the oven sets that address before joining instead of running DHCP. ip and gateway are required TOGETHER: an entry carrying only one of them has its address ignored with a warning and falls back to DHCP, because an address with no gateway joins successfully and then reaches nothing. mask may be left out (it defaults to 255.255.255.0) and so may dns (it defaults to the gateway). A co-processor that will not take the command also falls back to DHCP. This is for testing and for reaching the oven while something upstream is broken -- it is not the production answer, because it is a second place for the network's layout to go stale. See docs/network.md.",
+  "_example_network_with_a_fixed_address": {
+    "ssid": "YourNetwork",
+    "password": "...",
+    "ip": "10.0.0.42",
+    "gateway": "10.0.0.1",
+    "mask": "255.255.255.0",
+    "dns": "10.0.0.1"
+  },
+
+  "_how_to_send_finished_runs_somewhere": "Rename the key \"_example_archive\" below to \"archive\" -- at the top level, beside \"networks\" -- and edit its values. The oven then POSTs each finished run log to http://host:port/path as text/csv, with the log's filename in an X-Run-Log header, and tries up to 3 times until the receiver answers 2xx; anything else leaves the run unsent so it is offered again next time. Only host is required: port defaults to 80 and path defaults to /runs. Uploads happen only while the oven is idle and only when it owns its own filesystem, so they never interrupt a run. tools/collector/serve.py is a receiver that works with this and listens on port 8788. Leave the key underscored and the oven simply keeps every run and serves it from its own page, which is how this oven is set up.",
+  "_example_archive": {"host": "10.0.0.5", "port": 8788, "path": "/runs"}
 }

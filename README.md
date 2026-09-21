@@ -73,6 +73,12 @@ instead of wall clock and no page. `wifi.json` is in `.gitignore`, deploy
 never writes it, and anyone who can plug a cable into the board can read
 it — `docs/network.md` covers that and the rest.
 
+The template also carries two worked examples, switched off behind
+underscored keys: a network entry with a **fixed address** (`ip` and
+`gateway`, required together), and an **archive** block that POSTs each
+finished run to a receiver — `tools/collector/serve.py` is one. Neither is
+needed to use the oven.
+
 **5. Hand the volume back to the oven.**
 
 ```

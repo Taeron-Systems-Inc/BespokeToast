@@ -163,6 +163,47 @@ def test_the_example_config_is_valid_and_carries_no_password():
         "the example must not enable uploads by default")
 
 
+def example_config():
+    import json as _json
+    import os
+    here = os.path.join(os.path.dirname(__file__), "..", "wifi.json.example")
+    return _json.load(open(here))
+
+
+def test_the_example_fixed_address_is_one_netconfig_actually_accepts():
+    """The template shows a worked fixed-address entry. If it showed a
+    shape the parser rejects it would be worse than showing nothing, so
+    the example itself is run through load()."""
+    data = example_config()
+    entry = data.get("_example_network_with_a_fixed_address")
+    assert entry, "the template no longer shows how to set a fixed address"
+    net = load(opener=opener_for(json.dumps({"networks": [entry]})))[0]
+    assert net.static, "the documented fixed address is not read as static"
+    assert net.ip == entry["ip"] and net.gateway == entry["gateway"]
+    assert net.mask == entry["mask"] and net.dns == entry["dns"]
+    # And the fields the template says are optional really are.
+    bare = dict(entry)
+    del bare["mask"], bare["dns"]
+    net = load(opener=opener_for(json.dumps({"networks": [bare]})))[0]
+    assert net.mask == "255.255.255.0", "the documented mask default moved"
+    assert net.dns == entry["gateway"], "the documented dns default moved"
+
+
+def test_the_example_archive_is_one_netconfig_actually_accepts():
+    """Same for the upload block: renaming the key is all it should take."""
+    from oven.netconfig import archive
+    data = example_config()
+    entry = data.get("_example_archive")
+    assert entry, "the template no longer shows how to send runs somewhere"
+    got = archive(opener=opener_for(
+        json.dumps({"networks": [], "archive": entry})))
+    assert got == (entry["host"], entry["port"], entry["path"])
+    # host alone is enough, which is what the template claims.
+    got = archive(opener=opener_for(
+        json.dumps({"networks": [], "archive": {"host": entry["host"]}})))
+    assert got == (entry["host"], 80, "/runs")
+
+
 def test_the_example_is_not_deployed_to_the_board():
     """It sits at the top of the repository and not under firmware/ for
     that reason: deploy copies everything under firmware/, and an example

@@ -187,6 +187,46 @@ upstream is being fixed. A co-processor that will not take the command
 falls back to DHCP, and a configuration missing either half is refused
 rather than half applied.
 
+`wifi.json.example` carries a filled-in network entry showing the four
+fields:
+
+    "ip": "10.0.0.42", "gateway": "10.0.0.1",
+    "mask": "255.255.255.0", "dns": "10.0.0.1"
+
+`mask` defaults to 255.255.255.0 and `dns` to the gateway, so in practice
+only the first two are typed.
+
+## Sending finished runs somewhere
+
+Optional, and off on this oven. An `archive` block at the top level of
+`wifi.json`, beside `networks`, names a receiver:
+
+```json
+{"archive": {"host": "10.0.0.5", "port": 8788, "path": "/runs"}}
+```
+
+Only `host` is required; `port` defaults to 80 and `path` to `/runs`. A
+non-numeric port is refused rather than guessed, and an archive with no
+host is reported — in both cases nothing is uploaded. `wifi.json.example`
+carries the same block under an underscored key, which is how it stays
+switched off: rename it to `archive` to turn it on.
+
+Each finished log is POSTed as `text/csv` with its filename in an
+`X-Run-Log` header. A 2xx marks it sent; anything else leaves it unsent so
+it is offered again next time, up to three attempts — losing a run's only
+record to a receiver that answered 500 would be a poor trade for one less
+retry. `tools/collector/serve.py` is a receiver that works with this and
+listens on 8788.
+
+Two constraints worth knowing. Uploading happens only while the oven is
+idle, for the same reason nothing else talks to the radio during a run. And
+it happens only when the oven owns its own filesystem — which is also the
+only time it has logs of its own to send, because a run recorded with a
+host attached is already on that host.
+
+An oven with no archive configured loses nothing: it records every run to
+its own storage and serves them from its page.
+
 ## When discovery fails: check the gaps, not the totals
 
 On 2026-09-16 an access point's 2.4 GHz radio was found to have degraded

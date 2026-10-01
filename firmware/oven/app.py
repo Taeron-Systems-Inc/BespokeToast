@@ -184,6 +184,20 @@ class App(object):
                 self._enter(STATE_FAULT)
             return
 
+        if self.supervisor.blind:
+            # A missed reading the supervisor is tolerating. No state handler
+            # runs: each one wants a temperature, and the controller would
+            # act on nothing. The relay opens for the step, so being blind
+            # can only ever cost heat. The profile clock keeps running, which
+            # is why the supervisor only tolerates a short miss.
+            self.temperature = None
+            self.relay.set(False)
+            self.duty = 0.0
+            self.sample({"t": now, "state": self.state, "temp": None,
+                         "target": self.target, "duty": 0.0,
+                         "relay": False, "cold": None})
+            return
+
         handler = getattr(self, "_in_" + self.state)
         handler(now)
 

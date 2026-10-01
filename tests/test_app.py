@@ -183,6 +183,23 @@ def test_a_sensor_that_raises_is_treated_as_no_reading(rig):
     assert not relay.is_on()
 
 
+def test_one_missed_reading_does_not_stop_the_run(rig):
+    app, clock, relay, sensor, profile, events = rig
+    app.request_start(profile)
+    sensor.temp = profile.target_at(0.0)
+    run_for(app, clock, 2.0)
+    assert app.state == STATE_RUNNING
+    sensor.raise_on_read = True
+    relay.history = []
+    run_for(app, clock, CONTROL_INTERVAL_S)
+    assert relay.history == [False], "the relay must open while blind"
+    assert app.temperature is None
+    sensor.raise_on_read = False
+    run_for(app, clock, 2.0)
+    assert app.state == STATE_RUNNING
+    assert not any(n == Event.FAULTED for n, _ in events)
+
+
 def test_a_latched_fault_is_announced_once_not_every_step(rig):
     """On 2026-09-11 a sensor that stopped answering produced the same
     fault event 888 times, one per control step, into the console and the

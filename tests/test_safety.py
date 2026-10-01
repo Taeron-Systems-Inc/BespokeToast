@@ -72,8 +72,179 @@ def test_bus_failure_denies_heat(sup):
 
 def test_a_reading_of_none_denies_heat(sup):
     f = sup.update(1.0, None, True)
-    assert f.code == FAULT_SENSOR_STALE
+    assert f is None, "one missed reading must not end the run"
     assert not sup.allow_heat()
+
+
+# -- missed readings: tolerated, never heated through, and bounded ----------
+
+def test_a_single_missed_reading_does_not_latch(sup):
+    run(sup, [100.0 + i * 0.2 for i in range(8)], step=0.25)
+    assert sup.update(2.25, Reading(None, faults=hal.FAULT_BUS), True) is None
+    assert not sup.allow_heat()
+    assert sup.update(2.5, Reading(101.8), False) is None
+    assert sup.allow_heat(), "heat should return with the reading"
+    assert not sup.tripped
+
+
+def test_an_out_of_range_reading_is_a_miss_not_a_trip(sup):
+    assert sup.update(1.0, Reading(450.0, faults=hal.FAULT_RANGE), True) is None
+    assert not sup.allow_heat()
+
+
+def test_a_definite_probe_fault_still_trips_at_once(sup):
+    f = sup.update(1.0, Reading(None, faults=hal.FAULT_BUS
+                                | hal.FAULT_SHORT_CIRCUIT), True)
+    assert f.code == FAULT_SENSOR
+
+
+def test_too_many_misses_in_a_row_trips(sup):
+    lim = sup.limits
+    t = 0.0
+    for _ in range(lim.max_consecutive_misses):
+        t += 0.25
+        assert sup.update(t, None, False) is None
+    f = sup.update(t + 0.25, None, False)
+    assert f.code == FAULT_SENSOR_STALE
+    assert "in a row" in f.message
+    assert not sup.allow_heat()
+
+
+def test_a_sensor_that_misses_every_other_step_trips(sup):
+    """Never two misses in a row, so only the window budget can catch it.
+    Heat gets in between the misses, so this must not go on indefinitely."""
+    t, f = 0.0, None
+    for i in range(200):
+        t += 0.25
+        reading = None if i % 2 else Reading(100.0 + i * 0.05)
+        f = sup.update(t, reading, reading is not None)
+        if f is not None:
+            break
+    assert f is not None and f.code == FAULT_SENSOR_STALE
+    assert t < 10.0, "took %.1f s to give up on a failing sensor" % t
+
+
+def test_occasional_misses_spread_over_a_long_run_never_trip(sup):
+    t = 0.0
+    for i in range(4 * 600):                        # ten minutes at 4 Hz
+        t += 0.25
+        reading = None if i % 40 == 39 else Reading(25.0 + i * 0.05)
+        assert sup.update(t, reading, reading is not None) is None
+
+
+def test_misses_cannot_keep_resetting_the_stall_guard(sup):
+    """The dangerous case for tolerating misses. A probe that has fallen out
+    of the oven reads a slowly drifting room temperature, so the controller
+    asks for full heat for ever. Each miss opens the relay for one step. If
+    that reset the stall window, misses coming more often than the window --
+    one every 10 s is inside the miss budget -- would mean the guard never
+    completes, and the element would heat without bound."""
+    lim = sup.limits
+    every = int(lim.stall_window_s * 4 * 2 / 3)     # 10 s at the defaults
+    assert every < lim.stall_window_s * 4, "misses must beat the window"
+    t, f, relay, misses = 0.0, None, True, 0
+    for i in range(4 * 300):
+        t += 0.25
+        if i % every == every - 1:
+            misses += 1
+            f = sup.update(t, None, relay)
+            relay = False                           # forced open by the miss
+        else:
+            f = sup.update(t, Reading(25.0 + i * 0.0005), relay)
+            relay = True
+        if f is not None:
+            break
+    assert f is not None and f.code == FAULT_STALL
+    assert misses >= 1, "no miss landed inside the window; not a test"
+    assert t <= lim.stall_window_s + 1.0, (
+        "%.1f s of heat before the stall guard caught it" % t)
+
+
+def test_a_probe_that_has_fallen_out_is_caught_within_the_stall_window(sup):
+    """Room temperature, flickering by one sensor step as a real probe does,
+    with the relay closed throughout. The flicker is what keeps the frozen
+    guard from seeing it, so the stall guard has to, and the threshold has
+    to be clear of the flicker or each window would pass on noise."""
+    lim = sup.limits
+    t, f = 0.0, None
+    for i in range(4 * 120):
+        t += 0.25
+        f = sup.update(t, Reading(24.0 + 0.0625 * ((i // 3) % 3 - 1)), True)
+        if f is not None:
+            break
+    assert f is not None and f.code == FAULT_STALL
+    assert t <= lim.stall_window_s + 0.5
+
+
+def _measured_runs():
+    """(name, [(t, temp, relay_on)]) for every run recorded with the relay
+    state: the 4 Hz console capture the supervisor's cadence matches, the
+    oven's own run logs, and the two step tests."""
+    import glob
+    import os
+    import re
+    root = os.path.join(os.path.dirname(__file__), "..", "data")
+    out = []
+    rows = []
+    with open(os.path.join(root, "plant-id",
+                           "run-ident-2026-09-11-console-4hz.txt")) as fh:
+        for line in fh:
+            p = line.strip().split(",")
+            if len(p) == 8 and re.match(r"^\d+\.\d+$", p[0]):
+                try:
+                    rows.append((float(p[0]), float(p[2]), p[5] == "1"))
+                except ValueError:
+                    pass
+    out.append(("console-4hz", rows))
+    paths = (glob.glob(os.path.join(root, "*run-00*.csv"))
+             + glob.glob(os.path.join(root, "e2-step-test*.csv")))
+    for path in sorted(paths):
+        rows = []
+        with open(path) as fh:
+            lines = [l for l in fh if l.strip() and not l.startswith("#")]
+        head = lines[0].strip().split(",")
+        for line in lines[1:]:
+            d = dict(zip(head, line.strip().split(",")))
+            if "actual_c" in d:
+                rows.append((float(d["elapsed_s"]), float(d["actual_c"]),
+                             d["relay"] == "1"))
+            elif d.get("t_s") and d.get("hot_c"):
+                rows.append((float(d["t_s"]), float(d["hot_c"]),
+                             d["stage"] == "E2H"))
+        out.append((os.path.basename(path), rows))
+    return out
+
+
+def test_the_stall_and_frozen_guards_pass_every_measured_run():
+    """These two limits are as short as this oven allows: heat takes up to
+    10 s to reach the probe at all. Shortening either one further must
+    first survive what the oven actually did."""
+    runs = _measured_runs()
+    assert len(runs) >= 10 and all(len(r) > 100 for _, r in runs)
+    for name, rows in runs:
+        # Only the two guards under test: the logs are not all at the
+        # control cadence, and nothing here is about rate or run length.
+        sup = Supervisor(Limits(max_rate_c_per_s=1e6, sensor_stale_s=1e6,
+                                max_run_s=1e9))
+        for t, temp, relay in rows:
+            f = sup.update(t, Reading(temp), relay)
+            assert f is None, "%s at %.1f s: %s" % (name, t, f.message)
+
+
+def test_a_miss_after_a_long_gap_still_counts_as_a_gap(sup):
+    sup.update(1.0, Reading(100.0), False)
+    f = sup.update(20.0, None, False)
+    assert f.code == FAULT_SENSOR_STALE
+    assert "without a check" in f.message
+
+
+def test_acknowledging_clears_the_miss_history(sup):
+    for i in range(sup.limits.max_consecutive_misses + 1):
+        sup.update(0.25 * (i + 1), None, False)
+    assert sup.tripped
+    sup.acknowledge()
+    assert sup.allow_heat()
+    assert sup.update(5.0, None, False) is None
 
 
 def test_a_sensor_reading_low_is_caught_by_the_stall_guard(sup):
@@ -116,11 +287,22 @@ def test_heating_with_no_rise_trips(sup):
 
 
 def test_stall_window_resets_when_the_oven_does_rise(sup):
-    # rises 3 C every stall window: never a stall
-    temps = []
-    for block in range(6):
-        temps += [50.0 + block * 3.0 + i * 0.01 for i in range(360)]
+    # Rises a little more than the minimum every stall window, for six
+    # windows: never a stall.
+    lim = sup.limits
+    steps = int(lim.stall_window_s * 4)
+    per_step = lim.stall_min_rise_c * 1.2 / steps
+    temps = [50.0 + i * per_step for i in range(6 * steps)]
     assert run(sup, temps, relay_on=True) is None
+
+
+def test_slower_than_the_minimum_rise_is_a_stall(sup):
+    lim = sup.limits
+    steps = int(lim.stall_window_s * 4)
+    per_step = lim.stall_min_rise_c * 0.8 / steps
+    f = run(sup, [50.0 + i * per_step for i in range(2 * steps)],
+            relay_on=True)
+    assert f is not None and f.code == FAULT_STALL
 
 
 # -- enclosure --------------------------------------------------------------

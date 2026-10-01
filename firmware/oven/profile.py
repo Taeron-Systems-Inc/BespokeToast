@@ -61,14 +61,22 @@ class ProfileRef(object):
     read when the profile is actually chosen.
     """
 
-    __slots__ = ("path", "name", "category", "is_default", "diagnostic")
+    __slots__ = ("path", "name", "category", "is_default", "diagnostic",
+                 "stem", "version", "archived")
 
-    def __init__(self, path, name, category, is_default, diagnostic):
+    def __init__(self, path, name, category, is_default, diagnostic,
+                 archived=False):
         self.path = path
         self.name = name
         self.category = category
         self.is_default = is_default
         self.diagnostic = diagnostic
+        self.stem, self.version = version_of(path.rsplit("/", 1)[-1])
+        self.archived = archived
+
+    @property
+    def filename(self):
+        return self.path.rsplit("/", 1)[-1]
 
     def load(self):
         """Read the whole profile. The caller keeps it; nothing is cached."""
@@ -78,19 +86,49 @@ class ProfileRef(object):
         return "ProfileRef(%s)" % self.name
 
 
+ARCHIVED = ".archived"
+
+
+def version_of(filename):
+    """(stem, version) for a profile's filename.
+
+    ``ts391lt.json`` is version 1 and ``ts391lt.v3.json`` is version 3 of
+    the same profile. Versions are files, not a field inside one, so a
+    profile cannot claim to be a version it is not, and every version
+    stays a complete profile that can be downloaded and sent back.
+    """
+    base = filename[:-5] if filename.endswith(".json") else filename
+    dot = base.rfind(".v")
+    if dot > 0 and base[dot + 2:].isdigit():
+        return (base[:dot], int(base[dot + 2:]))
+    return (base, 1)
+
+
+def version_filename(stem, version):
+    return stem + ".json" if version <= 1 else "%s.v%d.json" % (stem, version)
+
+
 def scan(directory, on_warning=None):
     """List the profiles in *directory* without keeping any of them.
 
     Each file is parsed and validated so a broken profile is reported at
     boot rather than when someone selects it, but only the name and a
     couple of flags survive the call.
+
+    One ref per file, so one per version. A profile is archived when an
+    empty ``<stem>.archived`` sits beside its versions: a marker rather
+    than a field, so archiving never rewrites a profile somebody may want
+    back byte for byte.
     """
     warn = on_warning or (lambda msg: print("# WARNING %s" % msg))
     try:
-        names = [n for n in os.listdir(directory) if n.endswith(".json")]
+        listing = os.listdir(directory)
     except OSError as e:
         warn("cannot list %s (%r): no profiles available" % (directory, e))
         return []
+    names = [n for n in listing if n.endswith(".json")]
+    archived = [n[:-len(ARCHIVED)] for n in listing if n.endswith(ARCHIVED)]
+    listing = None
     refs = []
     for name in sorted(names):
         path = directory + "/" + name
@@ -99,10 +137,36 @@ def scan(directory, on_warning=None):
         except Exception as e:
             warn("profile %s rejected: %s" % (name, e))
             continue
-        refs.append(ProfileRef(path, profile.name, profile.category,
-                               profile.is_default, profile.diagnostic))
+        ref = ProfileRef(path, profile.name, profile.category,
+                         profile.is_default, profile.diagnostic)
+        ref.archived = ref.stem in archived
+        refs.append(ref)
         profile = None
     return refs
+
+
+def latest(refs):
+    """The newest version of each profile, in catalogue order.
+
+    The newest version is the one that runs: uploading a new version is
+    how a profile is changed, and the older ones are kept only to be
+    downloaded or deleted.
+    """
+    best = {}
+    order = []
+    for r in refs:
+        held = best.get(r.stem)
+        if held is None:
+            order.append(r.stem)
+        if held is None or r.version > held.version:
+            best[r.stem] = r
+    return [best[s] for s in order]
+
+
+def versions_of(refs, stem):
+    """Every version of one profile, oldest first."""
+    return sorted((r for r in refs if r.stem == stem),
+                  key=lambda r: r.version)
 
 
 def for_operators(refs):
@@ -113,8 +177,55 @@ def for_operators(refs):
     steps through a profile that solders no boards, and -- worse -- one
     that could be selected and run by mistake on a real assembly. It stays
     reachable from the console, which is where it is used from.
+
+    Archived profiles are left out for the same reason they were archived:
+    somebody decided they should not be offered. Only the newest version
+    of each is offered, because the newest version is the one that runs.
     """
-    return [r for r in refs if not r.diagnostic]
+    return [r for r in latest(refs) if not r.diagnostic and not r.archived]
+
+
+def offered(refs):
+    """What the oven's PROFILE button steps through.
+
+    Normally for_operators(). A board carrying nothing but diagnostic
+    profiles still offers those rather than nothing, as it always has --
+    but never an archived one, and not merely because every real profile
+    has been archived: that would put DIAGNOSTIC in front of somebody with
+    a board in the oven, which is the reason it is hidden at all.
+    """
+    out = for_operators(refs)
+    if out:
+        return out
+    newest = latest(refs)
+    if any(not r.diagnostic for r in newest):
+        return []
+    return [r for r in newest if not r.archived]
+
+
+def choose(refs, current=None):
+    """The ref to select after the catalogue changes, or None.
+
+    Stays on the same profile if it is still offered -- moving to its
+    newest version, which may be one that was just uploaded -- and
+    otherwise falls back to the default, then to the first. Archiving or
+    deleting the selected profile from the page is how that happens.
+
+    A profile is the default if ANY of its versions says so. An upload has
+    "default" stripped from it, so a new version of the default profile
+    never carries the flag, and reading it off the newest version alone
+    would quietly move the default somewhere else.
+    """
+    candidates = offered(refs)
+    if current is not None:
+        for r in candidates:
+            if r.stem == current.stem:
+                return r
+    defaults = [r.stem for r in refs if r.is_default]
+    for r in candidates:
+        if r.stem in defaults:
+            return r
+    return candidates[0] if candidates else None
 
 
 class Profile(object):

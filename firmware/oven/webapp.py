@@ -151,6 +151,17 @@ _STYLE_B = (
     "button:disabled{opacity:.5}"
     "input[type=file]{color:#9aa1a9;font-size:14px}")
 
+# The profile list's own rules, a third piece rather than growing the second.
+_STYLE_C = (
+    ".p{max-width:640px;margin:0 0 18px;padding:10px 12px;"
+    "border:1px solid #2e333a;border-radius:3px}"
+    ".p.ar{opacity:.7}"
+    ".a{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;"
+    "margin:8px 0 0;font-size:14px}"
+    ".a button,.p td button{padding:5px 10px;font-size:14px}"
+    "button.del{background:#8a2b22;color:#eceae3}"
+    ".tag{color:#ffb000;font-size:13px;margin-left:8px}")
+
 
 PROFILE_DIR = "/profiles"
 _SAFE = "abcdefghijklmnopqrstuvwxyz0123456789-"
@@ -228,7 +239,7 @@ def result_page(heading, detail, warnings=(), ok=True):
     return ("<!doctype html><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
             "<title>Taeron Reflow Oven</title><style>" + _STYLE_A + _STYLE_B
-            + "</style>"
+            + _STYLE_C + "</style>"
             "<h1>Taeron Reflow Oven</h1>"
             "<h2>" + _html_escape(heading) + "</h2>"
             "<div class=" + ("s" if ok else "w") + ">"
@@ -268,7 +279,7 @@ def index_parts(runs, profiles, warning=None):
     out = ["<!doctype html><meta charset=utf-8>"
            "<meta name=viewport content='width=device-width,initial-scale=1'>"
            "<title>Taeron Reflow Oven</title><style>", _STYLE_A, _STYLE_B,
-           "</style><h1>Taeron Reflow Oven</h1>"]
+           _STYLE_C, "</style><h1>Taeron Reflow Oven</h1>"]
     if warning:
         out.append("<div class=w>" + _html_escape(warning) + "</div>")
     out.append("<h2>Runs</h2><table>"
@@ -280,27 +291,112 @@ def index_parts(runs, profiles, warning=None):
     else:
         out.append("<tr><td colspan=5 class='q'>no runs recorded yet</td></tr>")
     out.append("</table><h2>Profiles</h2>"
-               "<div class=s>The ones offered at the oven. Open one to see "
-               "exactly what a profile looks like -- it is the same format "
-               "the box below takes.</div><ul>")
+               "<div class=s>Open one to see exactly what a profile looks "
+               "like -- it is the same format the box below takes. The "
+               "newest version of each is the one the oven runs. Archived "
+               "profiles are kept here but not offered at the oven. Delete "
+               "stays greyed out until you have downloaded, from this page, "
+               "what it would delete.</div>")
+    managed = False
+    plain = []
     for entry in profiles:
-        # A bare name, or (name, filename). The filename is what makes the
-        # entry a link to the real thing, which is the only format
-        # documentation that cannot go stale.
+        # A bare name, (name, filename), or a full entry from
+        # profile_entry(). The filename is what makes the entry a link to
+        # the real thing, which is the only format documentation that
+        # cannot go stale.
+        if isinstance(entry, (tuple, list)) and len(entry) >= 4:
+            managed = True
+            out.extend(_profile_block(*entry))
+            continue
         if isinstance(entry, (tuple, list)):
             name, filename = entry[0], (entry[1] if len(entry) > 1 else None)
         else:
             name, filename = entry, None
         if filename:
-            out.append("<li><a href='/profiles/%s'>%s</a></li>"
-                       % (_html_escape(filename), _html_escape(name)))
+            plain.append("<li><a href='/profiles/%s'>%s</a></li>"
+                         % (_html_escape(filename), _html_escape(name)))
         else:
-            out.append("<li>" + _html_escape(name) + "</li>")
-    if not profiles:
-        out.append("<li>none</li>")
-    out.append("</ul>")
+            plain.append("<li>" + _html_escape(name) + "</li>")
+    if plain or not profiles:
+        out.append("<ul>")
+        out.extend(plain or ["<li>none</li>"])
+        out.append("</ul>")
+    if managed:
+        out.extend(_MANAGE)
     out.extend(_UPLOAD)
     return out
+
+
+def profile_entry(name, stem, archived, versions):
+    """What index_parts takes for one managed profile.
+
+    *versions* is [(version, filename), ...], oldest first; the last one
+    is the newest, which is the one the oven runs.
+    """
+    return (name, stem, bool(archived), list(versions))
+
+
+def _profile_block(name, stem, archived, versions):
+    """One profile, in pieces: a heading and then one piece per version,
+    so a profile with many versions never becomes one large string."""
+    st = _html_escape(stem)
+    nm = _html_escape(name)
+    yield ("<div class='p%s'><b>%s</b>%s<div class=a>"
+           "<button type=button class=alt data-x=%s data-s='%s'>%s</button>"
+           "<a download href='/bundles/%s.json' data-g='%s'>Download all "
+           "versions</a>"
+           "<button type=button class=del disabled data-x=delete-profile "
+           "data-s='%s' data-k='%s' data-n='%s, every version,'>Delete "
+           "profile</button></div>"
+           "<table class=f><tr><th>version</th><th></th><th></th></tr>"
+           % (" ar" if archived else "", nm,
+              "<span class=tag>archived -- not offered at the oven</span>"
+              if archived else "",
+              "unarchive" if archived else "archive", st,
+              "Unarchive" if archived else "Archive",
+              st, st, st, st, nm))
+    newest = versions[-1][0] if versions else None
+    for version, filename in versions:
+        fn = _html_escape(filename)
+        yield ("<tr><td><a href='/profiles/%s'>v%d</a>%s</td>"
+               "<td><a download href='/profiles/%s' data-g='%s' "
+               "data-v='%s'>download</a></td>"
+               "<td><button type=button class=del disabled "
+               "data-x=delete-version data-s='%s' data-k='%s' data-v='%s' "
+               "data-n='%s v%d'>delete</button></td></tr>"
+               % (fn, version,
+                  (" <span class=q>newest%s</span>"
+                   % ("" if archived else ", runs at the oven"))
+                  if version == newest else "",
+                  fn, st, fn, fn, st, fn, nm, version))
+    yield "</table></div>"
+
+
+# Downloading is what unlocks a delete. A version's own download unlocks
+# that version; the bundle holds every version, so it unlocks all of them
+# and the profile as a whole. Enforced by the page only, as agreed: the
+# routes behind the buttons do not check, and like every other change this
+# page makes they are only served while the oven is idle.
+_MANAGE = (
+    "<script>"
+    "document.addEventListener('click',function(e){"
+    "var x=e.target,d=x.dataset||{},i,bs;"
+    "if(d.g!==undefined){"
+    "bs=document.querySelectorAll('button.del');"
+    "for(i=0;i<bs.length;i++){var b=bs[i].dataset;"
+    "if(d.v?b.v===d.v:b.k===d.g)bs[i].disabled=false}"
+    "return}"
+    "if(!d.x)return;",
+
+    "if(d.x.indexOf('delete')===0&&!confirm('Delete '+d.n+' from the oven?"
+    " This cannot be undone.'))return;"
+    "x.disabled=true;"
+    "fetch('/'+d.x+'/'+encodeURIComponent(d.s),{method:'POST'})"
+    ".then(function(r){return r.text()})"
+    ".then(function(h){document.open();document.write(h);document.close()})"
+    ".catch(function(e){x.disabled=false;alert('Did not reach the oven: '+e)"
+    "})});"
+    "</script>")
 
 
 def index_page(runs, profiles, warning=None):
@@ -315,8 +411,10 @@ _UPLOAD = (
     "<h2>Add or replace a profile</h2>"
     "<div class=s>JSON, under 2.5 kB. It is checked before it is kept: if "
     "anything is wrong you are told which field and nothing on the oven "
-    "changes. The file it lands in is named after the profile itself, so "
-    "sending one with a name already in the list replaces it.</div>",
+    "changes. Sending one with a name already in the list adds a new "
+    "version of it rather than replacing it: the newest version is the one "
+    "the oven runs, and the older ones stay listed above until you delete "
+    "them.</div>",
 
     "<table class=f>"
     "<tr><th>field</th><th>what it is</th></tr>"
@@ -388,6 +486,11 @@ _UPLOAD = (
     "</script>")
 
 
+_CHANGES = (("/archive/", "archive"), ("/unarchive/", "unarchive"),
+            ("/delete-version/", "delete-version"),
+            ("/delete-profile/", "delete-profile"))
+
+
 def route(method, path):
     """(kind, argument). Kept separate from doing so it can be tested."""
     if method not in ("GET", "HEAD", "POST"):
@@ -403,6 +506,22 @@ def route(method, path):
         return ("log", name)
     if path == "/profiles" and method == "POST":
         return ("put-profile", None)
+    # Changes are POST only, so nothing a browser prefetches or a crawler
+    # follows can archive or delete anything.
+    for prefix, kind in _CHANGES:
+        if path.startswith(prefix):
+            name = path[len(prefix):]
+            if not name or "/" in name or ".." in name:
+                return ("bad-name", name)
+            if method != "POST":
+                return ("not-found", path)
+            return (kind, name)
+    if path.startswith("/bundles/"):
+        name = path[len("/bundles/"):]
+        if (not name.endswith(".json") or len(name) <= 5 or "/" in name
+                or ".." in name):
+            return ("bad-name", name)
+        return ("get-bundle", name[:-5])
     if path.startswith("/profiles/"):
         name = path[len("/profiles/"):]
         if not name or "/" in name or ".." in name:

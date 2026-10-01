@@ -22,7 +22,9 @@ from oven.controller import Controller, FeedForward, PID
 from oven.hardware import Hardware, cpu_temperature
 from oven.history import History
 from oven.metrics import Limits as MetricLimits
-from oven.profile import Profile, for_operators, scan as scan_profiles
+from oven import profilestore
+from oven.profile import Profile, choose, latest, offered, \
+    scan as scan_profiles, versions_of
 from oven.ui import layout as L
 from oven.ui import theme as T
 from oven.ui.display import Display, preload
@@ -186,6 +188,10 @@ class WebService(object):
         self.logs = logs
         self.profiles_ref = profiles_ref
         self.status_fn = status_fn
+        # Called after the page changes what is in /profiles, so the oven
+        # can move its selection off a profile that was archived or
+        # deleted, or onto the version that was just uploaded.
+        self.on_catalogue = None
         self.radio = None
         self.server = None
         self.address = None
@@ -381,8 +387,8 @@ class WebService(object):
             # catalogue, so this cannot be talked into reading anything else
             # off the filesystem.
             wanted = None
-            for ref in for_operators(self.profiles_ref[1]):
-                if ref.path.rsplit("/", 1)[-1] == arg:
+            for ref in self._listed():
+                if ref.filename == arg:
                     wanted = ref.path
                     break
             if wanted is None:
@@ -404,6 +410,24 @@ class WebService(object):
             return [body[i:i + webapp.CHUNK].encode("utf-8")
                     for i in range(0, len(body), webapp.CHUNK)]
 
+        if kind == "get-bundle":
+            refs = [r for r in self._listed() if r.stem == arg]
+            if not refs:
+                start_response("404 Not Found",
+                               [("Content-Type", "text/plain")])
+                return [b"no such profile"]
+            start_response("200 OK", [
+                ("Content-Type", "application/json"),
+                ("Content-Disposition",
+                 'attachment; filename="%s-all-versions.json"' % arg)])
+            # Streamed: every version at once is several times the largest
+            # block this heap can be relied on for.
+            return profilestore.bundle_chunks(refs, arg, webapp.CHUNK)
+
+        if kind in ("archive", "unarchive", "delete-version",
+                    "delete-profile"):
+            return self._change(kind, arg, start_response)
+
         if kind == "index":
             runs = []
             if self.logs:
@@ -422,8 +446,12 @@ class WebService(object):
             # Name and filename: the filename makes each one a link to the
             # profile itself, which is the only description of the format
             # that cannot drift from the format.
-            profiles = [(r.name, r.path.rsplit("/", 1)[-1])
-                        for r in for_operators(self.profiles_ref[1])]
+            refs = self._listed()
+            profiles = [webapp.profile_entry(
+                r.name, r.stem, r.archived,
+                [(v.version, v.filename) for v in versions_of(refs, r.stem)])
+                for r in latest(refs)]
+            refs = None
             # The only thing worth saying at the top of the page, and only
             # when it is true: an unset clock means every date below was
             # written by a board that did not know the date.
@@ -485,14 +513,15 @@ class WebService(object):
                                [("Content-Type", "text/html")])
                 return [page.encode("utf-8")]
 
+            # A new version, never an overwrite: the slug filename only
+            # decides which profile this is when no listed profile already
+            # has the name.
+            filename, version = profilestore.new_version_filename(
+                self.profiles_ref[1], data.get("name", ""), filename)
             path = "%s/%s" % (webapp.PROFILE_DIR, filename)
-            replaced = False
             try:
-                import os as _os
-                replaced = filename in _os.listdir(webapp.PROFILE_DIR)
-                import json as _json
                 handle = open(path, "w")
-                handle.write(_json.dumps(data))
+                handle.write(json.dumps(data))
                 handle.close()
             except Exception as e:
                 page = webapp.result_page(
@@ -504,16 +533,27 @@ class WebService(object):
 
             # The catalogue is read at startup, so a profile written now is
             # invisible until it is read again.
-            try:
-                self.profiles_ref[1][:] = scan_profiles(webapp.PROFILE_DIR)
-            except Exception as e:
-                print("# web: profile saved but the catalogue did not "
-                      "reload (%r)" % e)
-
+            self._rescan()
+            archived = False
+            for r in self.profiles_ref[1]:
+                if r.filename == filename:
+                    archived = r.archived
+            if version > 1:
+                detail = ("%s is on the oven as version %d (%s). The newest "
+                          "version is the one that runs, so this replaces "
+                          "the older ones at the oven; they stay on the "
+                          "page until you delete them."
+                          % (data.get("name", filename), version, filename))
+            else:
+                detail = ("%s is on the oven as %s. Select it at the oven "
+                          "to use it." % (data.get("name", filename),
+                                          filename))
+            if archived:
+                detail += (" It is archived, so it is not offered at the "
+                           "oven until you unarchive it.")
             page = webapp.result_page(
-                "Replaced" if replaced else "Added",
-                "%s is on the oven as %s. Select it at the oven to use it."
-                % (data.get("name", filename), filename), rest)
+                "Version %d added" % version if version > 1 else "Added",
+                detail, rest)
             start_response("200 OK", [("Content-Type", "text/html")])
             return [page.encode("utf-8")]
 
@@ -523,6 +563,74 @@ class WebService(object):
 
         start_response("404 Not Found", [("Content-Type", "text/plain")])
         return [b"not found"]
+
+    def _listed(self):
+        """Every version the page manages. DIAGNOSTIC is not one of them,
+        for the same reason it is not offered at the oven."""
+        return [r for r in self.profiles_ref[1] if not r.diagnostic]
+
+    def _rescan(self):
+        try:
+            self.profiles_ref[1][:] = scan_profiles(PROFILE_DIR)
+        except Exception as e:
+            print("# web: /profiles changed but the catalogue did not "
+                  "reload (%r)" % e)
+            return
+        if self.on_catalogue is not None:
+            self.on_catalogue()
+
+    def _change(self, kind, arg, start_response):
+        """Archive, unarchive or delete, then say what happened."""
+        from oven import webapp
+
+        def reply(status, heading, detail, ok):
+            start_response(status, [("Content-Type", "text/html")])
+            return [webapp.result_page(heading, detail, ok=ok)
+                    .encode("utf-8")]
+
+        if not storage_is_writable():
+            return reply("409 Conflict", "Cannot write",
+                         "The oven does not own its filesystem right now, "
+                         "which happens while it is plugged into a computer. "
+                         "Unplug it and try again.", False)
+        refs = self._listed()
+        name = arg
+        for r in refs:
+            if r.stem == arg or r.filename == arg:
+                name = r.name
+        try:
+            if kind == "archive":
+                why = profilestore.set_archived(webapp.PROFILE_DIR, refs,
+                                                arg, True)
+                done = ("Archived", "%s is no longer offered at the oven. "
+                        "Nothing about it has changed otherwise." % name)
+            elif kind == "unarchive":
+                why = profilestore.set_archived(webapp.PROFILE_DIR, refs,
+                                                arg, False)
+                done = ("Unarchived", "%s is offered at the oven again."
+                        % name)
+            elif kind == "delete-version":
+                ref = profilestore.find_version(refs, arg)
+                why = profilestore.delete_version(webapp.PROFILE_DIR, refs,
+                                                  arg)
+                done = ("Deleted", "Version %d of %s is gone from the oven."
+                        % (ref.version if ref else 0, name))
+            else:
+                why = profilestore.delete_profile(webapp.PROFILE_DIR, refs,
+                                                  arg)
+                done = ("Deleted", "%s, every version of it, is gone from "
+                        "the oven." % name)
+        except Exception as e:
+            print("# web: %s %s failed (%r)" % (kind, arg, e))
+            self._rescan()
+            return reply("500 Internal Server Error", "Not done",
+                         "could not change %s (%r)" % (arg, e), False)
+        refs = None
+        if why is not None:
+            return reply("404 Not Found", "Not done", why, False)
+        self._rescan()
+        print("# web: %s %s" % (kind, arg))
+        return reply("200 OK", done[0], done[1], True)
 
 
 def uploader_pending(logs):
@@ -816,13 +924,8 @@ def main():
     profiles = load_profiles()
     # Alphabetical order would select "4900P (as run)", which measurement
     # shows this oven cannot follow. A profile may declare itself the default.
-    chosen = None
-    for ref in profiles:
-        if ref.is_default:
-            chosen = ref
-            break
-    if chosen is None and profiles:
-        chosen = profiles[0]
+    # Only the newest version of a profile that is not archived is chosen.
+    chosen = choose(profiles)
 
     # Exactly one profile is resident at a time: the one that is selected.
     selected_ref = [chosen]
@@ -1080,6 +1183,15 @@ def main():
     # than on a second one of its own. Two bring-ups at boot was two scans,
     # two joins and a restart between them.
     web.on_epoch = set_rtc
+
+    def catalogue_changed():
+        # Stay on the same profile, at its newest version; or, if the page
+        # archived or deleted it, fall back the way boot does.
+        select(choose(profiles, selected_ref[0]))
+        print("# profiles changed from the page; selected: %s"
+              % (selected_ref[0].name if selected_ref[0] else "none"))
+
+    web.on_catalogue = catalogue_changed
     # One attempt. If the radio is not there, do not spend a scan every
     # time round the loop looking for it.
     web_wanted = [True]
@@ -1156,24 +1268,26 @@ def main():
         elif cmd.startswith("PROFILE "):
             wanted = cmd[8:].strip().lower()
             match = None
-            for pr in profiles:
+            for pr in latest(profiles):
                 if wanted in pr.name.lower():
                     match = pr
                     break
             if match is None:
                 print("# command PROFILE unknown %r; have: %s"
-                      % (wanted, " | ".join(p.name for p in profiles)))
+                      % (wanted, " | ".join(p.name for p in latest(profiles))))
             elif app.state not in (STATE_IDLE, STATE_REPORT):
                 print("# command PROFILE refused: oven is %s" % app.state)
             else:
                 select(match)
                 print("# command PROFILE selected: %s" % match.name)
         elif cmd == "PROFILES":
-            for pr in profiles:
-                print("# profile %s%s%s"
+            for pr in latest(profiles):
+                print("# profile %s%s%s%s"
                       % (pr.name,
+                         " v%d" % pr.version if pr.version > 1 else "",
                          " (selected)" if pr is selected_ref[0] else "",
-                         " (not offered at the oven)" if pr.diagnostic else ""))
+                         " (not offered at the oven)"
+                         if pr.diagnostic or pr.archived else ""))
         elif cmd.startswith("SELECT "):
             # The console is the only way to reach DIAGNOSTIC, which is
             # deliberately kept out of the cycle someone steps through at
@@ -1181,7 +1295,7 @@ def main():
             # it unreachable, and a comment claiming otherwise.
             wanted = cmd[len("SELECT "):].strip().upper()
             found = None
-            for pr in profiles:
+            for pr in latest(profiles):
                 if pr.name.upper() == wanted:
                     found = pr
                     break
@@ -1277,12 +1391,13 @@ def main():
             elif action == "done":
                 app.state = STATE_IDLE
             elif action == "profiles" and profiles:
-                offered = for_operators(profiles) or profiles
-                if selected_ref[0] in offered:
-                    nxt = (offered.index(selected_ref[0]) + 1) % len(offered)
+                cycle = offered(profiles)
+                if selected_ref[0] in cycle:
+                    nxt = (cycle.index(selected_ref[0]) + 1) % len(cycle)
                 else:
                     nxt = 0
-                select(offered[nxt])
+                if cycle:
+                    select(cycle[nxt])
 
         # Composing a screen allocates, and the heap late in a run has no
         # large holes left. A MemoryError here used to propagate out of

@@ -17,6 +17,27 @@ Faults that clear themselves hide the thing that caused them.
 **Watch the direction that hurts.** A thermocouple failing *low* makes the
 control error larger and asks for more heat. Validation therefore runs before
 the controller sees a reading, not after.
+
+**Blind is not the same as broken.** The MCP9600 shares an I2C bus with
+everything else, and one read in a long run can fail for no lasting reason.
+Tripping on that ended whole runs on a single hiccup. So a *missed* reading
+-- nothing came back, or the bus failed, or the value was out of range -- is
+tolerated, within limits that keep the oven from heating while nobody is
+looking. That tolerance holds only because of three rules:
+
+- A missed step never allows heat. ``allow_heat`` is false for that step,
+  so the relay opens at once. While the sensor is blind the oven can only
+  cool. It can never climb.
+- Misses are bounded twice: a few in a row, and a budget over a sliding
+  window. A sensor that is dying rather than hiccuping trips, latched, as
+  it always did.
+- A miss leaves the stall and frozen guards alone. Otherwise a sensor that
+  drops out often enough would keep restarting their windows, and a probe
+  that has fallen out of the oven could go on calling for heat without
+  ever being caught.
+
+A thermocouple fault the driver reports as definite (open or short circuit)
+is not a miss. It trips at once.
 """
 
 from . import hal
@@ -33,6 +54,10 @@ FAULT_ENCLOSURE = 7
 FAULT_RUN_TIMEOUT = 8
 FAULT_IMPLAUSIBLE_START = 9
 FAULT_CPU_HOT = 10
+
+# Sensor fault bits that mean "this one read failed" rather than "the probe is
+# broken". Only these, or no reading at all, count as a tolerable miss.
+_MISSABLE_SENSOR_FAULTS = hal.FAULT_BUS | hal.FAULT_RANGE
 
 _FAULT_TEXT = {
     FAULT_OVER_TEMP: "over temperature",
@@ -55,22 +80,41 @@ class Limits(object):
                  "stall_window_s", "stall_min_rise_c", "max_run_s",
                  "sensor_stale_s", "sensor_frozen_s", "start_min_c",
                  "start_max_c", "rate_window_s", "max_cpu_c",
-                 "max_cooldown_s")
+                 "max_cooldown_s", "max_consecutive_misses",
+                 "miss_window_s", "max_misses_in_window")
 
     def __init__(self, max_temp_c=260.0, max_rate_c_per_s=4.0,
-                 max_enclosure_c=70.0, stall_window_s=90.0,
-                 stall_min_rise_c=2.0, max_run_s=3600.0,
-                 sensor_stale_s=3.0, sensor_frozen_s=30.0,
+                 max_enclosure_c=70.0, stall_window_s=15.0,
+                 stall_min_rise_c=0.5, max_run_s=3600.0,
+                 sensor_stale_s=3.0, sensor_frozen_s=5.0,
                  start_min_c=5.0, start_max_c=60.0,
                  rate_window_s=3.0, max_cpu_c=80.0,
-                 max_cooldown_s=3600.0):
+                 max_cooldown_s=3600.0, max_consecutive_misses=3,
+                 miss_window_s=60.0, max_misses_in_window=8):
         self.max_temp_c = max_temp_c
         self.max_rate_c_per_s = max_rate_c_per_s
         self.max_enclosure_c = max_enclosure_c
+        # Stall and frozen are how long heat may go in with no sign that the
+        # probe is measuring the oven: a probe that has fallen out reads a
+        # plausible room temperature and the controller asks for full heat.
+        # So they are as short as the oven allows, and the oven sets the
+        # limit, not the code. Measured after the relay closes, every run in
+        # data/ and the 4 Hz capture in data/plant-id: no rise at all for up
+        # to 10 s (138.8 C, 4 Hz capture), +0.5 C by 11.25 s at the latest,
+        # +2 C by 15 s. A 10 s window trips on that healthy oven at any
+        # threshold, so 15 s it is. 0.5 C is eight sensor steps, well clear
+        # of the +-0.0625 C flicker a probe on the oven floor shows -- a
+        # threshold inside that flicker would be met by noise, restart the
+        # window, and never trip.
         self.stall_window_s = stall_window_s
         self.stall_min_rise_c = stall_min_rise_c
         self.max_run_s = max_run_s
         self.sensor_stale_s = sensor_stale_s
+        # The longest a healthy reading has stayed identical while heating is
+        # 3.2 s (2.75 s in the 4 Hz capture): the last bit flickers. This
+        # catches a reading that has stopped changing at all, not a probe
+        # that has fallen out, which still flickers; that is the stall
+        # guard's.
         self.sensor_frozen_s = sensor_frozen_s
         self.start_min_c = start_min_c
         self.start_max_c = start_max_c
@@ -94,6 +138,14 @@ class Limits(object):
         # far, which is exactly what a guard is for.
         self.max_cpu_c = max_cpu_c
         self.max_cooldown_s = max_cooldown_s
+        # Missed readings. Three in a row is 0.75 s blind at 4 Hz, and the
+        # relay is held open for all of it. The window budget catches a
+        # sensor that keeps missing one step at a time and never reaches the
+        # consecutive limit. More than eight in a minute is over 3% of steps,
+        # which is no longer "occasional".
+        self.max_consecutive_misses = max_consecutive_misses
+        self.miss_window_s = miss_window_s
+        self.max_misses_in_window = max_misses_in_window
 
 
 class Fault(object):
@@ -128,6 +180,9 @@ class Supervisor(object):
         self._frozen_since = None
         self._frozen_value = None
         self._rate_history = []
+        self._consecutive_misses = 0
+        self._miss_times = []
+        self.blind = False
 
     # -- state -------------------------------------------------------------
 
@@ -136,8 +191,12 @@ class Supervisor(object):
         return self.fault is not None
 
     def allow_heat(self):
-        """The only authority for energising the relay."""
-        return self.fault is None
+        """The only authority for energising the relay.
+
+        False after a missed reading even though nothing has latched: a
+        step without a temperature is a step without heat.
+        """
+        return self.fault is None and not self.blind
 
     def acknowledge(self):
         """Clear a latched fault. Requires a deliberate act by a person."""
@@ -152,6 +211,9 @@ class Supervisor(object):
         self._frozen_since = None
         self._frozen_value = None
         self._rate_history = []
+        self._consecutive_misses = 0
+        self._miss_times = []
+        self.blind = False
 
     def _trip(self, code, detail, t):
         if self.fault is None:            # keep the first cause, not the last
@@ -255,13 +317,19 @@ class Supervisor(object):
 
         lim = self.limits
 
-        # No reading at all, or one the driver flagged: refuse immediately.
-        if reading is None or reading.hot is None:
-            return self._trip(FAULT_SENSOR_STALE, "sensor returned nothing", t)
-        if reading.faults:
+        # A definite probe fault trips at once. A failed read is a miss.
+        if reading is not None and reading.faults & ~_MISSABLE_SENSOR_FAULTS:
             return self._trip(
                 FAULT_SENSOR,
                 ", ".join(hal.describe_faults(reading.faults)), t)
+        if reading is None or reading.hot is None or reading.faults:
+            return self._miss(t, reading, relay_on)
+
+        # Seeing again. The relay was held open while blind, by this class
+        # and not by the controller, which the guards below need to know.
+        was_blind = self.blind
+        self.blind = False
+        self._consecutive_misses = 0
 
         temp = reading.hot
 
@@ -322,7 +390,17 @@ class Supervisor(object):
 
         # A thermocouple reading the identical value for a long stretch while
         # heat is being applied is not measuring anything.
-        if relay_on:
+        #
+        # Both of these guards reset when the relay goes off. A step after a
+        # miss is off only because the supervisor forced it off, so it must
+        # not reset them. Otherwise a sensor dropping out more often than the
+        # stall window -- once every 10 s is well inside the miss budget --
+        # would restart that window every time, and a probe lying on the
+        # floor of the oven would never be caught.
+        hold = was_blind and not relay_on
+        if hold:
+            pass
+        elif relay_on:
             if self._frozen_value is None or temp != self._frozen_value:
                 self._frozen_value = temp
                 self._frozen_since = t
@@ -336,7 +414,9 @@ class Supervisor(object):
             self._frozen_since = None
 
         # Heat going in with nothing coming out: element or probe failure.
-        if relay_on:
+        if hold:
+            pass
+        elif relay_on:
             if self._relay_on_since is None:
                 self._relay_on_since = t
                 self._temp_at_relay_on = temp
@@ -355,4 +435,41 @@ class Supervisor(object):
 
         self._last_t = t
         self._last_temp = temp
+        return None
+
+    def _miss(self, t, reading, relay_on):
+        """One step without a usable reading. Denies heat for this step,
+        and trips once misses are no longer occasional."""
+        lim = self.limits
+        self.blind = True
+        self._consecutive_misses += 1
+        self._miss_times.append(t)
+        while self._miss_times[0] <= t - lim.miss_window_s:
+            self._miss_times.pop(0)
+
+        why = (", ".join(hal.describe_faults(reading.faults))
+               if reading is not None and reading.faults
+               else "sensor returned nothing")
+        if self._consecutive_misses > lim.max_consecutive_misses:
+            return self._trip(FAULT_SENSOR_STALE,
+                              "%s, %d readings in a row"
+                              % (why, self._consecutive_misses), t)
+        if len(self._miss_times) > lim.max_misses_in_window:
+            return self._trip(FAULT_SENSOR_STALE,
+                              "%s, %d missed in %.0f s"
+                              % (why, len(self._miss_times),
+                                 lim.miss_window_s), t)
+
+        # A miss still counts as a check for the cadence guard, but a late
+        # one does not: a gap is a gap whatever the step finds.
+        if self._last_t is not None:
+            dt = t - self._last_t
+            if dt > lim.sensor_stale_s and (relay_on
+                                            or self._run_start is not None):
+                return self._trip(
+                    FAULT_SENSOR_STALE,
+                    "%.1f s without a check %s" % (
+                        dt, "while heating" if relay_on else "during a run"),
+                    t)
+        self._last_t = t
         return None

@@ -16,6 +16,7 @@ import board
 import supervisor
 
 from oven import bringup as bringup_mod
+from oven import chime as chime_mod
 from oven.app import App, STATE_IDLE, STATE_RUNNING, STATE_PREHEAT, \
     STATE_PRECHARGE, STATE_COOLDOWN, STATE_REPORT, STATE_FAULT
 from oven.controller import Controller, FeedForward, PID
@@ -1003,8 +1004,26 @@ def main():
             "" if row["cold"] is None else "%.2f" % row["cold"],
             "" if cpu is None else "%.2f" % cpu))
 
+    # The end of a run, said out loud: the screen is the only other
+    # indicator, and nobody stands watching it. An abort from the button or
+    # the console is silent -- whoever pressed it already knows -- but a
+    # preheat that gave up is an abort nobody asked for, and sounds like the
+    # fault it is.
+    #
+    # A sound holds the relay open from start to finish: see oven/chime.py
+    # and hal.Interlocked. Every event that plays one has opened the relay
+    # already. Starting a run stops any sound first, which releases the
+    # hold, so the run gets its heat at once rather than up to two seconds
+    # later.
+    chime = chime_mod.Chime(hw.speaker, hw.clock, hw.relay)
+
     def announce(name, payload):
         print("# event %s %s" % (name, payload))
+        if name == "run_finished":
+            chime.play(chime_mod.DONE)
+        elif name == "faulted" or (name == "aborted" and payload
+                                   and payload.get("reason")):
+            chime.play(chime_mod.FAULT)
         # The log opens here, not when START is accepted. request_start
         # enters PREHEAT; the warm-start offset is not applied until the
         # transition into RUNNING, so opening earlier read the offset as
@@ -1087,6 +1106,7 @@ def main():
 
     while True:
         app.tick()
+        chime.tick()
 
         # A run has ended when it leaves the states that heat or cool. The
         # log is closed here rather than on an event so that an abort, a
@@ -1135,6 +1155,7 @@ def main():
             app.abort()
             print("# command ABORT accepted, state=%s" % app.state)
         elif cmd == "START":
+            chime.stop()
             profile = selected()
             problem = app.request_start(profile) if profile else None
             if profile is None:
@@ -1217,6 +1238,16 @@ def main():
                                             hw.relay.is_on(),
                                             radio=web.radio)
                 print("# command UPLOAD done: %d sent" % sent)
+        elif cmd in ("CHIME DONE", "CHIME FAULT"):
+            # Hear the sounds without running a profile to the end. Not
+            # while a run is in progress: nothing touches the speaker then.
+            if app.state not in (STATE_IDLE, STATE_REPORT, STATE_FAULT)                     or hw.relay.is_on():
+                print("# command %s refused: oven is %s" % (cmd, app.state))
+            else:
+                chime.play(chime_mod.DONE if cmd == "CHIME DONE"
+                           else chime_mod.FAULT)
+                print("# command %s: %s" % (cmd, "playing" if chime.playing
+                                            else "no speaker"))
         elif cmd.startswith("CLOCK "):
             # Set the board's clock from the host. The network sets it too,
             # but a board that has just been reflashed often cannot join for
@@ -1265,6 +1296,7 @@ def main():
             if action == "start" and selected_ref[0] is not None:
                 # A run started here is the one most likely to have nobody
                 # watching it, so it is the one that most needs recording.
+                chime.stop()
                 profile = selected()
                 problem = app.request_start(profile) if profile else None
                 if problem is not None:

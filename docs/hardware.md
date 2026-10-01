@@ -206,8 +206,16 @@ Consequences worth recording:
 
 ## Fitted, not used by the firmware
 
-microSD slot, speaker and light sensor **[spec]**, and the NeoPixel, which is
-in any case enclosed and invisible — see above.
+microSD slot and light sensor **[spec]**, and the NeoPixel, which is in any
+case enclosed and invisible — see above.
+
+The speaker **is** used, for two sounds: a rising arpeggio when a profile
+finishes, and a falling tone pair, twice, on a fault or a preheat that timed
+out. Both are under two seconds and play without blocking the loop; see
+`oven/chime.py`. `CHIME DONE` and `CHIME FAULT` on the console play them on
+demand. A speaker that fails to start leaves the oven silent, not stopped.
+The relay is driven open before the speaker is set up or touched, and
+cannot close again until the sound is over (`hal.Interlocked`).
 
 The ESP32 WiFi co-processor **is** used: it sets the clock at boot and serves
 the oven's page while it is idle. It is kept out of the control loop by

@@ -103,6 +103,27 @@ kept, so it can neither make itself the selection nor hide from the list it
 just joined, and its filename comes from the profile's own name rather than
 from the request.
 
+An upload never overwrites. A profile whose name is already listed gets the
+next version, `ts391lt.v2.json` beside `ts391lt.json`, and the newest
+version is the one the oven runs; if that profile was selected, the
+selection moves to the new version. Older versions stay until deleted.
+
+The page can also archive a profile, which keeps every version but takes it
+off the oven's PROFILE button (an empty `<stem>.archived` marker sits beside
+the files, so nothing in the profile is rewritten), and delete a single
+version or the whole profile. Delete stays greyed out until what it would
+delete has been downloaded from the page: a version's own download unlocks
+that version, and "Download all versions" -- one JSON file holding every
+version as stored -- unlocks the profile and each of its versions. That
+gate is the page's, not the server's. Changes are POST only, and every name
+is matched against the catalogue rather than used as a path. If the
+selected profile is archived or deleted, the oven falls back to the default
+and then to the first one offered, and never to DIAGNOSTIC.
+
+None of this survives a deploy. `tools/deploy.py` mirrors `profiles/` from
+the repository and removes what the repository does not have, which
+includes uploaded profiles, older versions and archive markers.
+
 That size limit is measured, not chosen. 2700 bytes is served in 1.5 s,
 3000 arrives truncated, and 3200 gets no reply at all and leaves the server
 holding a half-read request until the firmware restarts. Nothing in the

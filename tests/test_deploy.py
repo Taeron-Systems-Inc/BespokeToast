@@ -155,10 +155,15 @@ def test_names_code_py_imports_from_frozen_modules_are_collected(tmp_path):
 
 
 def test_the_real_code_py_declares_the_name_that_broke_the_board():
+    """for_operators was the name that broke it. code.py no longer imports
+    it -- the oven's cycle comes from offered() and choose() now, which are
+    the same kind of name added to oven/profile.py for code.py to use, and
+    exactly what a stale frozen image would be missing."""
     pairs = deploy.frozen_imports(
         os.path.join(os.path.dirname(deploy.__file__), "..", "firmware",
                      "code.py"))
-    assert ("oven.profile", "for_operators") in pairs
+    assert ("oven.profile", "choose") in pairs
+    assert ("oven.profile", "offered") in pairs
 
 
 def test_handing_the_volume_back_refuses_while_the_host_holds_it(tmp_path,

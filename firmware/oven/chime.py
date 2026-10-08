@@ -82,6 +82,7 @@ class Chime(object):
         self._melody = None
         self._started = 0.0
         self._index = -1
+        self._holding = False
 
     @property
     def playing(self):
@@ -97,12 +98,17 @@ class Chime(object):
         self.tick()
 
     def stop(self):
+        """Silence, then let heat back. Nothing to do when idle: a stop
+        must not open a relay the chime never held."""
+        if self._melody is None and not self._holding:
+            return
         self._melody = None
         self._index = -1
-        self._call("quiet")
         # Only once the speaker is quiet. If quiet() hung, the hold would
-        # stay, and so would the oven's cold.
-        self._release()
+        # stay, and so would the oven's cold; if the relay could not be
+        # confirmed open, the hold stays too.
+        if self._call("quiet"):
+            self._release()
 
     def tick(self):
         """Call every pass of the loop. Cheap when there is nothing to do."""
@@ -132,6 +138,7 @@ class Chime(object):
     def _hold(self):
         """Hold the relay open and confirm it is. False: do not sound."""
         try:
+            self._holding = True       # recorded before the pin is written
             self.relay.hold_off(self)
             if not self.relay.is_on():
                 return True
@@ -147,22 +154,34 @@ class Chime(object):
     def _release(self):
         try:
             self.relay.release(self)
+            self._holding = False
         except Exception as e:
             print("# WARNING could not release the relay hold (%r)" % e)
 
     def _call(self, name, *args):
+        """True when the speaker took the call."""
         if self.voice is None:
-            return
+            return False
         # Before every call, not only at play(): it costs one pin write, and
         # it does not depend on nothing having changed since.
         if not self._hold():
-            return
+            return False
         try:
             getattr(self.voice, name)(*args)
+            return True
         except Exception as e:
             print("# WARNING speaker failed (%r); sounds are off until "
                   "reboot" % e)
+            voice = self.voice
             self.voice = None
             self._melody = None
+            if name != "quiet":
+                # The amplifier may have been enabled before the failure.
+                try:
+                    voice.quiet()
+                except Exception as e2:
+                    print("# WARNING speaker could not be quieted either "
+                          "(%r)" % e2)
             # Nothing will call the speaker again, so nothing can hang.
             self._release()
+            return False

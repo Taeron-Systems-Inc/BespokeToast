@@ -444,3 +444,42 @@ def test_the_relay_is_the_interlocked_one_and_the_speaker_loads_held():
     made = hw.index("self.speaker = Speaker()")
     freed = hw.index('self.relay.release("speaker setup")')
     assert hw.index("self.relay = Relay()") < held < made < freed
+
+
+# -- stop() when there is nothing to stop ------------------------------------
+
+def test_stop_with_nothing_playing_leaves_a_heating_relay_alone():
+    """Console START calls stop() in every state. Idle, it must not open
+    the relay or touch the speaker."""
+    c, clock, voice, relay = rig(relay_on=True)
+    c.stop()
+    assert relay.pin is True
+    assert voice.calls == []
+    assert not relay.held
+
+
+def test_stop_keeps_the_hold_when_the_relay_cannot_be_confirmed_open():
+    clock, relay = Clock(), StuckRelay()
+    c = Chime(Voice(relay), clock, relay)
+    c.play(FAULT)
+    assert relay.held
+    c.stop()
+    assert relay.held, "a stop must not hand heat back on a relay it could not open"
+
+
+def test_a_tone_that_fails_still_tries_to_quiet_the_amplifier():
+    class HalfBroken(object):
+        quieted = False
+
+        def tone(self, hz):
+            raise OSError("DAC gone")
+
+        def quiet(self):
+            self.quieted = True
+
+    v = HalfBroken()
+    relay = Relay()
+    c = Chime(v, Clock(), relay)
+    c.play(DONE)
+    assert v.quieted
+    assert not c.playing and not relay.held

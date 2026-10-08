@@ -1241,7 +1241,8 @@ def main():
         elif cmd in ("CHIME DONE", "CHIME FAULT"):
             # Hear the sounds without running a profile to the end. Not
             # while a run is in progress: nothing touches the speaker then.
-            if app.state not in (STATE_IDLE, STATE_REPORT, STATE_FAULT)                     or hw.relay.is_on():
+            if app.state not in (STATE_IDLE, STATE_REPORT, STATE_FAULT) \
+                    or hw.relay.is_on():
                 print("# command %s refused: oven is %s" % (cmd, app.state))
             else:
                 chime.play(chime_mod.DONE if cmd == "CHIME DONE"

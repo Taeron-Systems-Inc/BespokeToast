@@ -118,7 +118,9 @@ version as stored -- unlocks the profile and each of its versions. That
 gate is the page's, not the server's. Changes are POST only, and every name
 is matched against the catalogue rather than used as a path. If the
 selected profile is archived or deleted, the oven falls back to the default
-and then to the first one offered, and never to DIAGNOSTIC.
+and then to the first one offered, and never to DIAGNOSTIC. The console's
+PROFILE and SELECT commands can still pick an archived profile by name, as
+they can DIAGNOSTIC.
 
 None of this survives a deploy. `tools/deploy.py` mirrors `profiles/` from
 the repository and removes what the repository does not have, which

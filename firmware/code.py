@@ -518,6 +518,13 @@ class WebService(object):
             # has the name.
             filename, version = profilestore.new_version_filename(
                 self.profiles_ref[1], data.get("name", ""), filename)
+            if profilestore.reserved(self.profiles_ref[1], filename):
+                page = webapp.result_page(
+                    "Not kept", "%s is the diagnostic profile's name; give "
+                    "this one another." % data.get("name", filename), ok=False)
+                start_response("400 Bad Request",
+                               [("Content-Type", "text/html")])
+                return [page.encode("utf-8")]
             path = "%s/%s" % (webapp.PROFILE_DIR, filename)
             try:
                 handle = open(path, "w")

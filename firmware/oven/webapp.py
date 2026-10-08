@@ -41,7 +41,7 @@ CHUNK = 512
 def _html_escape(text):
     out = str(text)
     for bad, good in (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"),
-                      ('"', "&quot;")):
+                      ('"', "&quot;"), ("'", "&#39;")):
         out = out.replace(bad, good)
     return out
 

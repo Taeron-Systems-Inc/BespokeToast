@@ -16,7 +16,8 @@ included.
 
 import os
 
-from oven.profile import ARCHIVED, latest, version_filename, versions_of
+from oven.profile import (ARCHIVED, latest, version_filename, version_of,
+                          versions_of)
 
 
 def _same_name(a, b):
@@ -35,7 +36,7 @@ def new_version_filename(refs, name, slug_filename):
     deleting the newest version and uploading again reuses its number.
     """
     stem = None
-    for r in latest(refs):
+    for r in latest([r for r in refs if not r.diagnostic]):
         if _same_name(r.name, name):
             stem = r.stem
             break
@@ -44,6 +45,17 @@ def new_version_filename(refs, name, slug_filename):
     have = versions_of(refs, stem)
     version = (have[-1].version + 1) if have else 1
     return (version_filename(stem, version), version)
+
+
+def reserved(refs, filename):
+    """Whether *filename* would become a version of a diagnostic profile.
+    An upload has its diagnostic flag stripped, so letting it in would put
+    the newest version of DIAGNOSTIC on the oven's button."""
+    stem = version_of(filename)[0]
+    for r in refs:
+        if r.stem == stem and r.diagnostic:
+            return True
+    return False
 
 
 def find_version(refs, filename):

@@ -334,6 +334,19 @@ def test_a_hostile_profile_name_cannot_inject_markup_into_the_list():
     page = index_page([], [profile_entry("<img src=x onerror=y>", "x", False,
                                          [(1, "x.json")])])
     assert "<img" not in page
+    # The list's attributes are single-quoted, so a quote must not survive.
+    page = index_page([], [profile_entry("x' onmouseover='y", "x", False,
+                                         [(1, "x.json")])])
+    assert "onmouseover='y" not in page
+    assert "&#39;" in page
+
+
+def test_an_upload_cannot_become_a_version_of_the_diagnostic_profile(shelf):
+    refs = catalogue(shelf)
+    filename, _ = profilestore.new_version_filename(refs, "DIAG", "diag.json")
+    assert profilestore.reserved(refs, filename)
+    assert not profilestore.reserved(refs, "bake.json")
+    assert not profilestore.reserved(refs, "brand-new.json")
 
 
 def test_the_managed_list_is_still_built_in_small_pieces():

@@ -322,6 +322,12 @@ class Supervisor(object):
             return self._trip(
                 FAULT_SENSOR,
                 ", ".join(hal.describe_faults(reading.faults)), t)
+        # A hot value with only the range bit set is a reading, not a miss.
+        if (reading is not None and reading.hot is not None
+                and reading.hot >= lim.max_temp_c):
+            return self._trip(FAULT_OVER_TEMP,
+                              "%.1f \u00b0C reached the %.1f \u00b0C limit"
+                              % (reading.hot, lim.max_temp_c), t)
         if reading is None or reading.hot is None or reading.faults:
             return self._miss(t, reading, relay_on)
 

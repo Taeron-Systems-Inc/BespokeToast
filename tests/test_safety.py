@@ -88,7 +88,13 @@ def test_a_single_missed_reading_does_not_latch(sup):
 
 
 def test_an_out_of_range_reading_is_a_miss_not_a_trip(sup):
-    assert sup.update(1.0, Reading(450.0, faults=hal.FAULT_RANGE), True) is None
+    assert sup.update(1.0, Reading(-30.0, faults=hal.FAULT_RANGE), True) is None
+    assert not sup.allow_heat()
+
+
+def test_a_hot_reading_flagged_out_of_range_is_over_temperature(sup):
+    f = sup.update(1.0, Reading(450.0, faults=hal.FAULT_RANGE), True)
+    assert f is not None and f.code == FAULT_OVER_TEMP
     assert not sup.allow_heat()
 
 

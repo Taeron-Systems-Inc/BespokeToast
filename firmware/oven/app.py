@@ -195,7 +195,8 @@ class App(object):
             self.duty = 0.0
             self.sample({"t": now, "state": self.state, "temp": None,
                          "target": self.target, "duty": 0.0,
-                         "relay": False, "cold": None})
+                         "relay": False,
+                         "cold": self.reading.cold if self.reading else None})
             return
 
         handler = getattr(self, "_in_" + self.state)

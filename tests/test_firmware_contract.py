@@ -159,6 +159,51 @@ def test_the_control_step_is_not_swallowed():
         "must not be silently skipped")
 
 
+def _end_log(**names):
+    """end_log() lifted out of main() and bound to stand-ins for its closure."""
+    import ast
+    tree = _code_py_tree()
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "end_log")
+    scope = dict(names)
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), "code.py", "exec"),
+         scope)
+    return scope["end_log"]
+
+
+def test_a_run_that_ends_before_its_first_sample_closes_its_log():
+    """A run that faulted straight after START crashed code.py in end_log.
+
+    Metrics existed but had no sample yet, so peak_c was None and
+    "%.1f" % None raised a TypeError out of the main loop. The controller
+    stopped with it.
+    """
+    from oven.metrics import RunMetrics
+
+    class Logs:
+        def __init__(self):
+            self.ended = []
+
+        def event(self, *args):
+            pass
+
+        def end(self, summary):
+            self.ended.append(summary)
+
+    class App:
+        metrics = RunMetrics(liquidus_c=None)
+        profile = None
+        elapsed = 0.0
+
+    logs = Logs()
+    logging_run = [True]
+    end_log = _end_log(app=App(), logs=logs, logging_run=logging_run,
+                       MetricLimits=None)
+    end_log()
+    assert logs.ended == [None]
+    assert logging_run == [False]
+
+
 def test_both_ways_of_starting_a_run_record_it():
     """The touchscreen path is the one most likely to be unattended.
 

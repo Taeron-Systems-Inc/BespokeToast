@@ -1050,7 +1050,10 @@ def main():
     def end_log():
         if logging_run[0] and logs is not None:
             summary = None
-            if app.metrics:
+            # peak_c is None until the first sample, and a run can end before
+            # one: a fault at START. "%.1f" % None raised out of the main
+            # loop and stopped the controller, so that run has no summary.
+            if app.metrics and app.metrics.peak_c is not None:
                 summary = "peak=%.1f" % app.metrics.peak_c
                 if app.metrics.liquidus_c:
                     summary += " tal=%.0f" % app.metrics.time_above_liquidus

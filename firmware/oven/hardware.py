@@ -15,6 +15,9 @@ falls to the supervisor's stall and frozen-value guards, which catch a probe
 that reads plausibly but is not measuring the oven.
 """
 
+import array
+import math
+
 import board
 import busio
 import digitalio
@@ -40,34 +43,26 @@ PLAUSIBLE_MIN_C = -20.0
 PLAUSIBLE_MAX_C = 400.0
 
 
-class Relay(object):
+class Relay(hal.Interlocked):
     """The mains relay on D4.
 
     Measured on this oven: an external pulldown holds the relay de-energised
     whenever the pin is not driven, so releasing the pin — on reset, on an
     unhandled exception, on a watchdog reset — is a safe state rather than an
     undefined one.
+
+    Everything but the pin itself is hal.Interlocked, including the hold
+    the speaker takes before it is touched.
     """
 
     def __init__(self, pin=RELAY_PIN):
+        hal.Interlocked.__init__(self)
         self._io = digitalio.DigitalInOut(pin)
         self._io.direction = digitalio.Direction.OUTPUT
         self._io.value = False
-        self._on = False
-        self.actuations = 0
 
-    def set(self, on):
-        on = bool(on)
-        if on != self._on:
-            self.actuations += 1
-            self._on = on
+    def _drive(self, on):
         self._io.value = on
-
-    def is_on(self):
-        return self._on
-
-    def off(self):
-        self.set(False)
 
     def deinit(self):
         try:
@@ -161,6 +156,49 @@ class Touchscreen(object):
         return (point[0], point[1])
 
 
+class Speaker(object):
+    """The PyPortal's onboard speaker, as a voice for oven.chime.
+
+    One cycle of a sine wave, looped, with the pitch set by the rate it is
+    played at: 32 bytes of buffer for any note, where a rendered melody
+    would want kilobytes in one block. Playback is DMA, so ``tone`` returns
+    at once and the control loop never waits on sound.
+
+    The amplifier is enabled only while a note sounds. Left on, it hisses.
+    """
+
+    SAMPLES = 16
+    # Fraction of full scale. Loud enough to hear across a room through the
+    # enclosure; a sine at full scale on this speaker is shrill.
+    VOLUME = 0.5
+
+    def __init__(self):
+        import audiocore
+        import audioio
+        mid = 32768
+        amp = int(32767 * self.VOLUME)
+        wave = array.array("H", [
+            mid + int(amp * math.sin(2 * math.pi * i / self.SAMPLES))
+            for i in range(self.SAMPLES)])
+        self._sample = audiocore.RawSample(wave, sample_rate=8000)
+        self._enable = digitalio.DigitalInOut(board.SPEAKER_ENABLE)
+        self._enable.direction = digitalio.Direction.OUTPUT
+        self._enable.value = False
+        self._out = audioio.AudioOut(board.SPEAKER, quiescent_value=mid)
+
+    def tone(self, hz):
+        # A RawSample's rate only takes effect when play is called, so
+        # every note is a fresh play.
+        self._out.stop()
+        self._sample.sample_rate = int(hz * self.SAMPLES)
+        self._enable.value = True
+        self._out.play(self._sample, loop=True)
+
+    def quiet(self):
+        self._out.stop()
+        self._enable.value = False
+
+
 class Clock(object):
     def monotonic(self):
         return time.monotonic()
@@ -183,6 +221,17 @@ class Hardware(object):
         self.clock = Clock()
         self.sensor = Thermocouple()
         self.touch = Touchscreen()
+        # Optional. The oven is no less safe without sound, so a speaker
+        # that will not start costs the sound and nothing else. Loaded with
+        # the relay held open, like every other speaker call: see
+        # hal.Interlocked.
+        self.relay.hold_off("speaker setup")
+        try:
+            self.speaker = Speaker()
+        except Exception as e:
+            print("# speaker: not available (%r); runs will be silent" % e)
+            self.speaker = None
+        self.relay.release("speaker setup")
 
     def safe(self):
         self.relay.off()

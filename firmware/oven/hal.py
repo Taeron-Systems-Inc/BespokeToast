@@ -19,6 +19,8 @@ TempSensor
 
 Relay
     ``set(on)`` and ``is_on()``. ``set(False)`` must be the safe direction.
+    The real one is an ``Interlocked`` below, which adds ``hold_off`` and
+    ``release``.
 """
 
 # Sensor fault flags, combined as a bitmask on Reading.faults.
@@ -74,3 +76,59 @@ class Reading(object):
     def __repr__(self):
         return "Reading(hot=%r, cold=%r, faults=%d)" % (
             self.hot, self.cold, self.faults)
+
+
+class Interlocked(object):
+    """A relay that something else can hold open, whatever is asking for heat.
+
+    The logic of hardware.Relay, kept here so it runs under CPython; the
+    subclass supplies ``_drive(on)``, which writes the pin.
+
+    ``hold_off(who)`` drives the relay open at once, and until every holder
+    has called ``release(who)``, ``set(True)`` drives it open too. It exists
+    for the speaker: there is no watchdog on this board, so a speaker call
+    that hung with the relay closed would heat without bound. Holding the
+    relay open first means any such hang happens with the oven cold. It is
+    enforced here, in the object that owns the pin, because that is the one
+    place no caller can go around.
+
+    The holder is recorded before the pin is written, so a hold that fails
+    part-way still refuses heat until it is released.
+    """
+
+    def __init__(self):
+        self._on = False
+        self._holds = []
+        self.actuations = 0
+
+    def _drive(self, on):
+        raise NotImplementedError
+
+    def set(self, on):
+        on = bool(on) and not self._holds
+        # Written first, recorded after: if the write raises, is_on() goes
+        # on reporting what the pin was last known to be, not what was
+        # asked for. A relay that could not be opened must not read open.
+        self._drive(on)
+        if on != self._on:
+            self.actuations += 1
+            self._on = on
+
+    def is_on(self):
+        return self._on
+
+    def off(self):
+        self.set(False)
+
+    def hold_off(self, who):
+        if who not in self._holds:
+            self._holds.append(who)
+        self.set(False)
+
+    def release(self, who):
+        if who in self._holds:
+            self._holds.remove(who)
+
+    @property
+    def held(self):
+        return bool(self._holds)

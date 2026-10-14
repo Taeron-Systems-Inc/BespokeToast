@@ -150,8 +150,12 @@ class RecordingController(object):
 def app_rig(observer_factory):
     clock, relay, sensor = FakeClock(), FakeRelay(), FakeSensor(34.0)
     ctl = RecordingController()
+    # The sensor never moves and the relay never opens, which is a frozen
+    # probe after 5 s. These tests are about the observer, not that guard.
     app = App(relay, sensor, clock, lambda p: ctl,
-              supervisor=Supervisor(Limits(max_rate_c_per_s=1e6)),
+              supervisor=Supervisor(Limits(max_rate_c_per_s=1e6,
+                                           sensor_frozen_s=1e6,
+                                           stall_window_s=1e6)),
               on_event=lambda n, p: None)
     app.observer_factory = observer_factory
     return app, clock, ctl

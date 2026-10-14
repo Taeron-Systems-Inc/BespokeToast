@@ -186,12 +186,23 @@ class LogStore(object):
         has no clock until it has been told the time, so every file written
         before then shares one timestamp.
         """
+        names = self._names()
+        # Keyed once per name, then sorted on the pairs. MicroPython's sort
+        # calls a key= function on every comparison, not once per item, and
+        # its quicksort is quadratic on input that is already in order --
+        # which a directory listing is. With 53 logs on the board that was
+        # 1.05 s per call, twice per START, inside a control step; the
+        # 3 s cadence guard tripped and the run faulted at once.
+        keyed = [(_sequence_of(n), n) for n in names]
+        keyed.sort()
+        return [n for _, n in keyed]
+
+    def _names(self):
+        """Run log names in directory order, or [] if there is no listing."""
         try:
-            names = [n for n in self.fs.listdir(self.root)
-                     if ".csv" in n]
+            return [n for n in self.fs.listdir(self.root) if ".csv" in n]
         except Exception:
             return []
-        return sorted(names, key=_sequence_of)
 
     def read(self, name):
         """A stored run's bytes, or None. Used by the uploader."""
@@ -312,7 +323,9 @@ class LogStore(object):
         take a firmware update.
         """
         free = self.free_bytes()
-        if free is None:
+        if free is None or free >= self.reserve_bytes:
+            # Nearly every START. Listing and ordering the runs is not free,
+            # and it happens inside a control step.
             return
         removed = []
         # Oldest first, and nothing cleverer. Preferring already-uploaded
@@ -339,8 +352,9 @@ class LogStore(object):
                           ", ".join(removed)))
 
     def _next_name(self, profile_name):
+        # The highest number needs no ordering: one pass over the listing.
         seq = 0
-        for name in self.runs():
+        for name in self._names():
             seq = max(seq, _sequence_of(name))
         # Collapse runs of separators: "SAC305 (this oven)" should become
         # 0008-SAC305-this-oven.csv, not 0008-SAC305--this-oven-.csv.

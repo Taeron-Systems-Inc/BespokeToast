@@ -167,6 +167,40 @@ def test_runs_are_ordered_by_sequence_not_alphabetically():
     assert _sequence_of("0010-b.csv") == 10
 
 
+def test_starting_a_run_reads_each_existing_name_once(monkeypatch):
+    """begin() runs inside a control step, so its cost is the loop's.
+
+    On the board, MicroPython's sort called the key on every comparison and
+    went quadratic on an already-ordered listing: 53 logs cost 2.5 s at
+    START and the stale-check guard faulted every run. With room to spare
+    nothing needs ordering, and the next number is one pass.
+    """
+    from oven import logstore
+    calls = []
+    real = logstore._sequence_of
+    monkeypatch.setattr(logstore, "_sequence_of",
+                        lambda n: calls.append(n) or real(n))
+    store, fs, _ = make()
+    for i in range(53):
+        fs.files["/logs/%04d-old.csv" % (i + 1)] = "x"
+    path = store.begin("new", "v", "t")
+    assert path == "/logs/0054-new.csv"
+    assert len(calls) == 53
+
+
+def test_runs_compute_each_key_once(monkeypatch):
+    from oven import logstore
+    calls = []
+    real = logstore._sequence_of
+    monkeypatch.setattr(logstore, "_sequence_of",
+                        lambda n: calls.append(n) or real(n))
+    store, fs, _ = make()
+    for i in range(20):
+        fs.files["/logs/%04d-old.csv" % (i + 1)] = "x"
+    assert store.runs() == ["%04d-old.csv" % (i + 1) for i in range(20)]
+    assert len(calls) == 20
+
+
 def test_the_sequence_continues_past_existing_runs():
     store, fs, _ = make()
     fs.files["/logs/0007-x.csv"] = "x"

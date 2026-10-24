@@ -18,7 +18,7 @@ Faults that clear themselves hide the thing that caused them.
 control error larger and asks for more heat. Validation therefore runs before
 the controller sees a reading, not after.
 
-**Blind is not the same as broken.** The MCP9600 shares an I2C bus with
+**Blind is not the same as broken.** The amplifier shares an I2C bus with
 everything else, and one read in a long run can fail for no lasting reason.
 Tripping on that ended whole runs on a single hiccup. So a *missed* reading
 -- nothing came back, or the bus failed, or the value was out of range -- is
@@ -122,7 +122,7 @@ class Limits(object):
         # the enclosure material: the printed parts sit away from the oven and
         # are reached by thermally protected wiring, so softening is not the
         # constraint. The binding part is the TFT, typically rated to 70 °C
-        # operating; the SAMD51 is good to 85 °C and the MCP9600 to 125 °C.
+        # operating; the SAMD51 is good to 85 °C and the MCP9601 to 125 °C.
         # 60 °C was too tight to run back to back -- the enclosure rises about
         # 21 °C per run and peaks after it, so a second run had to wait.
         #

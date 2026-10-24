@@ -65,14 +65,62 @@ auto-reload. All of those are safe.
 
 | | |
 |---|---|
-| Device | MCP9600 thermocouple amplifier **[observed + confirmed]** |
-| Thermocouple | Type **K** **[observed]** |
-| I²C address | `0x67` (103 decimal) **[observed]** |
+| Device | MCP9601 thermocouple amplifier, Adafruit **5165** (STEMMA QT) **[confirmed]** |
+| Thermocouple | Type **K**, Adafruit **3245**: glass braid, 2 mm stainless tip **[confirmed]** |
+| I²C address | `0x67` (103 decimal), the board's default **[spec]** |
 | Bus | `board.SCL` / `board.SDA` at 100 kHz **[observed]** |
-| Driver | `adafruit_mcp9600` **[observed]** |
+| Driver | `adafruit_mcp9600`, which serves both chips **[spec]** |
 
 Probe placement inside the oven cavity is **[unverified]**, which leaves thermal
 lag between element and probe unquantified.
+
+### What changed from the MCP9600 and the bare-bead probe
+
+The oven was built with an MCP9600 (Adafruit 4101) and a bare-bead type-K
+probe (Adafruit 270). **Everything measured in this document was measured on
+that pair**: the step tests, the coast, the latch-up and the enclosure
+temperatures. None of it has been repeated on the new parts yet.
+
+**The driver on the board must accept the MCP9601.** It checks the chip's
+device ID, and older releases of `adafruit_mcp9600` accept only the MCP9600's
+`0x40`. With one of those the firmware stops at boot with "Failed to find
+MCP9600". Install a current release from the bundle **[spec]**.
+
+**The firmware refuses an MCP9600.** `oven/hardware.py` reads the device ID
+itself and stops at boot unless it is the MCP9601's `0x41`. It reads the
+MCP9601's status bits, and on an MCP9600 those mean something else.
+
+**An open or shorted probe now trips at once.** The MCP9601 sets bit 4 of
+its status register when the probe is open (or its voltage is outside the
+type-K range, which at oven temperatures only a wiring fault causes) and bit
+5 when it is shorted to VDD or ground. The firmware reports them as
+`thermocouple open circuit` and `thermocouple short circuit`, and the
+supervisor latches on either. Before, a disconnected probe produced a reading
+and only the stall and frozen guards could catch it. They still run.
+
+The detection works only if the breakout wires the chip's VSENSE pin, and
+that is **[unverified]** for the 5165. To check it, with the oven unpowered at
+the wall, take one probe lead out of the terminal block and power the
+PyPortal over USB: the first reading should fault with `thermocouple open
+circuit`. If it reads a temperature instead, the bits are not wired and the
+oven is protected exactly as it was before.
+
+**The probe's tip is its junction.** The 3245's junction is bonded to the
+stainless tip, so the tip is electrically part of the thermocouple. If it
+touches the oven's metal it ties the input to the chassis. Expect a short
+circuit fault, if VSENSE is wired, or a noisy reading if it is not. Mount it
+so the tip touches nothing but air.
+
+**The probe is slower.** A 2 mm steel tip responds more slowly than a bare
+bead, so the oven will look like it lags more and coasts further past a peak
+than *Measured thermal behaviour* says. The controller was tuned on those
+figures. Repeat the step tests before trusting a reflow profile to them
+**[unverified]**.
+
+**The PyPortal's I²C port jumper must be on 3V.** The port supplies 5 V by
+default, and the breakout pulls SDA and SCL up to its supply through 10 kΩ.
+At 5 V that back-feeds the SAMD51's 3.3 V rail through the bus lines, which
+stopped the board booting with the MCP9600 fitted.
 
 ### The amplifier can latch up and hold the bus down
 
@@ -98,6 +146,9 @@ which can be done from the Pi without touching the bench (see *Cutting the
 oven's power from the Pi*).
 
 ## Measured thermal behaviour
+
+Measured with the MCP9600 and the bare-bead probe; see *What changed from the
+MCP9600 and the bare-bead probe*.
 
 Two step tests were run on 2026-08-25, empty oven, logged at 2 Hz:
 `data/e2-step-test-2026-08-25.csv` (26 → 200 °C) and
@@ -151,9 +202,10 @@ overshoot its peak.
 
 ## The enclosure warms unevenly
 
-Two thermometers sit in the enclosure: the MCP9600's cold junction (its own
+Two thermometers sit in the enclosure: the amplifier's cold junction (its own
 die, which it needs anyway to compensate the thermocouple) and the SAMD51's
-die. Across a full run they behave completely differently **[measured]**:
+die. Across a full run they behave completely differently **[measured]**, on
+the MCP9600:
 
 | | cold junction | controller die |
 |---|---|---|
@@ -199,7 +251,7 @@ Consequences worth recording:
   non-visual one.
 - **The enclosure sits next to a heat source.** Internal ambient will rise during
   a run by an unmeasured amount. Two consequences: the enclosure material's
-  softening point is a limit nobody has characterised, and the MCP9600's
+  softening point is a limit nobody has characterised, and the amplifier's
   cold-junction compensation assumes its die and the thermocouple terminals are
   at the same temperature — a thermal gradient across the enclosure introduces
   measurement error. Neither is quantified. **[unverified]**
@@ -269,4 +321,9 @@ cleared it.
 4. How large is the cold-junction compensation error at peak? Bounding it
    needs a reference probe in the cavity (see *The enclosure warms
    unevenly*).
+5. Does the Adafruit 5165 wire the MCP9601's VSENSE pin? If not, the open
+   and short circuit bits never set (see *What changed from the MCP9600 and
+   the bare-bead probe*).
+6. How much lag and coast does the 3245's steel tip add? The step tests need
+   repeating on it.
 

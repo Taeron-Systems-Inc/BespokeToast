@@ -104,6 +104,32 @@ def test_a_definite_probe_fault_still_trips_at_once(sup):
     assert f.code == FAULT_SENSOR
 
 
+# -- the MCP9601's status register ------------------------------------------
+
+def test_a_clear_mcp9601_status_is_no_fault():
+    # Burst complete, temperature updated, all four alerts: none is a probe
+    # fault.
+    assert hal.mcp9601_status_faults(0b11001111) == hal.FAULT_NONE
+
+
+@pytest.mark.parametrize("status, fault, name", [
+    (1 << 4, hal.FAULT_OPEN_CIRCUIT, "open circuit"),
+    (1 << 5, hal.FAULT_SHORT_CIRCUIT, "short circuit"),
+])
+def test_an_mcp9601_probe_fault_trips_at_once(sup, status, fault, name):
+    faults = hal.mcp9601_status_faults(status)
+    assert faults == fault
+    f = sup.update(1.0, Reading(25.0, faults=faults), True)
+    assert f.code == FAULT_SENSOR
+    assert name in f.message
+    assert not sup.allow_heat()
+
+
+def test_an_open_and_shorted_probe_reports_both():
+    assert hal.mcp9601_status_faults(0b00110000) == (
+        hal.FAULT_OPEN_CIRCUIT | hal.FAULT_SHORT_CIRCUIT)
+
+
 def test_too_many_misses_in_a_row_trips(sup):
     lim = sup.limits
     t = 0.0

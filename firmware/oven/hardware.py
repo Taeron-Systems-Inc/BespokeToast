@@ -6,13 +6,14 @@ is what makes the control and safety logic testable. That property is only
 worth anything if this file stays the single exception — so keep board,
 digitalio, busio and their kin here.
 
-A note on fault detection, because it shapes the safety design. The MCP9600
-does **not** have the dedicated open-circuit and short-circuit detection bits
-that the MCP9601 carries. A disconnected thermocouple on this part does not
-announce itself; it produces a reading. So the checks below are the input
-range flag, an I2C failure, and plausibility bounds — and the rest of the work
-falls to the supervisor's stall and frozen-value guards, which catch a probe
-that reads plausibly but is not measuring the oven.
+A note on fault detection, because it shapes the safety design. The amplifier
+is an MCP9601 (Adafruit 5165), which reports an open or shorted probe in its
+status register, and the supervisor trips at once on either. That detection
+depends on the chip's VSENSE pin being wired on the breakout, which is not yet
+confirmed on this oven (docs/hardware.md), so it is not the only line. The
+checks below also include an I2C failure and plausibility bounds, and the rest
+of the work falls to the supervisor's stall and frozen-value guards, which
+catch a probe that reads plausibly but is not measuring the oven.
 """
 
 import array
@@ -31,12 +32,13 @@ from adafruit_mcp9600 import MCP9600
 from . import hal
 
 RELAY_PIN = board.D4
-MCP9600_ADDRESS = 0x67
+MCP9601_ADDRESS = 0x67
+MCP9601_DEVICE_ID = 0x41
 I2C_FREQUENCY = 100000
 THERMOCOUPLE_TYPE = "K"
 
 _STATUS_REGISTER = 0x04
-_STATUS_INPUT_RANGE = 1 << 4
+_DEVICE_ID_REGISTER = 0x20
 
 # Anything outside this is not a temperature this oven can be at.
 PLAUSIBLE_MIN_C = -20.0
@@ -72,13 +74,22 @@ class Relay(hal.Interlocked):
 
 
 class Thermocouple(object):
-    """MCP9600 + type-K probe, reporting faults rather than hiding them."""
+    """MCP9601 + type-K probe, reporting faults rather than hiding them."""
 
-    def __init__(self, i2c=None, address=MCP9600_ADDRESS):
+    def __init__(self, i2c=None, address=MCP9601_ADDRESS):
         self._i2c = i2c or busio.I2C(board.SCL, board.SDA,
                                      frequency=I2C_FREQUENCY)
         self._address = address
+        # One driver serves both chips and accepts either. The status bits
+        # read below are the MCP9601's: on an MCP9600 bit 4 means something
+        # else and a short is never reported, so that chip is refused here
+        # rather than trusted to detect what it cannot.
         self._sensor = MCP9600(self._i2c, address, THERMOCOUPLE_TYPE)
+        device_id = self._register(_DEVICE_ID_REGISTER)
+        if device_id != MCP9601_DEVICE_ID:
+            raise RuntimeError(
+                "thermocouple amplifier is not an MCP9601 (device ID 0x%02x)"
+                % device_id)
 
     def read(self):
         faults = hal.FAULT_NONE
@@ -92,8 +103,8 @@ class Thermocouple(object):
             return hal.Reading(None, None, hal.FAULT_BUS, time.monotonic())
 
         try:
-            if self._status() & _STATUS_INPUT_RANGE:
-                faults |= hal.FAULT_RANGE
+            faults |= hal.mcp9601_status_faults(
+                self._register(_STATUS_REGISTER))
         except Exception:
             faults |= hal.FAULT_BUS
 
@@ -103,13 +114,14 @@ class Thermocouple(object):
         return hal.Reading(hot, cold, faults, time.monotonic(),
                            cpu=cpu_temperature())
 
-    def _status(self):
+    def _register(self, register):
+        """The first byte of *register*: for the device ID, the ID itself."""
         buf = bytearray(1)
         while not self._i2c.try_lock():
             pass
         try:
             self._i2c.writeto_then_readfrom(
-                self._address, bytes([_STATUS_REGISTER]), buf)
+                self._address, bytes([register]), buf)
         finally:
             self._i2c.unlock()
         return buf[0]

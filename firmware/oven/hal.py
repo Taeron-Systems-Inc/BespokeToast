@@ -38,6 +38,28 @@ FAULT_NAMES = (
 )
 
 
+# The MCP9601's status register (0x04) carries the two probe faults. Bit 4 is
+# what the MCP9600 calls "input range"; on this part it is set when the probe
+# is open *or* its voltage is outside the type-K range, and at oven
+# temperatures only a wiring fault produces the second. Bit 5 is a probe
+# shorted to VDD or ground.
+MCP9601_STATUS_OPEN_CIRCUIT = 1 << 4
+MCP9601_STATUS_SHORT_CIRCUIT = 1 << 5
+
+
+def mcp9601_status_faults(status):
+    """FAULT_* bits for an MCP9601 status register value.
+
+    Here rather than in hardware.py so it runs, and is tested, under CPython.
+    """
+    faults = FAULT_NONE
+    if status & MCP9601_STATUS_OPEN_CIRCUIT:
+        faults |= FAULT_OPEN_CIRCUIT
+    if status & MCP9601_STATUS_SHORT_CIRCUIT:
+        faults |= FAULT_SHORT_CIRCUIT
+    return faults
+
+
 def describe_faults(faults):
     """Human-readable list of the fault bits set in *faults*."""
     if not faults:

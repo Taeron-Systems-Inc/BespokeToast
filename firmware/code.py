@@ -990,7 +990,7 @@ def main():
     # previous firmware kept no record of any run it ever performed; a host
     # capturing this gets the whole run without the device needing storage.
     # cpu_c is a second thermometer in the same box, on a different chip.
-    # The pair is the useful thing: across a full run the MCP9600's cold
+    # The pair is the useful thing: across a full run the amplifier's cold
     # junction rises 12-15 °C while the SAMD51 die does not move at all, so
     # the box is not warming -- heat is reaching that one chip, almost
     # certainly along the thermocouple wires into its terminals. That is the

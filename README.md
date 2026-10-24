@@ -11,7 +11,7 @@ the numbers, and reference notes on the hardware it drives.
 
 | | |
 |---|---|
-| The oven | a PyPortal wired to a mains relay and an MCP9600 thermocouple amplifier — `docs/hardware.md` describes the one this was built for |
+| The oven | a PyPortal wired to a mains relay and an MCP9601 thermocouple amplifier (Adafruit 5165) and a type-K probe (Adafruit 3245) — `docs/hardware.md` describes the one this was built for |
 | A host | anything running Python 3 that can mount USB mass storage and open a serial port. A Raspberry Pi is enough |
 | A build host | only to change anything under `firmware/oven/`: ~3 GB of disk and an ARM toolchain. It does not have to be the machine attached to the oven |
 
